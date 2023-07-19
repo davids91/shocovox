@@ -18,7 +18,6 @@ pub(crate) struct ObjectPool<T> {
     first_available: usize,       // the index of the first available item
 }
 
-use core::num::NonZeroU32;
 impl<T> ObjectPool<T>
 where
     T: Default,
