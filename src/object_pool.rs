@@ -8,7 +8,26 @@ struct ReusableItem<T> {
 }
 
 /// The key which identifies an element inside the ObjectPool
-pub(crate) type ItemKey = usize;
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct ItemKey(usize);
+
+impl Default for ItemKey {
+    fn default() -> Self {
+        ItemKey(usize::MAX)
+    }
+}
+
+impl ItemKey {
+    pub fn none_value() -> Self {
+        ItemKey(usize::MAX)
+    }
+    pub fn is_some(&self) -> bool {
+        self.0 < usize::MAX
+    }
+    pub fn is_none(&self) -> bool {
+        !self.is_some()
+    }
+}
 
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
@@ -73,15 +92,15 @@ where
         if self.is_next_available() {
             self.first_available += 1;
         }
-        key
+        ItemKey(key)
     }
 
     pub(crate) fn pop(&mut self, key: ItemKey) -> Option<T> {
-        if key < self.buffer.len() && self.buffer[key].reserved {
-            self.buffer[key].reserved = false;
-            self.first_available = self.first_available.min(key);
+        if key.0 < self.buffer.len() && self.buffer[key.0].reserved {
+            self.buffer[key.0].reserved = false;
+            self.first_available = self.first_available.min(key.0);
             Some(std::mem::replace(
-                &mut self.buffer[key].item,
+                &mut self.buffer[key.0].item,
                 Default::default(),
             ))
         } else {
@@ -89,10 +108,10 @@ where
         }
     }
 
-    pub(crate) fn deallocate(&mut self, key: ItemKey) -> bool {
-        if key < self.buffer.len() && self.buffer[key].reserved {
-            self.buffer[key].reserved = false;
-            self.first_available = self.first_available.min(key);
+    pub(crate) fn free(&mut self, key: ItemKey) -> bool {
+        if key.0 < self.buffer.len() && self.buffer[key.0].reserved {
+            self.buffer[key.0].reserved = false;
+            self.first_available = self.first_available.min(key.0);
             true
         } else {
             false
@@ -100,12 +119,12 @@ where
     }
 
     pub(crate) fn get(&self, key: ItemKey) -> &T {
-        &self.buffer[key].item
+        &self.buffer[key.0].item
     }
 
     pub(crate) fn get_mut(&mut self, key: ItemKey) -> &mut T {
-        assert!(key < self.buffer.len() && self.buffer[key].reserved);
-        &mut self.buffer[key].item
+        assert!(key.0 < self.buffer.len() && self.buffer[key.0].reserved);
+        &mut self.buffer[key.0].item
     }
 }
 
@@ -134,7 +153,7 @@ mod tests {
         let key = pool.push(test_value);
         assert!(*pool.get(key) == test_value);
 
-        pool.deallocate(key);
+        pool.free(key);
         assert!(pool.pop(key).is_none());
     }
 }

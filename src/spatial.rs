@@ -1,4 +1,7 @@
-#[derive(Default, Debug)]
+///####################################################################################
+/// V3C
+///####################################################################################
+#[derive(Default, Clone, Copy, Debug)]
 pub struct V3c<T> {
     pub x: T,
     pub y: T,
@@ -73,6 +76,23 @@ impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
     }
 }
 
+///####################################################################################
+/// Octant
+///####################################################################################
+pub(crate) fn offset_region(octant: usize) -> V3c<u32> {
+    match octant {
+        0 => V3c::new(0, 0, 0),
+        1 => V3c::new(1, 0, 0),
+        2 => V3c::new(0, 0, 1),
+        3 => V3c::new(1, 0, 1),
+        4 => V3c::new(0, 1, 0),
+        5 => V3c::new(1, 1, 0),
+        6 => V3c::new(0, 1, 1),
+        7 => V3c::new(1, 1, 1),
+        _ => panic!("Invalid region hash provided for spatial reference!")
+    }
+}
+
 /// Each Node is separated to 8 Octants based on their relative position inside the Nodes occupying space.
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
 pub fn hash_region(offset: &V3c<u32>, size: u32) -> usize {
@@ -88,14 +108,9 @@ pub fn hash_region(offset: &V3c<u32>, size: u32) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+mod octant_tests {
     use crate::spatial::hash_region;
     use crate::spatial::V3c;
-
-    #[test]
-    fn test_unit_v3ctor() {
-        todo!()
-    }
 
     #[test]
     fn test_hash_region() {
