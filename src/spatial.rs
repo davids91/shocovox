@@ -10,7 +10,7 @@ pub struct V3c<T> {
 
 impl<T> V3c<T>
 where
-    T: Copy,
+    T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Div<Output = T>,
 {
     pub fn new(x: T, y: T, z: T) -> Self {
         Self { x, y, z }
@@ -21,6 +21,16 @@ where
             y: scale,
             z: scale,
         }
+    }
+}
+
+impl V3c<f32> {
+    pub fn length(&self) -> f32 {
+        (self.x.powf(2.0) + self.y.powf(2.0) + self.z.powf(2.0)).sqrt()
+    }
+
+    pub fn normalized(self) -> V3c<f32> {
+        &self / self.length()
     }
 }
 
@@ -64,7 +74,7 @@ impl<T: Mul<Output = T> + Copy> Mul<T> for V3c<T> {
     }
 }
 
-impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
+impl<T: Div<Output = T> + Copy> Div<T> for &V3c<T> {
     type Output = V3c<T>;
 
     fn div(self, scalar: T) -> V3c<T> {
@@ -73,6 +83,217 @@ impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
             y: self.y / scalar,
             z: self.z / scalar,
         }
+    }
+}
+
+impl From<V3c<u32>> for V3c<f32> {
+    fn from(vec: V3c<u32>) -> V3c<f32> {
+        {
+            V3c::new(vec.x as f32, vec.y as f32, vec.z as f32)
+        }
+    }
+}
+
+///####################################################################################
+/// Raytracing stuff
+///####################################################################################
+#[derive(Debug)]
+pub struct Ray {
+    pub origin: V3c<f32>,
+    pub direction: V3c<f32>,
+}
+
+impl Ray {
+    pub fn is_valid(&self) -> bool {
+        (1. - self.direction.length()).abs() < 0.0000001
+    }
+}
+
+#[derive(Default)]
+pub struct Cube {
+    pub min_position: V3c<u32>,
+    pub size: u32,
+}
+
+impl Cube {
+    pub fn contains_ray(&self, ray: &Ray) -> bool {
+        println!(
+            "Ray direction: {:?} length: {:?}",
+            ray.direction,
+            ray.direction.length()
+        );
+        assert!(ray.is_valid());
+        let midpoint: V3c<f32> = (self.min_position + V3c::unit(self.size / 2)).into();
+        let distance = (&midpoint - &ray.origin).length();
+        let endpoint = ray.origin + ray.direction * distance;
+        self.contains_point(&endpoint)
+    }
+
+    pub fn contains_point(&self, point: &V3c<f32>) -> bool {
+        (point.x >= self.min_position.x as f32)
+            && (point.x < (self.min_position.x + self.size) as f32)
+            && (point.y >= self.min_position.y as f32)
+            && (point.y < (self.min_position.y + self.size) as f32)
+            && (point.z >= self.min_position.z as f32)
+            && (point.z < (self.min_position.z + self.size) as f32)
+    }
+}
+
+#[cfg(test)]
+mod raytracing_tests {
+    use super::Cube;
+    use super::Ray;
+    use super::V3c;
+
+    #[test]
+    fn raytracing_test() {
+        let cube = Cube {
+            min_position: V3c::unit(0),
+            size: 4,
+        };
+        let ray_above = Ray {
+            origin: V3c {
+                x: 2.,
+                y: 5.,
+                z: 2.,
+            },
+            direction: V3c {
+                x: 0.,
+                y: -1.,
+                z: 0.,
+            },
+        };
+        assert!(cube.contains_ray(&ray_above));
+
+        let ray_below = Ray {
+            origin: V3c {
+                x: 2.,
+                y: -5.,
+                z: 2.,
+            },
+            direction: V3c {
+                x: 0.,
+                y: 1.,
+                z: 0.,
+            },
+        };
+        assert!(cube.contains_ray(&ray_below));
+
+        let ray_on_edge = Ray {
+            origin: V3c {
+                x: 2.,
+                y: 5.,
+                z: 3.99,
+            },
+            direction: V3c {
+                x: 0.,
+                y: -1.,
+                z: 0.,
+            },
+        };
+        assert!(cube.contains_ray(&ray_on_edge));
+
+        let ray_on_corner = Ray {
+            origin: V3c {
+                x: 3.99,
+                y: 5.,
+                z: 3.99,
+            },
+            direction: V3c {
+                x: 0.,
+                y: -1.,
+                z: 0.,
+            },
+        };
+        assert!(cube.contains_ray(&ray_on_corner));
+
+        let ray_miss = Ray {
+            origin: V3c {
+                x: 2.,
+                y: 5.,
+                z: 2.,
+            },
+            direction: V3c {
+                x: 0.,
+                y: 1.,
+                z: 0.,
+            },
+        };
+        assert!(!cube.contains_ray(&ray_miss));
+
+        let ray_hit = Ray {
+            origin: V3c {
+                x: -1.,
+                y: -1.,
+                z: -1.,
+            },
+            direction: V3c {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            }
+            .normalized(),
+        };
+
+        assert!(cube.contains_ray(&ray_hit));
+
+        let corner_hit = Ray {
+            origin: V3c {
+                x: -1.,
+                y: -1.,
+                z: -1.,
+            },
+            direction: V3c {
+                x: 1.,
+                y: 1.,
+                z: 1.,
+            }
+            .normalized(),
+        };
+
+        assert!(cube.contains_ray(&corner_hit));
+
+        let origin = V3c {
+            x: 4.,
+            y: -1.,
+            z: 4.,
+        };
+        let corner_miss = Ray {
+            direction: (&V3c {
+                x: 4.,
+                y: 4.,
+                z: 4.,
+            } - &origin)
+                .normalized(),
+            origin,
+        };
+        assert!(!cube.contains_ray(&corner_miss));
+
+        let corner_just_hit = Ray {
+            direction: (&V3c {
+                x: 3.99,
+                y: 3.99,
+                z: 3.99,
+            } - &origin)
+                .normalized(),
+            origin,
+        };
+        assert!(cube.contains_ray(&corner_just_hit));
+
+        let ray_still_miss = Ray {
+            origin: V3c {
+                x: -1.,
+                y: -1.,
+                z: -1.,
+            },
+            direction: V3c {
+                x: 1.,
+                y: 100.,
+                z: 1.,
+            }
+            .normalized(),
+        };
+        assert!(!cube.contains_ray(&ray_still_miss));
     }
 }
 
@@ -89,7 +310,7 @@ pub(crate) fn offset_region(octant: usize) -> V3c<u32> {
         5 => V3c::new(1, 1, 0),
         6 => V3c::new(0, 1, 1),
         7 => V3c::new(1, 1, 1),
-        _ => panic!("Invalid region hash provided for spatial reference!")
+        _ => panic!("Invalid region hash provided for spatial reference!"),
     }
 }
 

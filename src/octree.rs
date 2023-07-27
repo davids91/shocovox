@@ -1,14 +1,17 @@
+use crate::spatial::Cube;
 use crate::spatial::V3c;
 use crate::spatial::{hash_region, offset_region};
 
 pub enum Error {
     InvalidNodeSize(u32),
     InvalidPosition { x: u32, y: u32, z: u32 },
-    InvalidOctant(usize),
-    UnknownError,
 }
 
-// TODO: create trait for data instead of the generic T
+// TODO:
+// - test get_by_ray
+// - create trait for data instead of the generic T
+// - add example for presentation purpose
+// - add Vulkan API wrapper
 
 ///####################################################################################
 /// Node
@@ -18,8 +21,7 @@ struct Node<T>
 where
     T: Default,
 {
-    min_position: V3c<u32>,
-    size: u32,
+    bounds: Cube,
     content: Option<T>,
     children: [crate::object_pool::ItemKey; 8],
 }
@@ -40,18 +42,18 @@ where
 {
     /// Returns whether the `Node` contains the given position.
     pub(crate) fn contains(&self, position: &V3c<u32>) -> bool {
-        position.x >= self.min_position.x
-            && position.x < self.min_position.x + self.size
-            && position.y >= self.min_position.y
-            && position.y < self.min_position.y + self.size
-            && position.z >= self.min_position.z
-            && position.z < self.min_position.z + self.size
+        position.x >= self.bounds.min_position.x
+            && position.x < self.bounds.min_position.x + self.bounds.size
+            && position.y >= self.bounds.min_position.y
+            && position.y < self.bounds.min_position.y + self.bounds.size
+            && position.z >= self.bounds.min_position.z
+            && position.z < self.bounds.min_position.z + self.bounds.size
     }
 
     /// Returns with the index of the child in the children array
     pub(crate) fn child_octant_for(&self, position: &V3c<u32>) -> usize {
         assert!(self.contains(position));
-        hash_region(&(position - &self.min_position), self.size)
+        hash_region(&(position - &self.bounds.min_position), self.bounds.size)
     }
 
     /// Returns with the immediate child of it at the position, should there be one there
@@ -80,11 +82,88 @@ where
         Ok(Self {
             auto_simplify: true,
             root_node: nodes.push(Node {
-                size,
+                bounds: Cube {
+                    min_position: V3c::default(),
+                    size,
+                },
                 ..Default::default()
             }),
             nodes,
         })
+    }
+
+    fn make_uniform_children(
+        &mut self,
+        min_position: V3c<u32>,
+        child_size: u32,
+        content: T,
+    ) -> [ItemKey; 8] {
+        [
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(0) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(1) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(2) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(3) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(4) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(5) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(6) * child_size,
+                    size: child_size,
+                },
+                content: Some(content.clone()),
+                ..Default::default()
+            }),
+            self.nodes.push(Node {
+                bounds: Cube {
+                    min_position: min_position + offset_region(7) * child_size,
+                    size: child_size,
+                },
+                content: Some(content),
+                ..Default::default()
+            }),
+        ]
     }
 
     pub fn insert(&mut self, position: &V3c<u32>, data: T) -> Result<(), Error> {
@@ -114,7 +193,7 @@ where
         let mut node_stack = vec![self.root_node];
         loop {
             let current_node_key = *node_stack.last().unwrap();
-            let current_size = self.nodes.get(current_node_key).size;
+            let current_size = self.nodes.get(current_node_key).bounds.size;
             let target_child_octant = self.nodes.get(current_node_key).child_octant_for(position);
             if current_size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
@@ -128,8 +207,9 @@ where
                         // The current Node is a leaf, but the data stored equals the data to be set, so no need to go deeper as tha data already matches
                         break;
                     }
-                    let child_size = &self.nodes.get(current_node_key).size / 2;
-                    let current_node_min_position = self.nodes.get(current_node_key).min_position;
+                    let child_size = &self.nodes.get(current_node_key).bounds.size / 2;
+                    let current_node_min_position =
+                        self.nodes.get(current_node_key).bounds.min_position;
                     if self.nodes.get(current_node_key).is_leaf()
                         && *self.nodes.get(current_node_key).content.as_ref().unwrap() != data
                     {
@@ -137,64 +217,11 @@ where
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
                         let current_content = self.nodes.get(current_node_key).content.clone();
-                        let new_children = [
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(0) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(1) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(2) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(3) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(4) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(5) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(6) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(7) * child_size,
-                                size: child_size,
-                                content: current_content,
-                                ..Default::default()
-                            }),
-                        ];
+                        let new_children = self.make_uniform_children(
+                            current_node_min_position,
+                            child_size,
+                            current_content.unwrap(),
+                        );
                         self.nodes.get_mut(current_node_key).content = None;
                         self.nodes.get_mut(current_node_key).children = new_children;
                         node_stack
@@ -202,9 +229,11 @@ where
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
                         node_stack.push(self.nodes.push(Node {
-                            min_position: current_node_min_position
-                                + offset_region(target_child_octant) * child_size,
-                            size: child_size,
+                            bounds: Cube {
+                                min_position: current_node_min_position
+                                    + offset_region(target_child_octant) * child_size,
+                                size: child_size,
+                            },
                             ..Default::default()
                         }));
 
@@ -340,7 +369,7 @@ where
         let mut target_child_octant = 9; //This init value should not be used. In case there is only one node, there is parent of it;
         loop {
             let current_node_key = *node_stack.last().unwrap();
-            let current_size = self.nodes.get(current_node_key).size;
+            let current_size = self.nodes.get(current_node_key).bounds.size;
             if current_size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 target_child_octant = self.nodes.get(current_node_key).child_octant_for(position);
@@ -352,68 +381,15 @@ where
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let child_size = &self.nodes.get(current_node_key).size / 2;
+                        let child_size = &self.nodes.get(current_node_key).bounds.size / 2;
                         let current_node_min_position =
-                            self.nodes.get(current_node_key).min_position;
+                            self.nodes.get(current_node_key).bounds.min_position;
                         let current_content = self.nodes.get(current_node_key).content.clone();
-                        let new_children = [
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(0) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(1) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(2) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(3) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(4) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(5) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(6) * child_size,
-                                size: child_size,
-                                content: current_content.clone(),
-                                ..Default::default()
-                            }),
-                            self.nodes.push(Node {
-                                min_position: current_node_min_position
-                                    + offset_region(7) * child_size,
-                                size: child_size,
-                                content: current_content,
-                                ..Default::default()
-                            }),
-                        ];
+                        let new_children = self.make_uniform_children(
+                            current_node_min_position,
+                            child_size,
+                            current_content.unwrap(),
+                        );
                         self.nodes.get_mut(current_node_key).content = None;
                         self.nodes.get_mut(current_node_key).children = new_children;
                         node_stack
@@ -445,7 +421,38 @@ where
         Ok(())
     }
 
-    //TODO: get, based on a ray
+    pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<&T> {
+        let mut stack = vec![(self.root_node, 0)]; // node_key and the index of the current child
+
+        // If the root node is a leaf and it contains the ray, then there's a hit already
+        if self.node(&self.root_node).unwrap().is_leaf()
+            && self.node(&self.root_node).unwrap().bounds.contains_ray(ray)
+        {
+            return self.node(&self.root_node).unwrap().content.as_ref();
+        }
+
+        'outer_loop: while !stack.is_empty() {
+            let (current_node_key, mut current_child_index) = stack.last().unwrap();
+            for child_index in current_child_index..8 {
+                let child_key = self.node(&current_node_key).unwrap().children[child_index];
+                let child = self.node(&child_key);
+                if child.is_some() && child.unwrap().bounds.contains_ray(ray) {
+                    let child = child.unwrap();
+                    if child.bounds.size == 1 || child.is_leaf() {
+                        return child.content.as_ref();
+                    }
+                    *stack.last_mut().unwrap() = (*current_node_key, current_child_index);
+                    stack.push((child_key, 0));
+                    continue 'outer_loop; // continue to process the relevant child
+                } else {
+                    current_child_index += 1;
+                }
+            }
+            assert!(8 == current_child_index);
+            stack.pop();
+        }
+        None // ray is not contained in the project
+    }
 }
 
 ///####################################################################################
@@ -455,6 +462,7 @@ where
 mod octree_tests {
     use super::Octree;
     use crate::octree::V3c;
+    use crate::spatial::Ray;
 
     #[test]
     fn test_simple_insert_and_get() {
@@ -655,5 +663,50 @@ mod octree_tests {
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
         assert!(hits == (64 - 8));
+    }
+
+    use rand::rngs::ThreadRng;
+    use rand::Rng;
+    fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
+        let origin = V3c {
+            x: rng.gen_range(4..10) as f32,
+            y: rng.gen_range(4..10) as f32,
+            z: rng.gen_range(4..10) as f32,
+        };
+        Ray {
+            direction: (target - &origin).normalized(),
+            origin,
+        }
+    }
+
+    #[test]
+    fn test_get_by_ray() {
+        let mut rng = rand::thread_rng();
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut filled = Vec::new();
+        let mut not_filled = Vec::new();
+        for x in 1..2 {
+            for y in 1..2 {
+                for z in 1..2 {
+                    if 10 > rng.gen_range(0..20) {
+                        let pos = V3c::new(x, y, z);
+                        tree.insert(&pos, 5.0).ok();
+                        filled.push(pos);
+                    } else {
+                        not_filled.push(V3c::new(x, y, z));
+                    }
+                }
+            }
+        }
+
+        for p in filled.into_iter() {
+            let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
+            assert!(tree.get_by_ray(&ray).is_some());
+            assert!(*tree.get_by_ray(&ray).unwrap() == 5.0);
+        }
+        for p in not_filled.into_iter() {
+            let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
+            assert!(tree.get_by_ray(&ray).is_none());
+        }
     }
 }
