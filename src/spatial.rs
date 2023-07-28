@@ -32,6 +32,10 @@ impl V3c<f32> {
     pub fn normalized(self) -> V3c<f32> {
         &self / self.length()
     }
+
+    pub fn dot(&self, other: &V3c<f32>) -> f32 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
 }
 
 use std::ops::{Add, Div, Mul, Sub};
@@ -109,6 +113,15 @@ impl Ray {
     }
 }
 
+pub enum CubeFaces {
+    FRONT,
+    LEFT,
+    REAR,
+    RIGHT,
+    TOP,
+    BOTTOM,
+}
+
 #[derive(Default)]
 pub struct Cube {
     pub min_position: V3c<u32>,
@@ -116,12 +129,103 @@ pub struct Cube {
 }
 
 impl Cube {
+    pub fn face(&self, face: CubeFaces) -> Ray {
+        let midpoint: V3c<f32> = (self.min_position + V3c::unit(self.size)).into();
+        match face {
+            CubeFaces::FRONT => {
+                let direction = V3c::new(0., 0., -1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+            CubeFaces::LEFT => {
+                let direction = V3c::new(0., 0., -1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+            CubeFaces::REAR => {
+                let direction = V3c::new(0., 0., 1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+            CubeFaces::RIGHT => {
+                let direction = V3c::new(0., 0., -1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+            CubeFaces::TOP => {
+                let direction = V3c::new(0., 0., -1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+            CubeFaces::BOTTOM => {
+                let direction = V3c::new(0., 0., -1.);
+                Ray {
+                    origin: midpoint + direction * (self.size as f32 / 2.),
+                    direction,
+                }
+            }
+        }
+    }
+
+    pub fn intersect_ray(&self, ray: &Ray) -> Option<f32> {
+        let mut faces_hit = 0;
+        let mut min_distance = f32::MAX;
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::FRONT), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::LEFT), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+        if 2 == faces_hit {
+            return Some(min_distance);
+        }
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::REAR), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+        if 2 == faces_hit {
+            return Some(min_distance);
+        }
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::RIGHT), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+        if 2 == faces_hit {
+            return Some(min_distance);
+        }
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::TOP), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+        if 2 == faces_hit {
+            return Some(min_distance);
+        }
+        if let Some(d) = plane_line_intersection_distance(&self.face(CubeFaces::BOTTOM), ray) {
+            faces_hit += 1;
+            min_distance = min_distance.min(d);
+        }
+
+        assert!(faces_hit <= 2);
+        if 0 < faces_hit {
+            Some(min_distance)
+        } else {
+            None
+        }
+    }
+
     pub fn contains_ray(&self, ray: &Ray) -> bool {
-        println!(
-            "Ray direction: {:?} length: {:?}",
-            ray.direction,
-            ray.direction.length()
-        );
         assert!(ray.is_valid());
         let midpoint: V3c<f32> = (self.min_position + V3c::unit(self.size / 2)).into();
         let distance = (&midpoint - &ray.origin).length();
@@ -139,14 +243,82 @@ impl Cube {
     }
 }
 
+/// calculates the distance between the line, and the plane both described by a ray
+/// plane: normal, and a point on plane, line: origin and direction
+/// return the distance from the line origin to the direction of it, if they have an intersection
+pub fn plane_line_intersection_distance(plane: &Ray, line: &Ray) -> Option<f32> {
+    let origins_diff = &plane.origin - &line.origin;
+    let plane_line_dot_to_plane = origins_diff.dot(&plane.direction);
+    let directions_dot = line.direction.dot(&plane.direction);
+    if 0. == directions_dot {
+        // line and plane is paralell
+        if 0. == origins_diff.dot(&plane.direction) {
+            // The distance is zero because the origin is already on the plane
+            return Some(0.);
+        }
+        return None;
+    }
+    Some(plane_line_dot_to_plane / directions_dot)
+}
+
 #[cfg(test)]
 mod raytracing_tests {
+    use crate::spatial::plane_line_intersection_distance;
+
     use super::Cube;
     use super::Ray;
     use super::V3c;
 
     #[test]
-    fn raytracing_test() {
+    fn test_plane_line_intersection() {
+        assert!(
+            plane_line_intersection_distance(
+                &Ray {
+                    // plane
+                    origin: V3c::new(0., 0., 0.),
+                    direction: V3c::new(0., 1., 0.)
+                },
+                &Ray {
+                    // line
+                    origin: V3c::new(0., 1., 0.),
+                    direction: V3c::new(1., 0., 0.)
+                }
+            ) == None
+        );
+
+        assert!(
+            plane_line_intersection_distance(
+                &Ray {
+                    // plane
+                    origin: V3c::new(0., 0., 0.),
+                    direction: V3c::new(0., 1., 0.)
+                },
+                &Ray {
+                    // line
+                    origin: V3c::new(0., 1., 0.),
+                    direction: V3c::new(0., -1., 0.)
+                }
+            ) == Some(1.)
+        );
+
+        assert!(
+            plane_line_intersection_distance(
+                &Ray {
+                    // plane
+                    origin: V3c::new(0., 0., 0.),
+                    direction: V3c::new(0., 1., 0.)
+                },
+                &Ray {
+                    // line
+                    origin: V3c::new(0., 0., 0.),
+                    direction: V3c::new(1., 0., 0.)
+                }
+            ) == Some(0.)
+        );
+    }
+
+    #[test]
+    fn test_cube_contains_ray() {
         let cube = Cube {
             min_position: V3c::unit(0),
             size: 4,

@@ -7,12 +7,6 @@ pub enum Error {
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
-// TODO:
-// - test get_by_ray
-// - create trait for data instead of the generic T
-// - add example for presentation purpose
-// - add Vulkan API wrapper
-
 ///####################################################################################
 /// Node
 ///####################################################################################
