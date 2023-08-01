@@ -20,16 +20,6 @@ where
     children: [crate::object_pool::ItemKey; 8],
 }
 
-use crate::object_pool::{ItemKey, ObjectPool};
-struct Octree<Content>
-where
-    Content: Default,
-{
-    pub auto_simplify: bool,
-    root_node: ItemKey,
-    nodes: ObjectPool<Node<Content>>,
-}
-
 impl<T> Node<T>
 where
     T: Default,
@@ -37,17 +27,17 @@ where
     /// Returns whether the `Node` contains the given position.
     pub(crate) fn contains(&self, position: &V3c<u32>) -> bool {
         position.x >= self.bounds.min_position.x
-            && position.x < self.bounds.min_position.x + self.bounds.size
+            && position.x <= self.bounds.min_position.x + self.bounds.size
             && position.y >= self.bounds.min_position.y
-            && position.y < self.bounds.min_position.y + self.bounds.size
+            && position.y <= self.bounds.min_position.y + self.bounds.size
             && position.z >= self.bounds.min_position.z
-            && position.z < self.bounds.min_position.z + self.bounds.size
+            && position.z <= self.bounds.min_position.z + self.bounds.size
     }
 
     /// Returns with the index of the child in the children array
     pub(crate) fn child_octant_for(&self, position: &V3c<u32>) -> usize {
         assert!(self.contains(position));
-        hash_region(&(position - &self.bounds.min_position), self.bounds.size)
+        hash_region(&(*position - self.bounds.min_position), self.bounds.size)
     }
 
     /// Returns with the immediate child of it at the position, should there be one there
@@ -63,6 +53,16 @@ where
 ///####################################################################################
 /// Octree
 ///####################################################################################
+use crate::object_pool::{ItemKey, ObjectPool};
+pub struct Octree<Content>
+where
+    Content: Default,
+{
+    pub auto_simplify: bool,
+    root_node: ItemKey,
+    nodes: ObjectPool<Node<Content>>,
+}
+
 impl<T> Octree<T>
 where
     T: Default + PartialEq + Clone + std::fmt::Debug,
@@ -304,7 +304,7 @@ where
         None
     }
 
-    pub fn simplify(&mut self, node: &ItemKey) -> bool {
+    fn simplify(&mut self, node: &ItemKey) -> bool {
         let mut data = None;
         if node.is_some() {
             for i in 0..8 {
@@ -415,27 +415,48 @@ where
         Ok(())
     }
 
-    pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<&T> {
+    /// provides the collision point of the ray with the contained voxel field
+    /// return reference of the data, collision point and normal at impact, should there be any
+    pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
         let mut stack = vec![(self.root_node, 0)]; // node_key and the index of the current child
 
         // If the root node is a leaf and it contains the ray, then there's a hit already
-        if self.node(&self.root_node).unwrap().is_leaf()
-            && self.node(&self.root_node).unwrap().bounds.contains_ray(ray)
-        {
-            return self.node(&self.root_node).unwrap().content.as_ref();
+        if self.node(&self.root_node).unwrap().is_leaf() {
+            if let Some(hit) = self
+                .node(&self.root_node)
+                .unwrap()
+                .bounds
+                .intersect_ray(ray)
+            {
+                return Some((
+                    self.node(&self.root_node)
+                        .unwrap()
+                        .content
+                        .as_ref()
+                        .unwrap(),
+                    ray.origin + ray.direction * hit.0,
+                    hit.1,
+                ));
+            }
         }
 
         'outer_loop: while !stack.is_empty() {
             let (current_node_key, mut current_child_index) = stack.last().unwrap();
             for child_index in current_child_index..8 {
                 let child_key = self.node(&current_node_key).unwrap().children[child_index];
-                let child = self.node(&child_key);
-                if child.is_some() && child.unwrap().bounds.contains_ray(ray) {
-                    let child = child.unwrap();
-                    if child.bounds.size == 1 || child.is_leaf() {
-                        return child.content.as_ref();
+                let child_optional = self.node(&child_key);
+                if let Some(child) = child_optional {
+                    if let Some(hit) = child.bounds.intersect_ray(ray) {
+                        if child.bounds.size == 1 || child.is_leaf() {
+                            return Some((
+                                child.content.as_ref().unwrap(),
+                                ray.origin + ray.direction * hit.0,
+                                hit.1,
+                            ));
+                        }
                     }
-                    *stack.last_mut().unwrap() = (*current_node_key, current_child_index);
+
+                    *stack.last_mut().unwrap() = (*current_node_key, (current_child_index + 1));
                     stack.push((child_key, 0));
                     continue 'outer_loop; // continue to process the relevant child
                 } else {
@@ -668,7 +689,7 @@ mod octree_tests {
             z: rng.gen_range(4..10) as f32,
         };
         Ray {
-            direction: (target - &origin).normalized(),
+            direction: (*target - origin).normalized(),
             origin,
         }
     }
@@ -696,11 +717,27 @@ mod octree_tests {
         for p in filled.into_iter() {
             let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
             assert!(tree.get_by_ray(&ray).is_some());
-            assert!(*tree.get_by_ray(&ray).unwrap() == 5.0);
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.0);
         }
         for p in not_filled.into_iter() {
             let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
             assert!(tree.get_by_ray(&ray).is_none());
         }
+    }
+
+    #[test]
+    fn test_get_by_ray_edge_cases() {
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(0, 3, 0), 5.).ok();
+        tree.insert(&V3c::new(0, 3, 0), 5.).ok();
+        let origin = V3c::new(2., 2., -5.);
+        let ray = Ray {
+            direction: (V3c::new(0., 3., 0.) - origin).normalized(),
+            origin,
+        };
+        assert!(tree.get(&V3c::new(0, 3, 0)).is_some());
+        assert!(*tree.get(&V3c::new(0, 3, 0)).unwrap() == 5.);
+        assert!(tree.get_by_ray(&ray).is_some());
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.);
     }
 }
