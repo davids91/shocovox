@@ -1,6 +1,5 @@
 use image::ImageBuffer;
 use image::Rgb;
-use rand::Rng;
 
 #[derive(Default, Clone, Debug, PartialEq)]
 struct RGB {
@@ -15,8 +14,8 @@ impl RGB {
     }
 }
 
+use shocovox_rs::spatial::math::V3c;
 use shocovox_rs::spatial::Ray;
-use shocovox_rs::spatial::V3c;
 fn main() {
     // fill octree with data
     let mut tree = shocovox_rs::octree::Octree::<RGB>::new(4).ok().unwrap();
@@ -28,9 +27,9 @@ fn main() {
         tree.insert(
             &V3c::new(0, y, y),
             RGB {
-                r: 64 * y as u8,
-                g: 64 * y as u8,
-                b: 64 * y as u8,
+                r: 64 * y as u8 + 50,
+                g: 64 * y as u8 + 50,
+                b: 64 * y as u8 + 50,
             },
         )
         .ok();
@@ -65,10 +64,8 @@ fn main() {
 
     // Set the viewport
     let viewport = Ray {
-        // origin: V3c::new(5., 5., 5.),
-        // direction: V3c::new(-1., -1., -1.).normalized(),
-        origin: V3c::new(2., 2., -5.),
-        direction: V3c::new(0., 0., 1.).normalized(),
+        origin: V3c::new(10., 10., -5.),
+        direction: V3c::new(-2., -1., 1.).normalized(),
     };
     let viewport_up_direction = V3c::new(0., 1., 0.); //TODO: up is actually left?!
     let viewport_right_direction = viewport_up_direction.cross(viewport.direction).normalized();
@@ -76,7 +73,7 @@ fn main() {
     let viewport_height = 4.;
     let viewport_resolution_width = 512;
     let viewport_resolution_height = 512;
-    let viewport_fov = 1.;
+    let viewport_fov = 3.;
     let pixel_width = viewport_width as f32 / viewport_resolution_width as f32;
     let pixel_height = viewport_height as f32 / viewport_resolution_height as f32;
     let viewport_bottom_left = viewport.origin + (viewport.direction * viewport_fov)
@@ -84,7 +81,7 @@ fn main() {
         - (viewport_right_direction * (viewport_width / 2.));
 
     // define light
-    let diffuse_light = V3c::new(0., 5., 0.);
+    let diffuse_light_normal = V3c::new(0., -1., 1.).normalized();
 
     // cast each ray for a hit
     let mut img = ImageBuffer::new(viewport_resolution_width, viewport_resolution_height);
@@ -101,11 +98,10 @@ fn main() {
                 direction: (glass_point - viewport.origin).normalized(),
             };
             if let Some(hit) = tree.get_by_ray(&ray) {
-                let (data, impact_point, normal) = hit;
-                //TODO: Maybe calculate the next ray instead
+                let (data, _, normal) = hit;
                 //Because both vector should be normalized, the dot product should be 1*1*cos(angle)
                 //That means it is in range -1, +1, which should be accounted for
-                let diffuse_light_strength = 1. - (normal.dot(&ray.direction) / 2. + 0.5);
+                let diffuse_light_strength = 1. - (normal.dot(&diffuse_light_normal) / 2. + 0.5);
                 img.put_pixel(
                     x,
                     actual_y_in_image,
