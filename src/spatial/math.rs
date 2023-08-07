@@ -216,11 +216,11 @@ pub fn plane_line_intersection_distance(
     line_direction: &V3c<f32>,
 ) -> Option<f32> {
     let origins_diff = *plane_point - *line_origin;
-    let plane_line_dot_to_plane = origins_diff.dot(&plane_normal);
-    let directions_dot = line_direction.dot(&plane_normal);
+    let plane_line_dot_to_plane = origins_diff.dot(plane_normal);
+    let directions_dot = line_direction.dot(plane_normal);
     if 0. == directions_dot {
         // line and plane is paralell
-        if 0. == origins_diff.dot(&plane_normal) {
+        if 0. == origins_diff.dot(plane_normal) {
             // The distance is zero because the origin is already on the plane
             return Some(0.);
         }

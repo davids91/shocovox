@@ -421,12 +421,14 @@ where
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
         let mut current_d = 0.; // Current distance from the ray origin
+        let mut last_hit; // The intersection of the ray with the currently examined node
         if let Some(hit) = self
             .node(&self.root_node)
             .unwrap()
             .bounds
             .intersect_ray(ray)
         {
+            last_hit = hit;
             if let Some(entry_distance) = hit.impact_distance {
                 current_d = entry_distance;
                 if self.node(&self.root_node).unwrap().is_leaf() {
@@ -447,36 +449,30 @@ where
         }
 
         let mut stack = vec![self.root_node];
-        while 0 < stack.len() {
-            // At this point the current node should contain the ray
-            // with entry at distance `current_d` from the ray origin
+        while !stack.is_empty() {
             let current_node = self.node(stack.last().unwrap()).unwrap();
-
             if !current_node.bounds.contains_point(&ray.point_at(current_d)) {
                 stack.pop();
                 continue;
             }
-
             if current_node.is_leaf() {
                 //the current node is a leaf, it's entry point distance was set in a previous loop in current_d
-                if let Some(hit) = current_node.bounds.intersect_ray(ray) {
-                    let d = if let Some(impact_distance) = hit.impact_distance {
-                        impact_distance
-                    } else {
-                        // If there is an entry distance use it, otherwise, use exit distance
-                        // not having entry impact here is a realy uncomfortable situation anyway
-                        hit.exit_distance
-                    };
-                    return Some((
-                        current_node.content.as_ref().unwrap(),
-                        ray.point_at(d),
-                        hit.impact_normal,
-                    ));
-                }
+                let d = if let Some(impact_distance) = last_hit.impact_distance {
+                    impact_distance
+                } else {
+                    // If there is an entry distance use it, otherwise, use exit distance
+                    // not having entry impact here is a realy uncomfortable situation anyway
+                    last_hit.exit_distance
+                };
+                return Some((
+                    current_node.content.as_ref().unwrap(),
+                    ray.point_at(d),
+                    last_hit.impact_normal,
+                ));
             }
 
-            // the child closest to the ray origin is revealed by
-            // the relative position of the ray at the node entry to the node midpoint
+            // the child closest to the ray origin is revealed by the relative position
+            // of the ray at the node entry to the node midpoint.
             // this guarantees that the child node bounds intersect with the ray
             let target_child_octant = hash_region(
                 &(ray.point_at(current_d) - current_node.bounds.min_position.into()),
@@ -489,6 +485,7 @@ where
                 .intersect_ray(ray)
             {
                 let exit_correction = 0.05;
+                last_hit = hit;
                 if current_node.children[target_child_octant].is_some() {
                     // There is a deeper level to explore! Update the ray as it shall march into this node
                     if let Some(impact_distance) = hit.impact_distance {
@@ -503,7 +500,8 @@ where
                 // a little bit after exit distance to avoid node edges
                 {
                     // the child node at the entry point of of the ray doesn't have content;
-                    // step the ray after the child, and continue with the sibling at the position after the current node
+                    // but the current node still contains the ray after the exit point of it.
+                    // Continue with the sibling based on the position after the current nodes exit point
                     current_d = hit.exit_distance + exit_correction;
                 } else {
                     // the current node doesn't contain the ray after the childs exit point

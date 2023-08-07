@@ -24,9 +24,6 @@ impl ItemKey {
     pub fn is_some(&self) -> bool {
         self.0 < usize::MAX
     }
-    pub fn is_none(&self) -> bool {
-        !self.is_some()
-    }
 }
 
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
@@ -99,10 +96,7 @@ where
         if key.0 < self.buffer.len() && self.buffer[key.0].reserved {
             self.buffer[key.0].reserved = false;
             self.first_available = self.first_available.min(key.0);
-            Some(std::mem::replace(
-                &mut self.buffer[key.0].item,
-                Default::default(),
-            ))
+            Some(std::mem::take(&mut self.buffer[key.0].item))
         } else {
             None
         }

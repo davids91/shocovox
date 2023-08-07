@@ -22,6 +22,7 @@ impl Ray {
 }
 
 #[derive(Debug)]
+#[derive(Copy, Clone)]
 pub struct CubeHit {
     pub(crate) impact_distance: Option<f32>,
     pub(crate) exit_distance: f32,
@@ -115,7 +116,7 @@ impl Cube {
     pub(crate) fn child_bounds_for(min_position: V3c<u32>, size: u32, octant: usize) -> Cube {
         let child_size = size / 2;
         Cube {
-            min_position: (min_position + (offset_region(octant) * child_size).into()).into(),
+            min_position: (min_position + (offset_region(octant) * child_size)),
             size: child_size,
         }
     }
@@ -138,7 +139,7 @@ impl Cube {
                 // d hits the plane
                 if 0. < d && self.contains_point(&ray.point_at(d)) {
                     distances.push(d);
-                    if 0 < distances.len() && d <= distances[0] {
+                    if !distances.is_empty() && d <= distances[0] {
                         impact_normal = face.direction;
                     }
                     faces_hit += 1;
@@ -149,17 +150,17 @@ impl Cube {
             }
         }
         if 1 < faces_hit {
-            return Some(CubeHit {
+            Some(CubeHit {
                 impact_distance: Some(distances[0].min(distances[1])),
                 exit_distance: distances[0].max(distances[1]),
                 impact_normal,
-            });
+            })
         } else if 0 < faces_hit{
-            return Some(CubeHit {
+            Some(CubeHit {
                 impact_distance: None,
                 exit_distance: distances[0],
                 impact_normal,
-            });
+            })
         }else {None}
     }
 
