@@ -1,5 +1,5 @@
 // TODO:
-// - test ray marching if the ray starts from inside the octree
+// - eliminate the dirty triangle form the example code
 // - consider if storing midpoint in the cube would worth it; or if min_position and size neds to be stored
 // - create trait for data instead of the generic T
 // - add Vulkan API wrapper/bevy wrapper ( or both? )

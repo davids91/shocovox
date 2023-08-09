@@ -21,8 +21,7 @@ impl Ray {
     }
 }
 
-#[derive(Debug)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct CubeHit {
     pub(crate) impact_distance: Option<f32>,
     pub(crate) exit_distance: f32,
@@ -125,9 +124,13 @@ impl Cube {
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeHit> {
         assert!(ray.is_valid());
-        let mut faces_hit = 0;
         let mut distances = Vec::new();
         let mut impact_normal = V3c::default();
+
+        if self.includes_point(&ray.origin) {
+            distances.push(0.);
+        }
+
         for f in CubeFaces::into_iter() {
             let face = &self.face(f);
             if let Some(d) = plane_line_intersection_distance(
@@ -136,46 +139,71 @@ impl Cube {
                 &ray.origin,
                 &ray.direction,
             ) {
-                // d hits the plane
-                if 0. < d && self.contains_point(&ray.point_at(d)) {
-                    distances.push(d);
+                // print!(
+                //     "Intersects face at d: {d:?}; normal: {:?}; contact {:?} -->",
+                //     face.direction,
+                //     ray.point_at(d)
+                // );
+                if 0. <= d && self.contains_point(&ray.point_at(d)) {
+                    // ray hits the plane only when the resulting distance is at least positive,
+                    // and the point is contained inside the cube
+                    // print!("HIT;");
+                    if distances.len() == 2 && distances[0] == distances[1] {
+                        distances[1] = d; // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
+                    } else if distances.len() < 2 {
+                        distances.push(d); // not enough hits are gathered
+                    } else {
+                        break; // enough hits are gathered, exit the loop
+                    }
                     if !distances.is_empty() && d <= distances[0] {
                         impact_normal = face.direction;
                     }
-                    faces_hit += 1;
                 }
-            }
-            if 2 == faces_hit {
-                break;
+                // println!("d: {distances:?}");
             }
         }
-        if 1 < faces_hit {
+        if 1 < distances.len() {
             Some(CubeHit {
                 impact_distance: Some(distances[0].min(distances[1])),
                 exit_distance: distances[0].max(distances[1]),
                 impact_normal,
             })
-        } else if 0 < faces_hit{
+        } else if !distances.is_empty() {
             Some(CubeHit {
                 impact_distance: None,
                 exit_distance: distances[0],
                 impact_normal,
             })
-        }else {None}
+        } else {
+            None
+        }
     }
 
     pub fn contains_ray(&self, ray: &Ray) -> bool {
         self.intersect_ray(ray).is_some()
     }
 
+    /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
+    /// Edges included
     pub fn contains_point(&self, point: &V3c<f32>) -> bool {
         let edges_epsilon = 0.000001;
         (point.x >= self.min_position.x as f32 - edges_epsilon)
-            && (point.x <= (self.min_position.x + self.size) as f32 + edges_epsilon)
+            && (point.x < (self.min_position.x + self.size) as f32 + edges_epsilon)
             && (point.y >= self.min_position.y as f32 - edges_epsilon)
-            && (point.y <= (self.min_position.y + self.size) as f32 + edges_epsilon)
+            && (point.y < (self.min_position.y + self.size) as f32 + edges_epsilon)
             && (point.z >= self.min_position.z as f32 - edges_epsilon)
-            && (point.z <= (self.min_position.z + self.size) as f32 + edges_epsilon)
+            && (point.z < (self.min_position.z + self.size) as f32 + edges_epsilon)
+    }
+
+    /// Tells if the given point is iniside the points, coordinates in exclusive exclusive range,
+    /// Edges excluded
+    fn includes_point(&self, point: &V3c<f32>) -> bool {
+        (point.x >= self.min_position.x as f32)
+            && (point.x < (self.min_position.x + self.size) as f32)
+            && (point.y > self.min_position.y as f32)
+            && (point.y < (self.min_position.y + self.size) as f32)
+            && (point.z > self.min_position.z as f32)
+            && (point.z < (self.min_position.z + self.size) as f32)
     }
 }
 
@@ -225,9 +253,9 @@ mod raytracing_tests {
 
     #[test]
     fn test_cube_bounds() {
-        let cube = Cube{
+        let cube = Cube {
             min_position: V3c::default(),
-            size: 10
+            size: 10,
         };
 
         // Test front bottom left
@@ -237,40 +265,39 @@ mod raytracing_tests {
 
         // Test front bottom right
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 1);
-        assert!(bound_fbl.min_position == V3c::new(5,0,0));
+        assert!(bound_fbl.min_position == V3c::new(5, 0, 0));
         assert!(bound_fbl.size == 5);
 
         // Test back bottom left
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 2);
-        assert!(bound_fbl.min_position == V3c::new(0,0,5));
+        assert!(bound_fbl.min_position == V3c::new(0, 0, 5));
         assert!(bound_fbl.size == 5);
 
         // Test back bottom right
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 3);
-        assert!(bound_fbl.min_position == V3c::new(5,0,5));
+        assert!(bound_fbl.min_position == V3c::new(5, 0, 5));
         assert!(bound_fbl.size == 5);
 
         // Test front top left
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 4);
-        assert!(bound_fbl.min_position == V3c::new(0,5,0));
+        assert!(bound_fbl.min_position == V3c::new(0, 5, 0));
         assert!(bound_fbl.size == 5);
 
         // Test front top right
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 5);
-        assert!(bound_fbl.min_position == V3c::new(5,5,0));
+        assert!(bound_fbl.min_position == V3c::new(5, 5, 0));
         assert!(bound_fbl.size == 5);
 
         // Test back top left
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 6);
-        assert!(bound_fbl.min_position == V3c::new(0,5,5));
+        assert!(bound_fbl.min_position == V3c::new(0, 5, 5));
         assert!(bound_fbl.size == 5);
 
         // Test back top right
         let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 7);
-        assert!(bound_fbl.min_position == V3c::new(5,5,5));
+        assert!(bound_fbl.min_position == V3c::new(5, 5, 5));
         assert!(bound_fbl.size == 5);
     }
-
 
     #[test]
     fn test_cube_contains_ray() {
@@ -421,5 +448,75 @@ mod raytracing_tests {
             .normalized(),
         };
         assert!(cube.intersect_ray(&ray_still_miss).is_none());
+    }
+
+    #[test]
+    fn test_edge_case_cube_intersect_inwards_pointing_vector() {
+        let ray = Ray {
+            origin: V3c {
+                x: 8.0,
+                y: 4.0,
+                z: 5.0,
+            },
+            direction: V3c {
+                x: -0.842701,
+                y: -0.24077171,
+                z: -0.48154342,
+            },
+        };
+        let cube = Cube {
+            min_position: V3c { x: 0, y: 0, z: 0 },
+            size: 8,
+        };
+        let hit = cube.intersect_ray(&ray).unwrap();
+        assert!(hit.impact_distance.is_some() && hit.impact_distance.unwrap() == 0.);
+        assert!(hit.exit_distance > 0.);
+    }
+
+    #[test]
+    fn test_edge_case_cube_internal_ray_targeting_corners() {
+        let ray = Ray {
+            origin: V3c {
+                x: 5.0,
+                y: 8.0,
+                z: 5.0,
+            },
+            direction: V3c {
+                x: -0.48507127,
+                y: -0.7276069,
+                z: -0.48507127,
+            },
+        };
+        let cube = Cube {
+            min_position: V3c { x: 0, y: 0, z: 0 },
+            size: 16,
+        };
+        let hit = cube.intersect_ray(&ray).unwrap();
+        assert!(hit.impact_distance.is_some_and(|d| d == 0.));
+        assert!(hit.exit_distance > 0.);
+    }
+
+    #[test]
+    fn test_edge_case_cube_bottom_edge() {
+        let ray = Ray {
+            origin: V3c {
+                x: 6.0,
+                y: 7.0,
+                z: 6.0,
+            },
+            direction: V3c {
+                x: -0.6154574,
+                y: -0.49236596,
+                z: -0.6154574,
+            },
+        };
+        let cube = Cube {
+            min_position: V3c { x: 0, y: 2, z: 0 },
+            size: 2,
+        };
+        let hit = cube.intersect_ray(&ray).unwrap();
+        assert!(hit
+            .impact_distance
+            .is_some_and(|d| (d > 0.0) && d < hit.exit_distance));
     }
 }

@@ -420,6 +420,8 @@ where
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
+        // println!("Root Node {:?}", self.node(&self.root_node).unwrap().bounds);
+        // println!("Getting by {ray:?}");
         let mut current_d = 0.; // Current distance from the ray origin
         let mut last_hit; // The intersection of the ray with the currently examined node
         if let Some(hit) = self
@@ -428,8 +430,10 @@ where
             .bounds
             .intersect_ray(ray)
         {
+            // println!("Intersects root");
             last_hit = hit;
             if let Some(entry_distance) = hit.impact_distance {
+                // println!("..with entry point");
                 current_d = entry_distance;
                 if self.node(&self.root_node).unwrap().is_leaf() {
                     return Some((
@@ -449,24 +453,27 @@ where
         }
 
         let mut stack = vec![self.root_node];
+        let mut advance_safeguard = 0;
         while !stack.is_empty() {
             let current_node = self.node(stack.last().unwrap()).unwrap();
+            // println!("Current Node {:?}", current_node.bounds);
+            // println!("Ray at {current_d:?}: {:?}", ray.point_at(current_d));
             if !current_node.bounds.contains_point(&ray.point_at(current_d)) {
                 stack.pop();
+                // println!("POP OOB");
                 continue;
             }
             if current_node.is_leaf() {
                 //the current node is a leaf, it's entry point distance was set in a previous loop in current_d
-                let d = if let Some(impact_distance) = last_hit.impact_distance {
-                    impact_distance
-                } else {
-                    // If there is an entry distance use it, otherwise, use exit distance
-                    // not having entry impact here is a realy uncomfortable situation anyway
-                    last_hit.exit_distance
-                };
+                // println!("HIT");
                 return Some((
                     current_node.content.as_ref().unwrap(),
-                    ray.point_at(d),
+                    ray.point_at(if let Some(impact_distance) = last_hit.impact_distance {
+                        impact_distance
+                    } else {
+                        // If there is no impact entry distance, then the ray is already inside bounds
+                        0.
+                    }),
                     last_hit.impact_normal,
                 ));
             }
@@ -479,35 +486,84 @@ where
                 current_node.bounds.size as f32,
             );
             assert!(target_child_octant < 8);
+            // println!(
+            //     "current octant offset base: {:?}",
+            //     ray.point_at(current_d) - current_node.bounds.min_position.into()
+            // );
+            // println!(
+            //     "target octant {target_child_octant:?} bounds: {:?}; target child key: {:?}",
+            //     current_node.bounds_at(target_child_octant),
+            //     current_node.children[target_child_octant]
+            // );
 
             if let Some(hit) = current_node
                 .bounds_at(target_child_octant)
                 .intersect_ray(ray)
             {
-                let exit_correction = 0.05;
+                // println!(
+                //     "Entry point: {:?}, exit point: (d:{:?}){:?}",
+                //     if let Some(hit_point) = hit.impact_distance {
+                //         format!("(d:{hit_point:?}){:?}", ray.point_at(hit_point))
+                //     } else {
+                //         "x".to_string()
+                //     },
+                //     hit.exit_distance,
+                //     ray.point_at(hit.exit_distance)
+                // );
+                // println!("current node children: {:?}", current_node.children);
+                let exit_correction = 0.0001;
                 last_hit = hit;
                 if current_node.children[target_child_octant].is_some() {
                     // There is a deeper level to explore! Update the ray as it shall march into this node
+                    // If there's no impact distance(only exit distance) with the child bound, then the ray originates from it
+                    // and no need to update current_d in that case
                     if let Some(impact_distance) = hit.impact_distance {
                         current_d = impact_distance;
                     }
-                    // If there's no impact distance(only exit distance) with the child bound,
-                    // then the ray originates from it
+                    // println!("PUSH to {current_d:?}");
                     stack.push(current_node.children[target_child_octant]);
+                    advance_safeguard = 0;
                 } else if current_node
                     .bounds
                     .contains_point(&ray.point_at(hit.exit_distance + exit_correction))
+                    && advance_safeguard < 3
                 // a little bit after exit distance to avoid node edges
                 {
                     // the child node at the entry point of of the ray doesn't have content;
                     // but the current node still contains the ray after the exit point of it.
                     // Continue with the sibling based on the position after the current nodes exit point
+                    //TODO: put a safeguard to advance!
+                    // //ver 1
                     current_d = hit.exit_distance + exit_correction;
+                    advance_safeguard += 1;
+                    // // //ver 1 fix 1
+                    // if let Some(impact_distance) = child_hit.impact_distance {
+                    //     if impact_distance == child_hit.exit_distance {
+                    //         // if the impact is at the edge of an inner boundary
+                    //         current_d += exit_correction;
+                    //         println!("edge correction...");
+                    //     }
+                    // }
+                    // // ver 2 ( maybe needs ver 1 fix 1 )
+                    // if let Some(impact_distance) = hit.impact_distance {
+                    //     current_d += hit.exit_distance - impact_distance;
+                    // } else {
+                    //     current_d = hit.exit_distance + exit_correction
+                    // }
+                    // // ver 3?! idk anymore
+                    // if let Some(impact_distance) = parent_hit.impact_distance {
+                    //     current_d += (parent_hit.exit_distance - impact_distance) / 2.;
+                    // } else {
+                    //     current_d = child_hit.exit_distance;
+                    // }
+                    // println!("ADVANCE to {current_d:?}");
                 } else {
                     // the current node doesn't contain the ray after the childs exit point
                     // so search needs to continue one level above
                     current_d = hit.exit_distance + exit_correction;
                     stack.pop();
+                    advance_safeguard = 0;
+                    // println!("POP");
                 }
             } else {
                 unreachable!();
@@ -523,6 +579,7 @@ where
 #[cfg(test)]
 mod octree_tests {
     use super::Octree;
+    use crate::octree::Cube;
     use crate::octree::V3c;
     use crate::spatial::Ray;
 
@@ -773,15 +830,109 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_edge_case_voxel_added_again() {
+    fn test_get_by_ray_from_inside() {
+        let mut rng = rand::thread_rng();
+        let mut tree = Octree::<f32>::new(16).ok().unwrap();
+        let mut filled = Vec::new();
+        for x in 1..4 {
+            for y in 1..4 {
+                for z in 1..4 {
+                    if 10 > rng.gen_range(0..20) {
+                        let pos = V3c::new(x, y, z);
+                        tree.insert(&pos, 5.0).ok();
+                        filled.push(pos);
+                    }
+                }
+            }
+        }
+
+        for p in filled.into_iter() {
+            let pos = V3c::new(p.x as f32, p.y as f32, p.z as f32);
+            // println!("element filled at {pos:?}");
+            let ray = make_ray_point_to(&pos, &mut rng);
+            assert!(tree.get(&pos.into()).is_some());
+            assert!(tree.get_by_ray(&ray).is_some());
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.0);
+            // println!("=============\n=============\n=============\n=============\n=============\n");
+        }
+    }
+
+    #[test]
+    fn test_edge_case_unreachable() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 5.).ok();
+        tree.insert(&V3c::new(3, 0, 0), 0.).ok();
+        tree.insert(&V3c::new(3, 3, 0), 1.).ok();
+        tree.insert(&V3c::new(0, 3, 0), 2.).ok();
+
+        for y in 0..4 {
+            tree.insert(&V3c::new(0, y, y), 3.1).ok();
+            tree.insert(&V3c::new(1, y, y), 3.1).ok();
+            tree.insert(&V3c::new(2, y, y), 3.1).ok();
+            tree.insert(&V3c::new(3, y, y), 3.1).ok();
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 10.0,
+                y: 10.0,
+                z: -5.0,
+            },
+            direction: V3c {
+                x: -0.66739213,
+                y: -0.6657588,
+                z: 0.333696,
+            },
+        };
+        let _ = tree.get_by_ray(&ray); //Should not fail with unreachable code panic
+    }
+
+    #[test]
+    fn test_edge_case_cube_edges() {
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.).ok();
+        tree.insert(&V3c::new(3, 3, 0), 1.).ok();
+        tree.insert(&V3c::new(0, 3, 0), 2.).ok();
+
+        for y in 0..4 {
+            tree.insert(&V3c::new(0, y, y), 3.1).ok();
+            tree.insert(&V3c::new(1, y, y), 3.2).ok();
+            tree.insert(&V3c::new(2, y, y), 3.3).ok();
+            tree.insert(&V3c::new(3, y, y), 3.4).ok();
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 10.0,
+                y: 10.0,
+                z: -5.0,
+            },
+            direction: (V3c {
+                x: 3.0,
+                y: 1.9,
+                z: 2.0,
+            } - V3c {
+                x: 10.0,
+                y: 10.0,
+                z: -5.0,
+            })
+            .normalized(),
+        };
+
+        //Should reach position 3, 2, 2
+        // println!("element filled at {:?}", V3c::new(3, 2, 2));
+        assert!(tree.get_by_ray(&ray).is_some_and(|v| *v.0 == 3.4));
+    }
+
+    #[test]
+    fn test_edge_case_ray_behind_octree() {
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(0, 3, 0), 5.).ok();
         let origin = V3c::new(2., 2., -5.);
         let ray = Ray {
             direction: (V3c::new(0., 3., 0.) - origin).normalized(),
             origin,
         };
+        println!("element filled at {:?}", &V3c::new(0, 3, 0));
         assert!(tree.get(&V3c::new(0, 3, 0)).is_some());
         assert!(*tree.get(&V3c::new(0, 3, 0)).unwrap() == 5.);
         assert!(tree.get_by_ray(&ray).is_some());
@@ -806,10 +957,7 @@ mod octree_tests {
                 z: 0.5620785,
             },
         };
-        assert!(tree.get_by_ray(&test_ray).is_some());
-        if let Some(hit) = tree.get_by_ray(&test_ray) {
-            assert!(*hit.0 == 6.0);
-        }
+        assert!(tree.get_by_ray(&test_ray).is_some_and(|hit| *hit.0 == 6.));
     }
 
     #[test]
@@ -833,7 +981,42 @@ mod octree_tests {
                 z: 0.50741255,
             },
         };
-        assert!(tree.get_by_ray(&ray).is_none() || *tree.get_by_ray(&ray).unwrap().0 == 5.0);
+
+        //DEBUG
+        let mut cube = Cube {
+            min_position: V3c::unit(0),
+            size: 4,
+        };
+        println!(
+            "connection point: {:?}",
+            if let Some(hit) = cube.intersect_ray(&ray) {
+                if let Some(impact) = hit.impact_distance {
+                    format!("entry: {:?}", ray.point_at(impact))
+                } else {
+                    format!("exit: {:?}", ray.point_at(hit.exit_distance))
+                }
+            } else {
+                "x".to_string()
+            }
+        );
+        cube = Cube {
+            min_position: V3c::unit(0),
+            size: 1,
+        };
+        // println!(
+        //     "deepest connection point: {:?}",
+        //     if let Some(hit) = cube.intersect_ray(&ray) {
+        //         if let Some(impact) = hit.impact_distance {
+        //             format!("entry: {:?}", ray.point_at(impact))
+        //         } else {
+        //             format!("exit: {:?}", ray.point_at(hit.exit_distance))
+        //         }
+        //     } else {
+        //         "x".to_string()
+        //     }
+        // );
+        let result = tree.get_by_ray(&ray);
+        assert!(result.is_none() || *result.unwrap().0 == 5.0);
     }
 
     #[test]
