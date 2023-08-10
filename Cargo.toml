@@ -13,3 +13,4 @@ timeit = "0.1.2"
 
 # for example cpu_render
 image = "0.24.6"
+show-image = "0.13.1"

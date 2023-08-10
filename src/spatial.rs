@@ -140,9 +140,10 @@ impl Cube {
                 &ray.direction,
             ) {
                 // print!(
-                //     "Intersects face at d: {d:?}; normal: {:?}; contact {:?} -->",
+                //     "Intersects face at d: {d:?}; normal: {:?}; contact {:?}; contains: {:?} -->",
                 //     face.direction,
-                //     ray.point_at(d)
+                //     ray.point_at(d),
+                //     self.contains_point(&ray.point_at(d))
                 // );
                 if 0. <= d && self.contains_point(&ray.point_at(d)) {
                     // ray hits the plane only when the resulting distance is at least positive,
@@ -186,7 +187,7 @@ impl Cube {
     /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
     /// Edges included
     pub fn contains_point(&self, point: &V3c<f32>) -> bool {
-        let edges_epsilon = 0.000001;
+        let edges_epsilon = 0.00001;
         (point.x >= self.min_position.x as f32 - edges_epsilon)
             && (point.x < (self.min_position.x + self.size) as f32 + edges_epsilon)
             && (point.y >= self.min_position.y as f32 - edges_epsilon)
