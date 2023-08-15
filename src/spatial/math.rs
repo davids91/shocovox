@@ -206,6 +206,7 @@ mod octant_tests {
     }
 }
 
+#[cfg(feature = "raytracing")]
 /// calculates the distance between the line, and the plane both described by a ray
 /// plane: normal, and a point on plane, line: origin and direction
 /// return the distance from the line origin to the direction of it, if they have an intersection

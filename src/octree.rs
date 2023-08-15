@@ -417,6 +417,7 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "raytracing")]
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
@@ -454,10 +455,14 @@ where
 
         let mut stack = vec![self.root_node];
         let mut advance_safeguard = 0;
+        let exit_correction = 0.001;
         while !stack.is_empty() {
             let current_node = self.node(stack.last().unwrap()).unwrap();
             // println!("Current Node {:?}", current_node.bounds);
-            // println!("Ray at {current_d:?}: {:?}", ray.point_at(current_d));
+            // println!(
+            //     "Ray at {current_d:?} + exit_correction: {:?}",
+            //     ray.point_at(current_d + exit_correction)
+            // );
             if !current_node.bounds.contains_point(&ray.point_at(current_d)) {
                 stack.pop();
                 // println!("POP OOB");
@@ -481,8 +486,11 @@ where
             // the child closest to the ray origin is revealed by the relative position
             // of the ray at the node entry to the node midpoint.
             // this guarantees that the child node bounds intersect with the ray
+            let current_point_in_ray = current_node.bounds.midpoint();
+            let current_point_in_ray = current_point_in_ray
+                + (ray.point_at(current_d + exit_correction) - current_node.bounds.midpoint()) * 3.;
             let target_child_octant = hash_region(
-                &(ray.point_at(current_d) - current_node.bounds.min_position.into()),
+                &(current_point_in_ray - current_node.bounds.min_position.into()),
                 current_node.bounds.size as f32,
             );
             assert!(target_child_octant < 8);
@@ -511,14 +519,13 @@ where
                 //     ray.point_at(hit.exit_distance)
                 // );
                 // println!("current node children: {:?}", current_node.children);
-                let exit_correction = 0.0001;
                 last_hit = hit;
                 if current_node.children[target_child_octant].is_some() {
                     // There is a deeper level to explore! Update the ray as it shall march into this node
                     // If there's no impact distance(only exit distance) with the child bound, then the ray originates from it
                     // and no need to update current_d in that case
                     if let Some(impact_distance) = hit.impact_distance {
-                        current_d = impact_distance;
+                        current_d = impact_distance.max(current_d);
                     }
                     // println!("PUSH to {current_d:?}");
                     stack.push(current_node.children[target_child_octant]);
@@ -534,7 +541,7 @@ where
                     // Continue with the sibling based on the position after the current nodes exit point
                     //TODO: put a safeguard to advance!
                     // //ver 1
-                    current_d = hit.exit_distance + exit_correction;
+                    current_d = hit.exit_distance.max(current_d);
                     advance_safeguard += 1;
                     // // //ver 1 fix 1
                     // if let Some(impact_distance) = child_hit.impact_distance {
@@ -560,7 +567,7 @@ where
                 } else {
                     // the current node doesn't contain the ray after the childs exit point
                     // so search needs to continue one level above
-                    current_d = hit.exit_distance + exit_correction;
+                    current_d = hit.exit_distance.max(current_d);
                     stack.pop();
                     advance_safeguard = 0;
                     // println!("POP");
@@ -579,8 +586,9 @@ where
 #[cfg(test)]
 mod octree_tests {
     use super::Octree;
-    use crate::octree::Cube;
     use crate::octree::V3c;
+
+    #[cfg(feature = "raytracing")]
     use crate::spatial::Ray;
 
     #[test]
@@ -784,8 +792,10 @@ mod octree_tests {
         assert!(hits == (64 - 8));
     }
 
-    use rand::rngs::ThreadRng;
-    use rand::Rng;
+    #[cfg(feature = "raytracing")]
+    use rand::{Rng, rngs::ThreadRng};
+
+    #[cfg(feature = "raytracing")]
     fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
         let origin = V3c {
             x: rng.gen_range(4..10) as f32,
@@ -798,6 +808,7 @@ mod octree_tests {
         }
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_get_by_ray() {
         let mut rng = rand::thread_rng();
@@ -829,6 +840,7 @@ mod octree_tests {
         }
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_get_by_ray_from_inside() {
         let mut rng = rand::thread_rng();
@@ -857,6 +869,7 @@ mod octree_tests {
         }
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_unreachable() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -886,6 +899,7 @@ mod octree_tests {
         let _ = tree.get_by_ray(&ray); //Should not fail with unreachable code panic
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_edges() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -923,6 +937,7 @@ mod octree_tests {
         assert!(tree.get_by_ray(&ray).is_some_and(|v| *v.0 == 3.4));
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_ray_behind_octree() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -939,6 +954,7 @@ mod octree_tests {
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_overlapping_voxels() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -960,6 +976,7 @@ mod octree_tests {
         assert!(tree.get_by_ray(&test_ray).is_some_and(|hit| *hit.0 == 6.));
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_edge_raycast() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -981,44 +998,11 @@ mod octree_tests {
                 z: 0.50741255,
             },
         };
-
-        //DEBUG
-        let mut cube = Cube {
-            min_position: V3c::unit(0),
-            size: 4,
-        };
-        println!(
-            "connection point: {:?}",
-            if let Some(hit) = cube.intersect_ray(&ray) {
-                if let Some(impact) = hit.impact_distance {
-                    format!("entry: {:?}", ray.point_at(impact))
-                } else {
-                    format!("exit: {:?}", ray.point_at(hit.exit_distance))
-                }
-            } else {
-                "x".to_string()
-            }
-        );
-        cube = Cube {
-            min_position: V3c::unit(0),
-            size: 1,
-        };
-        // println!(
-        //     "deepest connection point: {:?}",
-        //     if let Some(hit) = cube.intersect_ray(&ray) {
-        //         if let Some(impact) = hit.impact_distance {
-        //             format!("entry: {:?}", ray.point_at(impact))
-        //         } else {
-        //             format!("exit: {:?}", ray.point_at(hit.exit_distance))
-        //         }
-        //     } else {
-        //         "x".to_string()
-        //     }
-        // );
         let result = tree.get_by_ray(&ray);
         assert!(result.is_none() || *result.unwrap().0 == 5.0);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_voxel_corner() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -1045,6 +1029,7 @@ mod octree_tests {
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.0);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_bottom_edge() {
         let mut tree = Octree::<f32>::new(4).ok().unwrap();
@@ -1069,5 +1054,35 @@ mod octree_tests {
         };
         assert!(tree.get_by_ray(&ray).is_some());
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.0);
+    }
+
+    #[cfg(feature = "raytracing")]
+    #[test]
+    fn test_edge_case_loop_stuck() {
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.).ok();
+        tree.insert(&V3c::new(3, 3, 0), 1.).ok();
+        tree.insert(&V3c::new(0, 3, 0), 2.).ok();
+
+        for y in 0..4 {
+            tree.insert(&V3c::new(0, y, y), 3.1).ok();
+            tree.insert(&V3c::new(1, y, y), 3.2).ok();
+            tree.insert(&V3c::new(2, y, y), 3.3).ok();
+            tree.insert(&V3c::new(3, y, y), 3.4).ok();
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 0.024999974,
+                y: 10.0,
+                z: 0.0,
+            },
+            direction: V3c {
+                x: -0.0030831057,
+                y: -0.98595166,
+                z: 0.16700225,
+            },
+        };
+        let _ = tree.get_by_ray(&ray); //should not cause infinite loop
     }
 }

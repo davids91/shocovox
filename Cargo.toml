@@ -3,6 +3,8 @@ name = "shocovox-rs"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+raytracing = []
 [dev-dependencies]
 lldb = "0.0.11" # debugging
 rand = "0.8.5"

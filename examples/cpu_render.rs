@@ -1,3 +1,4 @@
+#[cfg(feature = "raytracing")]
 #[derive(Default, Clone, Debug, PartialEq)]
 struct RGB {
     r: u8,
@@ -5,15 +6,23 @@ struct RGB {
     b: u8,
 }
 
+#[cfg(feature = "raytracing")]
 impl RGB {
     pub fn new(r: u8, g: u8, b: u8) -> Self {
         RGB { r, g, b }
     }
 }
 
+#[cfg(feature = "raytracing")]
 use rand::Rng;
+
+#[cfg(feature = "raytracing")]
 use shocovox_rs::spatial::math::V3c;
+
+#[cfg(feature = "raytracing")]
 use shocovox_rs::spatial::Ray;
+
+#[cfg(feature = "raytracing")]
 #[show_image::main]
 fn main() {
     // fill octree with data
@@ -168,3 +177,6 @@ fn main() {
         window.set_image("image-001", image).ok();
     }
 }
+
+#[cfg(not(feature = "raytracing"))]
+fn main() {} //nothing to do when the feature is not enabled

@@ -3,14 +3,18 @@ pub mod math;
 ///####################################################################################
 /// Raytracing stuff
 ///####################################################################################
-use crate::spatial::math::{offset_region, plane_line_intersection_distance, V3c};
+#[cfg(feature = "raytracing")]
+use crate::spatial::math::plane_line_intersection_distance;
+use crate::spatial::math::{offset_region, V3c};
 
+#[cfg(feature = "raytracing")]
 #[derive(Debug)]
 pub struct Ray {
     pub origin: V3c<f32>,
     pub direction: V3c<f32>,
 }
 
+#[cfg(feature = "raytracing")]
 impl Ray {
     pub fn is_valid(&self) -> bool {
         (1. - self.direction.length()).abs() < 0.000001
@@ -21,6 +25,7 @@ impl Ray {
     }
 }
 
+#[cfg(feature = "raytracing")]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct CubeHit {
     pub(crate) impact_distance: Option<f32>,
@@ -63,6 +68,7 @@ impl Cube {
         V3c::unit(self.size as f32 / 2.) + self.min_position.into()
     }
 
+    #[cfg(feature = "raytracing")]
     pub fn face(&self, face: CubeFaces) -> Ray {
         let midpoint = self.midpoint();
         match face {
@@ -122,6 +128,7 @@ impl Cube {
 
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
+    #[cfg(feature = "raytracing")]
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeHit> {
         assert!(ray.is_valid());
         let mut distances = Vec::new();
@@ -180,6 +187,7 @@ impl Cube {
         }
     }
 
+    #[cfg(feature = "raytracing")]
     pub fn contains_ray(&self, ray: &Ray) -> bool {
         self.intersect_ray(ray).is_some()
     }
@@ -210,12 +218,15 @@ impl Cube {
 
 #[cfg(test)]
 mod raytracing_tests {
+    #[cfg(feature = "raytracing")]
     use crate::spatial::math::plane_line_intersection_distance;
 
     use super::Cube;
+    #[cfg(feature = "raytracing")]
     use super::Ray;
     use super::V3c;
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_plane_line_intersection() {
         assert!(
@@ -300,6 +311,7 @@ mod raytracing_tests {
         assert!(bound_fbl.size == 5);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_cube_contains_ray() {
         let cube = Cube {
@@ -451,6 +463,7 @@ mod raytracing_tests {
         assert!(cube.intersect_ray(&ray_still_miss).is_none());
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_intersect_inwards_pointing_vector() {
         let ray = Ray {
@@ -474,6 +487,7 @@ mod raytracing_tests {
         assert!(hit.exit_distance > 0.);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_internal_ray_targeting_corners() {
         let ray = Ray {
@@ -497,6 +511,7 @@ mod raytracing_tests {
         assert!(hit.exit_distance > 0.);
     }
 
+    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_bottom_edge() {
         let ray = Ray {
