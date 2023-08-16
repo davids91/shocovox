@@ -24,6 +24,9 @@ impl ItemKey {
     pub fn is_some(&self) -> bool {
         self.0 < usize::MAX
     }
+    pub fn is_none(&self) -> bool {
+        !self.is_some()
+    }
 }
 
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
@@ -113,6 +116,7 @@ where
     }
 
     pub(crate) fn get(&self, key: ItemKey) -> &T {
+        assert!(key.0 < self.buffer.len() && self.buffer[key.0].reserved);
         &self.buffer[key.0].item
     }
 

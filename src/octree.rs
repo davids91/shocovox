@@ -163,6 +163,34 @@ where
         ]
     }
 
+    fn deallocate_children_of(&mut self, node: &ItemKey) {
+        println!(
+            "deallocate children of {node:?}.. before: {:?}",
+            self.nodes.get_mut(*node).children
+        );
+        let mut to_deallocate = Vec::new();
+        for child in self.nodes.get_mut(*node).children.iter_mut() {
+            if child.is_some() {
+                to_deallocate.push(*child);
+            }
+        }
+        for child in to_deallocate {
+            println!("deallocate_children_of: freeing {child:?} as a child");
+            self.deallocate_children_of(&child); // Recursion should be fine as depth is not expceted to be more, than 32
+            self.nodes.free(child);
+        }
+        self.nodes.get_mut(*node).children = [
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+            ItemKey::none_value(),
+        ];
+    }
+
     pub fn insert(&mut self, position: &V3c<u32>, data: T) -> Result<(), Error> {
         self.insert_at_lod(position, 1, data)
     }
@@ -241,11 +269,7 @@ where
             } else {
                 // current_size == min_node_size, which is the desired depth, so set content of current node
                 self.nodes.get_mut(current_node_key).content = Some(data);
-                for ref mut child in self.nodes.get_mut(*node_stack.last().unwrap()).children {
-                    // Erase all the children of the Node, should there be any, because the current Node is set to a leaf
-                    self.nodes.free(*child);
-                    *child = ItemKey::none_value();
-                }
+                self.deallocate_children_of(node_stack.last().unwrap());
                 break;
             }
         }
@@ -329,18 +353,11 @@ where
             }
 
             self.nodes.get_mut(*node).content = data;
-            self.nodes.get_mut(*node).children = [
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-                ItemKey::none_value(),
-            ];
+            self.deallocate_children_of(node); // no need to use this as all the children are leaves, but it's more understanfdable this way
+            true
+        } else {
+            false
         }
-        false
     }
 
     pub fn clear(&mut self, position: &V3c<u32>) -> Result<(), Error> {
@@ -398,10 +415,7 @@ where
                 }
             } else {
                 // current_size == min_node_size, which is the desired depth, so unset the current node and its children
-                for ref mut child in self.nodes.get_mut(current_node_key).children {
-                    self.nodes.free(*child);
-                    *child = ItemKey::none_value();
-                }
+                self.deallocate_children_of(&current_node_key);
                 self.nodes.free(current_node_key);
 
                 // Set the parents child to None
@@ -793,7 +807,7 @@ mod octree_tests {
     }
 
     #[cfg(feature = "raytracing")]
-    use rand::{Rng, rngs::ThreadRng};
+    use rand::{rngs::ThreadRng, Rng};
 
     #[cfg(feature = "raytracing")]
     fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
