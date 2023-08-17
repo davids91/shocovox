@@ -4,15 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-raytracing = []
+default = ["serialization"]
+raytracing = [] #["dep:image", "dep:show-image"] # conflicts with serde!
+serialization = ["dep:serde", "dep:bendy"]
+
+[dependencies]
+# for serialization
+serde = { version = "1.0.183", features = ["derive"], optional = true }
+bendy = { version = "0.3.3", features = ["std", "serde"], optional = true }
+
+# for example cpu_render
+image = { version = "0.24.6", optional = true }
+show-image = { version = "0.13.1", optional = true }
+
 [dev-dependencies]
 lldb = "0.0.11" # debugging
 rand = "0.8.5"
 
-# for benchamrking
-timeit = "0.1.2"
-
-
-# for example cpu_render
-image = "0.24.6"
-show-image = "0.13.1"

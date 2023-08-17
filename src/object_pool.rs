@@ -1,13 +1,57 @@
 use std::vec::Vec;
 
 /// One item in a datapool with a used flag
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 #[derive(Clone)]
 struct ReusableItem<T> {
     reserved: bool,
     item: T,
 }
 
+#[cfg(feature = "serialization")]
+use std::fs::File;
+#[cfg(feature = "serialization")]
+use std::io::Read;
+#[cfg(feature = "serialization")]
+use std::io::Write;
+
+impl<
+        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default,
+    > ReusableItem<T>
+{
+    pub fn create(item: T) -> Self {
+        Self {
+            reserved: false,
+            item,
+        }
+    }
+
+    #[cfg(feature = "serialization")]
+    pub fn write(&self, path: String) -> Result<(), std::io::Error> {
+        let bytes = bendy::serde::to_bytes(self).ok().unwrap();
+        let mut file = File::create(path)?;
+        file.write_all(&bytes)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "serialization")]
+    pub fn read(path: String) -> Result<Self, std::io::Error> {
+        let mut file = File::open(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
+    }
+}
+
 /// The key which identifies an element inside the ObjectPool
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct ItemKey(usize);
 
@@ -32,14 +76,19 @@ impl ItemKey {
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
 #[derive(Default, Clone)]
-pub(crate) struct ObjectPool<T> {
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub(crate) struct ObjectPool<T: Default> {
     buffer: Vec<ReusableItem<T>>, // Pool of objects to be reused
     first_available: usize,       // the index of the first available item
 }
 
-impl<T> ObjectPool<T>
-where
-    T: Default,
+impl<
+        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default,
+    > ObjectPool<T>
 {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         ObjectPool {
@@ -87,6 +136,7 @@ where
                 reserved: true,
                 item: T::default(),
             });
+
             self.buffer.len() - 1
         };
         if self.is_next_available() {
@@ -124,6 +174,22 @@ where
         assert!(key.0 < self.buffer.len() && self.buffer[key.0].reserved);
         &mut self.buffer[key.0].item
     }
+
+    #[cfg(feature = "serialization")]
+    pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
+        let bytes = bendy::serde::to_bytes(&self).ok().unwrap();
+        let mut file = File::create(path)?;
+        file.write_all(&bytes)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "serialization")]
+    pub fn load(path: &str) -> Result<Self, std::io::Error> {
+        let mut file = File::open(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
+    }
 }
 
 #[cfg(test)]
@@ -153,5 +219,29 @@ mod tests {
 
         pool.free(key);
         assert!(pool.pop(key).is_none());
+    }
+
+    #[cfg(feature = "serialization")]
+    #[test]
+    fn test_reusable_item_file_io() {
+        use super::ReusableItem;
+        let item = ReusableItem::create(5.0);
+        item.write("test_junk_item".to_string()).ok().unwrap();
+        let cache_item = ReusableItem::read("test_junk_item".to_string())
+            .ok()
+            .unwrap();
+        assert!(item.item == cache_item.item);
+    }
+
+    #[cfg(feature = "serialization")]
+    #[test]
+    fn test_pool_file_io() {
+        let mut pool = ObjectPool::<f32>::with_capacity(3);
+        let test_value = 5.;
+        let key = pool.push(test_value);
+        pool.save("test_junk_pool").ok();
+
+        let copy_pool = ObjectPool::<f32>::load("test_junk_pool").ok().unwrap();
+        assert!(*copy_pool.get(key) == test_value);
     }
 }

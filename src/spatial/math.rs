@@ -2,6 +2,7 @@
 /// V3c
 ///####################################################################################
 #[derive(Default, Clone, Copy, Debug)]
+#[cfg_attr(feature = "serialization", derive(serde::Serialize, serde::Deserialize))]
 pub struct V3c<T> {
     pub x: T,
     pub y: T,

@@ -10,16 +10,17 @@ pub enum Error {
 /// Node
 ///####################################################################################
 #[derive(Default)]
-struct Node<T>
-where
-    T: Default,
-{
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+struct Node<T: Default> {
     bounds: Cube,
     content: Option<T>,
     children: [crate::object_pool::ItemKey; 8],
 }
 
-impl<T> Node<T>
+impl<T: Default> Node<T>
 where
     T: Default,
 {
@@ -60,19 +61,47 @@ where
 /// Octree
 ///####################################################################################
 use crate::object_pool::{ItemKey, ObjectPool};
-pub struct Octree<Content>
-where
-    Content: Default,
-{
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+pub struct Octree<Content: Default> {
     pub auto_simplify: bool,
     root_node: ItemKey,
     nodes: ObjectPool<Node<Content>>,
 }
 
-impl<T> Octree<T>
+
+#[cfg(feature = "serialization")]
+use std::fs::File;
+#[cfg(feature = "serialization")]
+use std::io::Read;
+#[cfg(feature = "serialization")]
+use std::io::Write;
+
+impl<
+        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default,
+    > Octree<T>
 where
     T: Default + PartialEq + Clone + std::fmt::Debug,
 {
+    #[cfg(feature = "serialization")]
+    pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
+        let bytes = bendy::serde::to_bytes(&self).ok().unwrap();
+        let mut file = File::create(path)?;
+        file.write_all(&bytes)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "serialization")]
+    pub fn load(path: &str) -> Result<Self, std::io::Error> {
+        let mut file = File::open(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
+    }
+
     pub fn new(size: u32) -> Result<Self, Error> {
         if 0 == size || (size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
@@ -164,10 +193,6 @@ where
     }
 
     fn deallocate_children_of(&mut self, node: &ItemKey) {
-        println!(
-            "deallocate children of {node:?}.. before: {:?}",
-            self.nodes.get_mut(*node).children
-        );
         let mut to_deallocate = Vec::new();
         for child in self.nodes.get_mut(*node).children.iter_mut() {
             if child.is_some() {
@@ -175,7 +200,6 @@ where
             }
         }
         for child in to_deallocate {
-            println!("deallocate_children_of: freeing {child:?} as a child");
             self.deallocate_children_of(&child); // Recursion should be fine as depth is not expceted to be more, than 32
             self.nodes.free(child);
         }
@@ -351,7 +375,6 @@ where
                     return false;
                 }
             }
-
             self.nodes.get_mut(*node).content = data;
             self.deallocate_children_of(node); // no need to use this as all the children are leaves, but it's more understanfdable this way
             true
@@ -806,6 +829,39 @@ mod octree_tests {
         assert!(hits == (64 - 8));
     }
 
+    #[cfg(feature = "serialization")]
+    #[test]
+    fn test_octree_file_io() {
+        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+
+        // This will set the area equal to 64 1-sized nodes
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5.0).ok();
+
+        // This will clear an area equal to 8 1-sized nodes
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
+
+        // save andd load into a new tree
+        tree.save("test_junk_octree").ok();
+        let tree_copy = Octree::<f32>::load("test_junk_octree").ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
+                    if tree_copy.get(&V3c::new(x, y, z)).is_some()
+                        && *tree_copy.get(&V3c::new(x, y, z)).unwrap() == 5.0
+                    {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (64 - 8));
+    }
+
     #[cfg(feature = "raytracing")]
     use rand::{rngs::ThreadRng, Rng};
 
@@ -874,12 +930,10 @@ mod octree_tests {
 
         for p in filled.into_iter() {
             let pos = V3c::new(p.x as f32, p.y as f32, p.z as f32);
-            // println!("element filled at {pos:?}");
             let ray = make_ray_point_to(&pos, &mut rng);
             assert!(tree.get(&pos.into()).is_some());
             assert!(tree.get_by_ray(&ray).is_some());
             assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.0);
-            // println!("=============\n=============\n=============\n=============\n=============\n");
         }
     }
 
@@ -947,7 +1001,6 @@ mod octree_tests {
         };
 
         //Should reach position 3, 2, 2
-        // println!("element filled at {:?}", V3c::new(3, 2, 2));
         assert!(tree.get_by_ray(&ray).is_some_and(|v| *v.0 == 3.4));
     }
 
@@ -961,7 +1014,6 @@ mod octree_tests {
             direction: (V3c::new(0., 3., 0.) - origin).normalized(),
             origin,
         };
-        println!("element filled at {:?}", &V3c::new(0, 3, 0));
         assert!(tree.get(&V3c::new(0, 3, 0)).is_some());
         assert!(*tree.get(&V3c::new(0, 3, 0)).unwrap() == 5.);
         assert!(tree.get_by_ray(&ray).is_some());

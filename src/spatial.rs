@@ -58,6 +58,10 @@ impl CubeFaces {
 }
 
 #[derive(Default, Debug)]
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct Cube {
     pub min_position: V3c<u32>,
     pub size: u32,

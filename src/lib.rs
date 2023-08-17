@@ -8,6 +8,8 @@
 // - octants to have names after all?
 // - Remove debug traits
 // - have a safeguard for tests where infinite loop is expected
+// - Implement lazy-loading
+// - featurize bencode as it is optional
 
 pub mod spatial;
 pub mod octree;
