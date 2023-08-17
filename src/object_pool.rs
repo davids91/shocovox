@@ -11,6 +11,14 @@ struct ReusableItem<T> {
     item: T,
 }
 
+pub fn key_none_value() -> usize {
+    usize::MAX
+}
+
+pub fn key_might_be_some(key: usize) -> bool {
+    key < usize::MAX
+}
+
 #[cfg(feature = "serialization")]
 use std::fs::File;
 #[cfg(feature = "serialization")]
@@ -44,32 +52,6 @@ impl<
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
         Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
-    }
-}
-
-/// The key which identifies an element inside the ObjectPool
-#[cfg_attr(
-    feature = "serialization",
-    derive(serde::Serialize, serde::Deserialize)
-)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct ItemKey(usize);
-
-impl Default for ItemKey {
-    fn default() -> Self {
-        ItemKey(usize::MAX)
-    }
-}
-
-impl ItemKey {
-    pub fn none_value() -> Self {
-        ItemKey(usize::MAX)
-    }
-    pub fn is_some(&self) -> bool {
-        self.0 < usize::MAX
-    }
-    pub fn is_none(&self) -> bool {
-        !self.is_some()
     }
 }
 
@@ -114,13 +96,17 @@ impl<
         }
     }
 
-    pub(crate) fn push(&mut self, item: T) -> ItemKey {
+    pub(crate) fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    pub(crate) fn push(&mut self, item: T) -> usize {
         let key = self.allocate();
         *self.get_mut(key) = item;
         key
     }
 
-    pub(crate) fn allocate(&mut self) -> ItemKey {
+    pub(crate) fn allocate(&mut self) -> usize {
         let key = if self.check_first_available() {
             self.first_available
         } else {
@@ -142,37 +128,37 @@ impl<
         if self.is_next_available() {
             self.first_available += 1;
         }
-        ItemKey(key)
+        key
     }
 
-    pub(crate) fn pop(&mut self, key: ItemKey) -> Option<T> {
-        if key.0 < self.buffer.len() && self.buffer[key.0].reserved {
-            self.buffer[key.0].reserved = false;
-            self.first_available = self.first_available.min(key.0);
-            Some(std::mem::take(&mut self.buffer[key.0].item))
+    pub(crate) fn pop(&mut self, key: usize) -> Option<T> {
+        if key < self.buffer.len() && self.buffer[key].reserved {
+            self.buffer[key].reserved = false;
+            self.first_available = self.first_available.min(key);
+            Some(std::mem::take(&mut self.buffer[key].item))
         } else {
             None
         }
     }
 
-    pub(crate) fn free(&mut self, key: ItemKey) -> bool {
-        if key.0 < self.buffer.len() && self.buffer[key.0].reserved {
-            self.buffer[key.0].reserved = false;
-            self.first_available = self.first_available.min(key.0);
+    pub(crate) fn free(&mut self, key: usize) -> bool {
+        if key < self.buffer.len() && self.buffer[key].reserved {
+            self.buffer[key].reserved = false;
+            self.first_available = self.first_available.min(key);
             true
         } else {
             false
         }
     }
 
-    pub(crate) fn get(&self, key: ItemKey) -> &T {
-        assert!(key.0 < self.buffer.len() && self.buffer[key.0].reserved);
-        &self.buffer[key.0].item
+    pub(crate) fn get(&self, key: usize) -> &T {
+        assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        &self.buffer[key].item
     }
 
-    pub(crate) fn get_mut(&mut self, key: ItemKey) -> &mut T {
-        assert!(key.0 < self.buffer.len() && self.buffer[key.0].reserved);
-        &mut self.buffer[key.0].item
+    pub(crate) fn get_mut(&mut self, key: usize) -> &mut T {
+        assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        &mut self.buffer[key].item
     }
 
     #[cfg(feature = "serialization")]

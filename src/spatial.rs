@@ -57,7 +57,7 @@ impl CubeFaces {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
@@ -68,6 +68,22 @@ pub struct Cube {
 }
 
 impl Cube {
+    pub fn root_bounds(size: u32) -> Self {
+        Self {
+            min_position: V3c::unit(0),
+            size,
+        }
+    }
+
+    /// Creates a bounding box within an area described by the min_position and size, for the given octant
+    pub(crate) fn child_bounds_for(bounds: &Cube, octant: usize) -> Cube {
+        let child_size = bounds.size / 2;
+        Cube {
+            min_position: (bounds.min_position + (offset_region(octant) * child_size)),
+            size: child_size,
+        }
+    }
+
     pub fn midpoint(&self) -> V3c<f32> {
         V3c::unit(self.size as f32 / 2.) + self.min_position.into()
     }
@@ -118,15 +134,6 @@ impl Cube {
                     direction,
                 }
             }
-        }
-    }
-
-    /// Creates a bounding box within an area described by the min_position and size, for the given octant
-    pub(crate) fn child_bounds_for(min_position: V3c<u32>, size: u32, octant: usize) -> Cube {
-        let child_size = size / 2;
-        Cube {
-            min_position: (min_position + (offset_region(octant) * child_size)),
-            size: child_size,
         }
     }
 
@@ -275,42 +282,42 @@ mod raytracing_tests {
         };
 
         // Test front bottom left
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 0);
+        let bound_fbl = Cube::child_bounds_for(&cube, 0);
         assert!(bound_fbl.min_position == V3c::unit(0));
         assert!(bound_fbl.size == 5);
 
         // Test front bottom right
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 1);
+        let bound_fbl = Cube::child_bounds_for(&cube, 1);
         assert!(bound_fbl.min_position == V3c::new(5, 0, 0));
         assert!(bound_fbl.size == 5);
 
         // Test back bottom left
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 2);
+        let bound_fbl = Cube::child_bounds_for(&cube, 2);
         assert!(bound_fbl.min_position == V3c::new(0, 0, 5));
         assert!(bound_fbl.size == 5);
 
         // Test back bottom right
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 3);
+        let bound_fbl = Cube::child_bounds_for(&cube, 3);
         assert!(bound_fbl.min_position == V3c::new(5, 0, 5));
         assert!(bound_fbl.size == 5);
 
         // Test front top left
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 4);
+        let bound_fbl = Cube::child_bounds_for(&cube, 4);
         assert!(bound_fbl.min_position == V3c::new(0, 5, 0));
         assert!(bound_fbl.size == 5);
 
         // Test front top right
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 5);
+        let bound_fbl = Cube::child_bounds_for(&cube, 5);
         assert!(bound_fbl.min_position == V3c::new(5, 5, 0));
         assert!(bound_fbl.size == 5);
 
         // Test back top left
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 6);
+        let bound_fbl = Cube::child_bounds_for(&cube, 6);
         assert!(bound_fbl.min_position == V3c::new(0, 5, 5));
         assert!(bound_fbl.size == 5);
 
         // Test back top right
-        let bound_fbl = Cube::child_bounds_for(cube.min_position, cube.size, 7);
+        let bound_fbl = Cube::child_bounds_for(&cube, 7);
         assert!(bound_fbl.min_position == V3c::new(5, 5, 5));
         assert!(bound_fbl.size == 5);
     }

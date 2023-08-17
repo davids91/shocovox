@@ -10,6 +10,7 @@
 // - have a safeguard for tests where infinite loop is expected
 // - Implement lazy-loading
 // - featurize bencode as it is optional
+// - extend Nodes to contain "simplified" date ( instead of Option<T> where is_some == node is a leaf)
 
 pub mod spatial;
 pub mod octree;

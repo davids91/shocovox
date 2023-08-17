@@ -6,71 +6,39 @@ pub enum Error {
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
-///####################################################################################
-/// Node
-///####################################################################################
-#[derive(Default)]
-#[cfg_attr(
-    feature = "serialization",
-    derive(serde::Serialize, serde::Deserialize)
-)]
-struct Node<T: Default> {
-    bounds: Cube,
-    content: Option<T>,
-    children: [crate::object_pool::ItemKey; 8],
+/// Returns whether the given bound contains the given position.
+pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
+    position.x >= bounds.min_position.x
+        && position.x <= bounds.min_position.x + bounds.size
+        && position.y >= bounds.min_position.y
+        && position.y <= bounds.min_position.y + bounds.size
+        && position.z >= bounds.min_position.z
+        && position.z <= bounds.min_position.z + bounds.size
 }
 
-impl<T: Default> Node<T>
-where
-    T: Default,
-{
-    /// Returns whether the `Node` contains the given position.
-    pub(crate) fn contains(&self, position: &V3c<u32>) -> bool {
-        position.x >= self.bounds.min_position.x
-            && position.x <= self.bounds.min_position.x + self.bounds.size
-            && position.y >= self.bounds.min_position.y
-            && position.y <= self.bounds.min_position.y + self.bounds.size
-            && position.z >= self.bounds.min_position.z
-            && position.z <= self.bounds.min_position.z + self.bounds.size
-    }
-
-    /// Returns with the index of the child in the children array
-    pub(crate) fn child_octant_for(&self, position: &V3c<u32>) -> usize {
-        assert!(self.contains(position));
-        hash_region(
-            &(*position - self.bounds.min_position).into(),
-            self.bounds.size as f32,
-        )
-    }
-
-    /// Returns with the immediate child of it at the position, should there be one there
-    pub(crate) fn child_at(&self, position: &V3c<u32>) -> ItemKey {
-        self.children[self.child_octant_for(position)]
-    }
-
-    pub(crate) fn is_leaf(&self) -> bool {
-        self.content.is_some()
-    }
-
-    pub(crate) fn bounds_at(&self, octant: usize) -> Cube {
-        Cube::child_bounds_for(self.bounds.min_position, self.bounds.size, octant)
-    }
+pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> usize {
+    assert!(bound_contains(bounds, position));
+    hash_region(
+        &(*position - bounds.min_position).into(),
+        bounds.size as f32,
+    )
 }
 
 ///####################################################################################
 /// Octree
 ///####################################################################################
-use crate::object_pool::{ItemKey, ObjectPool};
+use crate::object_pool::ObjectPool;
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
 )]
 pub struct Octree<Content: Default> {
     pub auto_simplify: bool,
-    root_node: ItemKey,
-    nodes: ObjectPool<Node<Content>>,
+    root_node: usize,
+    root_size: u32,
+    nodes: ObjectPool<Option<Content>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
+    node_children: Vec<usize>,
 }
-
 
 #[cfg(feature = "serialization")]
 use std::fs::File;
@@ -107,112 +75,55 @@ where
             // Only multiples of two are valid sizes
             return Err(Error::InvalidNodeSize(size));
         }
-        let mut nodes = ObjectPool::<Node<T>>::with_capacity(size.pow(3) as usize);
+        let mut nodes = ObjectPool::<Option<T>>::with_capacity(size.pow(3) as usize);
+        let mut node_children = Vec::with_capacity((size.pow(3) * 8) as usize);
+        node_children.resize(8, crate::object_pool::key_none_value());
         Ok(Self {
             auto_simplify: true,
-            root_node: nodes.push(Node {
-                bounds: Cube {
-                    min_position: V3c::default(),
-                    size,
-                },
-                ..Default::default()
-            }),
+            root_node: nodes.push(None),
+            root_size: size,
             nodes,
+            node_children,
         })
     }
 
-    fn make_uniform_children(
-        &mut self,
-        min_position: V3c<u32>,
-        child_size: u32,
-        content: T,
-    ) -> [ItemKey; 8] {
-        [
-            self.nodes.push(Node {
-                bounds: Cube::child_bounds_for(min_position, child_size, 0),
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(1) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(2) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(3) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(4) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(5) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(6) * child_size,
-                    size: child_size,
-                },
-                content: Some(content.clone()),
-                ..Default::default()
-            }),
-            self.nodes.push(Node {
-                bounds: Cube {
-                    min_position: min_position + offset_region(7) * child_size,
-                    size: child_size,
-                },
-                content: Some(content),
-                ..Default::default()
-            }),
-        ]
+    fn children_of(&self, node: usize) -> &[usize] {
+        &self.node_children[(node * 8)..(node * 8 + 8)]
+    }
+    fn mutable_children_of(&mut self, node: usize) -> &mut [usize] {
+        &mut self.node_children[(node * 8)..(node * 8 + 8)]
     }
 
-    fn deallocate_children_of(&mut self, node: &ItemKey) {
+    fn make_uniform_children(&mut self, content: T) -> [usize; 8] {
+        let children = [
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content.clone())),
+            self.nodes.push(Some(content)),
+        ];
+        self.node_children
+            .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
+        children
+    }
+
+    fn deallocate_children_of(&mut self, node: usize) {
         let mut to_deallocate = Vec::new();
-        for child in self.nodes.get_mut(*node).children.iter_mut() {
-            if child.is_some() {
+        for child in self.children_of(node).iter() {
+            if crate::object_pool::key_might_be_some(*child) {
                 to_deallocate.push(*child);
             }
         }
         for child in to_deallocate {
-            self.deallocate_children_of(&child); // Recursion should be fine as depth is not expceted to be more, than 32
+            self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
             self.nodes.free(child);
         }
-        self.nodes.get_mut(*node).children = [
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-            ItemKey::none_value(),
-        ];
+        for child in self.mutable_children_of(node).iter_mut() {
+            *child = crate::object_pool::key_none_value();
+        }
     }
 
     pub fn insert(&mut self, position: &V3c<u32>, data: T) -> Result<(), Error> {
@@ -230,7 +141,8 @@ where
             return Err(Error::InvalidNodeSize(min_node_size));
         }
 
-        if !self.nodes.get(self.root_node).contains(position) {
+        let root_bounds = Cube::root_bounds(self.root_size);
+        if !bound_contains(&root_bounds, position) {
             return Err(Error::InvalidPosition {
                 x: position.x,
                 y: position.y,
@@ -239,68 +151,80 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![self.root_node];
+        let mut node_stack = vec![(self.root_node, root_bounds)];
         loop {
-            let current_node_key = *node_stack.last().unwrap();
-            let current_size = self.nodes.get(current_node_key).bounds.size;
-            let target_child_octant = self.nodes.get(current_node_key).child_octant_for(position);
-            if current_size > min_node_size {
+            let (current_node_key, current_bounds) = *node_stack.last().unwrap();
+            let target_child_octant = child_octant_for(&current_bounds, position);
+
+            if current_bounds.size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
-                if self.nodes.get(current_node_key).children[target_child_octant].is_some() {
-                    node_stack.push(self.nodes.get(current_node_key).children[target_child_octant]);
+                if crate::object_pool::key_might_be_some(
+                    self.children_of(current_node_key)[target_child_octant],
+                ) {
+                    node_stack.push((
+                        self.children_of(current_node_key)[target_child_octant],
+                        Cube {
+                            min_position: current_bounds.min_position
+                                + offset_region(target_child_octant) * current_bounds.size / 2,
+                            size: current_bounds.size / 2,
+                        },
+                    ));
                 } else {
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_leaf()
-                        && *self.nodes.get(current_node_key).content.as_ref().unwrap() == data
+                    if self.nodes.get(current_node_key).is_some()
+                        && *self.nodes.get(current_node_key).as_ref().unwrap() == data
                     {
                         // The current Node is a leaf, but the data stored equals the data to be set, so no need to go deeper as tha data already matches
                         break;
                     }
-                    let current_node_min_position =
-                        self.nodes.get(current_node_key).bounds.min_position;
-                    if self.nodes.get(current_node_key).is_leaf()
-                        && *self.nodes.get(current_node_key).content.as_ref().unwrap() != data
+                    if self.nodes.get(current_node_key).is_some()
+                        && *self.nodes.get(current_node_key).as_ref().unwrap() != data
                     {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let current_content = self.nodes.get(current_node_key).content.clone();
-                        let new_children = self.make_uniform_children(
-                            current_node_min_position,
-                            self.nodes.get(current_node_key).bounds.size,
-                            current_content.unwrap(),
-                        );
-                        self.nodes.get_mut(current_node_key).content = None;
-                        self.nodes.get_mut(current_node_key).children = new_children;
-                        node_stack
-                            .push(self.nodes.get(current_node_key).children[target_child_octant]);
+                        let current_content = self.nodes.get(current_node_key).clone();
+                        let new_children = self.make_uniform_children(current_content.unwrap());
+                        *self.nodes.get_mut(current_node_key) = None;
+                        self.mutable_children_of(current_node_key)
+                            .copy_from_slice(&new_children);
+                        node_stack.push((
+                            self.children_of(current_node_key)[target_child_octant],
+                            Cube {
+                                min_position: current_bounds.min_position
+                                    + offset_region(target_child_octant) * current_bounds.size / 2,
+                                size: current_bounds.size / 2,
+                            },
+                        ));
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
-                        let child_size = &self.nodes.get(current_node_key).bounds.size / 2;
-                        node_stack.push(self.nodes.push(Node {
-                            bounds: Cube {
-                                min_position: current_node_min_position
-                                    + offset_region(target_child_octant) * child_size,
-                                size: child_size,
-                            },
-                            ..Default::default()
-                        }));
+                        let child_key = self.nodes.push(None);
+                        self.node_children
+                            .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
 
-                        self.nodes.get_mut(current_node_key).children[target_child_octant] =
-                            *node_stack.last().unwrap();
+                        node_stack.push((
+                            child_key,
+                            Cube {
+                                min_position: current_bounds.min_position
+                                    + offset_region(target_child_octant) * current_bounds.size / 2,
+                                size: current_bounds.size / 2,
+                            },
+                        ));
+                        self.mutable_children_of(current_node_key)[target_child_octant] =
+                            node_stack.last().unwrap().0;
                     }
                 }
             } else {
-                // current_size == min_node_size, which is the desired depth, so set content of current node
-                self.nodes.get_mut(current_node_key).content = Some(data);
-                self.deallocate_children_of(node_stack.last().unwrap());
+                // current_bounds.size == min_node_size, which is the desired depth, so set content of current node
+                *self.nodes.get_mut(current_node_key) = Some(data);
+                self.deallocate_children_of(node_stack.last().unwrap().0);
                 break;
             }
         }
 
         if self.auto_simplify {
-            for node_key in node_stack.into_iter().rev() {
-                if !self.simplify(&node_key) {
+            for (node_key, _node_bounds) in node_stack.into_iter().rev() {
+                if !self.simplify(node_key) {
                     break; // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
                 }
             }
@@ -309,19 +233,22 @@ where
     }
 
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
-        if !self.nodes.get(self.root_node).contains(position) {
+        let mut current_bounds = Cube::root_bounds(self.root_size);
+        if !bound_contains(&current_bounds, position) {
             return None;
         }
 
         let mut current_node_key = self.root_node;
         loop {
-            if self.nodes.get(current_node_key).is_leaf() {
-                return self.nodes.get(current_node_key).content.as_ref();
+            if self.nodes.get(current_node_key).is_some() {
+                return self.nodes.get(current_node_key).as_ref();
             }
-
-            let child_at_position = self.nodes.get(current_node_key).child_at(position);
-            if child_at_position.is_some() {
+            let current_node = self.nodes.get(current_node_key);
+            let child_octant_at_position = child_octant_for(&current_bounds, position);
+            let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
+            if crate::object_pool::key_might_be_some(child_at_position) {
                 current_node_key = child_at_position;
+                current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
             } else {
                 return None;
             }
@@ -329,40 +256,43 @@ where
     }
 
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
-        if !self.nodes.get(self.root_node).contains(position) {
+        let mut current_bounds = Cube::root_bounds(self.root_size);
+        if !bound_contains(&current_bounds, position) {
             return None;
         }
 
         let mut current_node_key = self.root_node;
         loop {
-            if self.nodes.get(current_node_key).is_leaf() {
-                return self.nodes.get_mut(current_node_key).content.as_mut();
+            if self.nodes.get(current_node_key).is_some() {
+                return self.nodes.get_mut(current_node_key).as_mut();
             }
-
-            let child_at_position = self.nodes.get(current_node_key).child_at(position);
-            if child_at_position.is_some() {
+            let current_node = self.nodes.get(current_node_key);
+            let child_octant_at_position = child_octant_for(&current_bounds, position);
+            let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
+            if crate::object_pool::key_might_be_some(child_at_position) {
                 current_node_key = child_at_position;
+                current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
             } else {
                 return None;
             }
         }
     }
 
-    fn node(&self, key: &ItemKey) -> Option<&Node<T>> {
-        if key.is_some() {
-            return Some(self.nodes.get(*key));
+    fn node(&self, node: usize) -> Option<&Option<T>> {
+        if crate::object_pool::key_might_be_some(node) {
+            return Some(self.nodes.get(node));
         }
         None
     }
 
-    fn simplify(&mut self, node: &ItemKey) -> bool {
+    fn simplify(&mut self, node: usize) -> bool {
         let mut data = None;
-        if node.is_some() {
+        if crate::object_pool::key_might_be_some(node) {
             for i in 0..8 {
-                let child_key = &self.node(node).unwrap().children[i];
+                let child_key = self.children_of(node)[i];
                 if let Some(child) = self.node(child_key) {
-                    if child.is_leaf() {
-                        let leaf_data = child.content.clone().unwrap();
+                    if child.is_some() {
+                        let leaf_data = child.clone().unwrap();
                         if data.as_ref().is_none() {
                             data = Some(leaf_data);
                         } else if *data.as_ref().unwrap() != leaf_data {
@@ -375,7 +305,7 @@ where
                     return false;
                 }
             }
-            self.nodes.get_mut(*node).content = data;
+            *self.nodes.get_mut(node) = data;
             self.deallocate_children_of(node); // no need to use this as all the children are leaves, but it's more understanfdable this way
             true
         } else {
@@ -392,8 +322,8 @@ where
             // Only multiples of two are valid sizes
             return Err(Error::InvalidNodeSize(min_node_size));
         }
-
-        if !self.nodes.get(self.root_node).contains(position) {
+        let root_bounds = Cube::root_bounds(self.root_size);
+        if !bound_contains(&root_bounds, position) {
             return Err(Error::InvalidPosition {
                 x: position.x,
                 y: position.y,
@@ -402,34 +332,44 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![self.root_node];
+        let mut node_stack = vec![(self.root_node, root_bounds)];
         let mut target_child_octant = 9; //This init value should not be used. In case there is only one node, there is parent of it;
         loop {
-            let current_node_key = *node_stack.last().unwrap();
-            let current_size = self.nodes.get(current_node_key).bounds.size;
-            if current_size > min_node_size {
+            let (current_node_key, current_bounds) = *node_stack.last().unwrap();
+            if current_bounds.size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
-                target_child_octant = self.nodes.get(current_node_key).child_octant_for(position);
-                if self.nodes.get(current_node_key).children[target_child_octant].is_some() {
-                    node_stack.push(self.nodes.get(current_node_key).children[target_child_octant]);
+                target_child_octant = child_octant_for(&current_bounds, position);
+                if crate::object_pool::key_might_be_some(
+                    self.children_of(current_node_key)[target_child_octant],
+                ) {
+                    //Iteration needs to go deeper
+                    node_stack.push((
+                        self.children_of(current_node_key)[target_child_octant],
+                        Cube {
+                            min_position: current_bounds.min_position
+                                + offset_region(target_child_octant) * current_bounds.size / 2,
+                            size: current_bounds.size / 2,
+                        },
+                    ));
                 } else {
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_leaf() {
+                    if self.nodes.get(current_node_key).is_some() {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let current_node_min_position =
-                            self.nodes.get(current_node_key).bounds.min_position;
-                        let current_content = self.nodes.get(current_node_key).content.clone();
-                        let new_children = self.make_uniform_children(
-                            current_node_min_position,
-                            self.nodes.get(current_node_key).bounds.size,
-                            current_content.unwrap(),
-                        );
-                        self.nodes.get_mut(current_node_key).content = None;
-                        self.nodes.get_mut(current_node_key).children = new_children;
-                        node_stack
-                            .push(self.nodes.get(current_node_key).children[target_child_octant]);
+                        let current_content = self.nodes.get(current_node_key).clone();
+                        let new_children = self.make_uniform_children(current_content.unwrap());
+                        *self.nodes.get_mut(current_node_key) = None;
+                        self.mutable_children_of(current_node_key)
+                            .copy_from_slice(&new_children);
+                        node_stack.push((
+                            self.children_of(current_node_key)[target_child_octant],
+                            Cube {
+                                min_position: current_bounds.min_position
+                                    + offset_region(target_child_octant) * current_bounds.size / 2,
+                                size: current_bounds.size / 2,
+                            },
+                        ));
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position.
                         // Nothing to do, because child didn't exist in the first place
@@ -437,15 +377,14 @@ where
                     }
                 }
             } else {
-                // current_size == min_node_size, which is the desired depth, so unset the current node and its children
-                self.deallocate_children_of(&current_node_key);
+                // current_bounds.size == min_node_size, which is the desired depth, so unset the current node and its children
+                self.deallocate_children_of(current_node_key);
                 self.nodes.free(current_node_key);
 
                 // Set the parents child to None
                 if node_stack.len() >= 2 && target_child_octant < 9 {
-                    self.nodes
-                        .get_mut(node_stack[node_stack.len() - 2])
-                        .children[target_child_octant] = ItemKey::none_value();
+                    self.mutable_children_of(node_stack[node_stack.len() - 2].0)
+                        [target_child_octant] = crate::object_pool::key_none_value();
                 }
                 break;
             }
@@ -458,162 +397,7 @@ where
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &crate::spatial::Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
-        // println!("Root Node {:?}", self.node(&self.root_node).unwrap().bounds);
-        // println!("Getting by {ray:?}");
-        let mut current_d = 0.; // Current distance from the ray origin
-        let mut last_hit; // The intersection of the ray with the currently examined node
-        if let Some(hit) = self
-            .node(&self.root_node)
-            .unwrap()
-            .bounds
-            .intersect_ray(ray)
-        {
-            // println!("Intersects root");
-            last_hit = hit;
-            if let Some(entry_distance) = hit.impact_distance {
-                // println!("..with entry point");
-                current_d = entry_distance;
-                if self.node(&self.root_node).unwrap().is_leaf() {
-                    return Some((
-                        self.node(&self.root_node)
-                            .unwrap()
-                            .content
-                            .as_ref()
-                            .unwrap(),
-                        ray.point_at(entry_distance),
-                        hit.impact_normal,
-                    ));
-                }
-            }
-            //Not having an entry distance means the ray starts inside the root node
-        } else {
-            return None;
-        }
-
-        let mut stack = vec![self.root_node];
-        let mut advance_safeguard = 0;
-        let exit_correction = 0.001;
-        while !stack.is_empty() {
-            let current_node = self.node(stack.last().unwrap()).unwrap();
-            // println!("Current Node {:?}", current_node.bounds);
-            // println!(
-            //     "Ray at {current_d:?} + exit_correction: {:?}",
-            //     ray.point_at(current_d + exit_correction)
-            // );
-            if !current_node.bounds.contains_point(&ray.point_at(current_d)) {
-                stack.pop();
-                // println!("POP OOB");
-                continue;
-            }
-            if current_node.is_leaf() {
-                //the current node is a leaf, it's entry point distance was set in a previous loop in current_d
-                // println!("HIT");
-                return Some((
-                    current_node.content.as_ref().unwrap(),
-                    ray.point_at(if let Some(impact_distance) = last_hit.impact_distance {
-                        impact_distance
-                    } else {
-                        // If there is no impact entry distance, then the ray is already inside bounds
-                        0.
-                    }),
-                    last_hit.impact_normal,
-                ));
-            }
-
-            // the child closest to the ray origin is revealed by the relative position
-            // of the ray at the node entry to the node midpoint.
-            // this guarantees that the child node bounds intersect with the ray
-            let current_point_in_ray = current_node.bounds.midpoint();
-            let current_point_in_ray = current_point_in_ray
-                + (ray.point_at(current_d + exit_correction) - current_node.bounds.midpoint()) * 3.;
-            let target_child_octant = hash_region(
-                &(current_point_in_ray - current_node.bounds.min_position.into()),
-                current_node.bounds.size as f32,
-            );
-            assert!(target_child_octant < 8);
-            // println!(
-            //     "current octant offset base: {:?}",
-            //     ray.point_at(current_d) - current_node.bounds.min_position.into()
-            // );
-            // println!(
-            //     "target octant {target_child_octant:?} bounds: {:?}; target child key: {:?}",
-            //     current_node.bounds_at(target_child_octant),
-            //     current_node.children[target_child_octant]
-            // );
-
-            if let Some(hit) = current_node
-                .bounds_at(target_child_octant)
-                .intersect_ray(ray)
-            {
-                // println!(
-                //     "Entry point: {:?}, exit point: (d:{:?}){:?}",
-                //     if let Some(hit_point) = hit.impact_distance {
-                //         format!("(d:{hit_point:?}){:?}", ray.point_at(hit_point))
-                //     } else {
-                //         "x".to_string()
-                //     },
-                //     hit.exit_distance,
-                //     ray.point_at(hit.exit_distance)
-                // );
-                // println!("current node children: {:?}", current_node.children);
-                last_hit = hit;
-                if current_node.children[target_child_octant].is_some() {
-                    // There is a deeper level to explore! Update the ray as it shall march into this node
-                    // If there's no impact distance(only exit distance) with the child bound, then the ray originates from it
-                    // and no need to update current_d in that case
-                    if let Some(impact_distance) = hit.impact_distance {
-                        current_d = impact_distance.max(current_d);
-                    }
-                    // println!("PUSH to {current_d:?}");
-                    stack.push(current_node.children[target_child_octant]);
-                    advance_safeguard = 0;
-                } else if current_node
-                    .bounds
-                    .contains_point(&ray.point_at(hit.exit_distance + exit_correction))
-                    && advance_safeguard < 3
-                // a little bit after exit distance to avoid node edges
-                {
-                    // the child node at the entry point of of the ray doesn't have content;
-                    // but the current node still contains the ray after the exit point of it.
-                    // Continue with the sibling based on the position after the current nodes exit point
-                    //TODO: put a safeguard to advance!
-                    // //ver 1
-                    current_d = hit.exit_distance.max(current_d);
-                    advance_safeguard += 1;
-                    // // //ver 1 fix 1
-                    // if let Some(impact_distance) = child_hit.impact_distance {
-                    //     if impact_distance == child_hit.exit_distance {
-                    //         // if the impact is at the edge of an inner boundary
-                    //         current_d += exit_correction;
-                    //         println!("edge correction...");
-                    //     }
-                    // }
-                    // // ver 2 ( maybe needs ver 1 fix 1 )
-                    // if let Some(impact_distance) = hit.impact_distance {
-                    //     current_d += hit.exit_distance - impact_distance;
-                    // } else {
-                    //     current_d = hit.exit_distance + exit_correction
-                    // }
-                    // // ver 3?! idk anymore
-                    // if let Some(impact_distance) = parent_hit.impact_distance {
-                    //     current_d += (parent_hit.exit_distance - impact_distance) / 2.;
-                    // } else {
-                    //     current_d = child_hit.exit_distance;
-                    // }
-                    // println!("ADVANCE to {current_d:?}");
-                } else {
-                    // the current node doesn't contain the ray after the childs exit point
-                    // so search needs to continue one level above
-                    current_d = hit.exit_distance.max(current_d);
-                    stack.pop();
-                    advance_safeguard = 0;
-                    // println!("POP");
-                }
-            } else {
-                unreachable!();
-            }
-        }
-        None // no node contained data intersecting with the ray
+        todo!()
     }
 }
 
