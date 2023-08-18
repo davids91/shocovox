@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["serialization"]
+default = []
 raytracing = [] #["dep:image", "dep:show-image"] # conflicts with serde!
-serialization = ["dep:serde", "dep:bendy"]
+serialization = ["dep:serde"]
 
 [dependencies]
-# for serialization
 serde = { version = "1.0.183", features = ["derive"], optional = true }
-bendy = { version = "0.3.3", features = ["std", "serde"], optional = true }
+bendy = { git = "https://github.com/davids91/bendy.git" , features = ["std", "serde"]}
 
 # for example cpu_render
 image = { version = "0.24.6", optional = true }
