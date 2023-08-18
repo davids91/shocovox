@@ -1,16 +1,11 @@
 // TODO:
-// - failing tests: test_edge_case_loop_stuck and test_edge_case_edge_raycast
-// - switch from exit distance logic to flip logic 
-// --> exit points matching coordinate with the nodes center flips the idx on the corresponding coordinate
-// - consider if storing midpoint in the cube would worth it; or if min_position and size neds to be stored
-// - create trait for data instead of the generic T
-// - add Vulkan API wrapper/bevy wrapper ( or both? )
+// - create trait for data instead of the generic T; T would also implement Bencode traits so user doesn't have to
+// - Actually implement raycast logic
+// - add Vulkan API wrapper/bevy wrapper for raycasting( or both? )
 // - octants to have names after all?
 // - Remove debug traits
 // - have a safeguard for tests where infinite loop is expected
 // - Implement lazy-loading
-// - featurize bencode as it is optional
-// - extend Nodes to contain "simplified" date ( instead of Option<T> where is_some == node is a leaf)
 
 pub mod spatial;
 pub mod octree;

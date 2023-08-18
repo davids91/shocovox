@@ -24,50 +24,235 @@ pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> usize {
     )
 }
 
+
+#[cfg(feature = "serialization")]
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+
+#[derive(Default)]
+#[cfg_attr(
+    feature = "serialization",
+    derive(Serialize, Deserialize)
+)]
+enum NodeContent<T> {
+    #[default]
+    Nothing,
+    Leaf(T),
+}
+
+impl<T> NodeContent<T> {
+    pub fn is_leaf(&self) -> bool {
+        match self {
+            NodeContent::Leaf(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn leaf_data(&self) -> &T {
+        match self {
+            NodeContent::Leaf(t) => &t,
+            _ => panic!("leaf_data was called for NodeContent<T> where there is no content!"),
+        }
+    }
+
+    pub fn as_leaf_ref(&self) -> Option<&T> {
+        match self {
+            NodeContent::Leaf(t) => Some(&t),
+            _ => None,
+        }
+    }
+
+    pub fn as_mut_leaf_ref(&mut self) -> Option<&mut T> {
+        match self {
+            NodeContent::Leaf(t) => Some(t),
+            _ => None,
+        }
+    }
+}
+
+use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+impl<T> ToBencode for NodeContent<T>
+where
+    T: Default + ToBencode,
+{
+    const MAX_DEPTH: usize = 4;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        if self.is_leaf() {
+            encoder.emit_list(|e| {
+                e.emit_str("###")?;
+                e.emit(self.leaf_data())
+            })
+        } else {
+            encoder.emit_str("##x##")
+        }
+    }
+}
+
+use bendy::decoding::{FromBencode, Object};
+impl<T> FromBencode for NodeContent<T>
+where
+    T: FromBencode,
+{
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                list.next_object()?; // Shopuld be "###"
+                if let Some(o) = list.next_object()? {
+                    Ok(NodeContent::Leaf(T::decode_bencode_object(o)?))
+                } else {
+                    Err(bendy::decoding::Error::missing_field(
+                        "Content of Leaf NodeContent object",
+                    ))
+                }
+                // let s = String::from_utf8(list.next_object()?.unwrap().try_into_bytes()?.to_vec())?;
+                // if s == "###" {
+                //     if let Some(o) = list.next_object()? {
+                //         Ok(NodeContent::Leaf(T::decode_bencode_object(o)?))
+                //     } else {
+                //         Err(bendy::decoding::Error::missing_field(
+                //             "Content of Leaf NodeContent object",
+                //         ))
+                //     }
+                // } else {
+                //     Err(bendy::decoding::Error::unexpected_token(
+                //         "A NodeContent Object marker for 'something'",
+                //         s,
+                //     ))
+                // }
+            }
+            Object::Bytes(_b) => {
+                Ok(NodeContent::Nothing)
+                // let s = String::from_utf8(b.to_vec())?;
+                // if s == "##x##" {
+                //     Ok(NodeContent::Nothing)
+                // } else {
+                //     Err(bendy::decoding::Error::unexpected_token(
+                //         "A NodeContent Object marker for 'nothing'",
+                //         s,
+                //     ))
+                // }
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "A NodeContent Object",
+                "Something else",
+            )),
+        }
+    }
+}
+
 ///####################################################################################
 /// Octree
 ///####################################################################################
 use crate::object_pool::ObjectPool;
 #[cfg_attr(
     feature = "serialization",
-    derive(serde::Serialize, serde::Deserialize)
+    derive(Serialize, Deserialize)
 )]
-pub struct Octree<Content: Default> {
+pub struct Octree<T: Default + ToBencode + FromBencode> {
     pub auto_simplify: bool,
     root_node: usize,
     root_size: u32,
-    nodes: ObjectPool<Option<Content>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
+    nodes: ObjectPool<NodeContent<T>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
     node_children: Vec<usize>,
 }
 
-#[cfg(feature = "serialization")]
 use std::fs::File;
-#[cfg(feature = "serialization")]
 use std::io::Read;
-#[cfg(feature = "serialization")]
 use std::io::Write;
 
+
+impl<T> ToBencode for Octree<T>
+where
+    T: Default + ToBencode + FromBencode,
+{
+    const MAX_DEPTH: usize = 8;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit_int(self.auto_simplify as u8)?;
+            e.emit_int(self.root_node as u8)?;
+            e.emit_int(self.root_size as u8)?;
+            e.emit(&self.nodes)?;
+            e.emit(&self.node_children)
+        })
+    }
+}
+
+impl<T> FromBencode for Octree<T>
+where
+    T: Default + ToBencode + FromBencode,
+{
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let auto_simplify = match list.next_object()?.unwrap() {
+                    Object::Integer(i) if i == "0" => Ok(false),
+                    Object::Integer(i) if i == "1" => Ok(true),
+                    Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field auto_simplify",
+                        format!("the number: {}", i),
+                    )),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field auto_simplify",
+                        "Something else",
+                    )),
+                }?;
+
+                let root_node = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<usize>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field root_node_key",
+                        "Something else",
+                    )),
+                }?;
+                let root_size = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field root_size",
+                        "Something else",
+                    )),
+                }?;
+                let nodes = ObjectPool::<NodeContent<T>>::decode_bencode_object(
+                    list.next_object()?.unwrap(),
+                )?;
+                let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
+                Ok(Self {
+                    auto_simplify,
+                    root_node,
+                    root_size,
+                    nodes,
+                    node_children,
+                })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
+        }
+    }
+}
+
 impl<
-        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default,
+        #[cfg(feature = "serialization")] T: Default + ToBencode + FromBencode + Serialize + DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
     > Octree<T>
 where
     T: Default + PartialEq + Clone + std::fmt::Debug,
 {
-    #[cfg(feature = "serialization")]
+    pub fn to_bytes(&self) -> Vec<u8>{
+        self.to_bencode().ok().unwrap()
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Self{
+        Self::from_bencode(&bytes).ok().unwrap()
+    }
+
     pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
-        let bytes = bendy::serde::to_bytes(&self).ok().unwrap();
         let mut file = File::create(path)?;
-        file.write_all(&bytes)?;
+        file.write_all(&self.to_bytes())?;
         Ok(())
     }
 
-    #[cfg(feature = "serialization")]
     pub fn load(path: &str) -> Result<Self, std::io::Error> {
         let mut file = File::open(path)?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)?;
-        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
+        Ok(Self::from_bytes(bytes))
     }
 
     pub fn new(size: u32) -> Result<Self, Error> {
@@ -75,12 +260,12 @@ where
             // Only multiples of two are valid sizes
             return Err(Error::InvalidNodeSize(size));
         }
-        let mut nodes = ObjectPool::<Option<T>>::with_capacity(size.pow(3) as usize);
+        let mut nodes = ObjectPool::<NodeContent<T>>::with_capacity(size.pow(3) as usize);
         let mut node_children = Vec::with_capacity((size.pow(3) * 8) as usize);
         node_children.resize(8, crate::object_pool::key_none_value());
         Ok(Self {
             auto_simplify: true,
-            root_node: nodes.push(None),
+            root_node: nodes.push(NodeContent::default()),
             root_size: size,
             nodes,
             node_children,
@@ -96,14 +281,14 @@ where
 
     fn make_uniform_children(&mut self, content: T) -> [usize; 8] {
         let children = [
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content.clone())),
-            self.nodes.push(Some(content)),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content.clone())),
+            self.nodes.push(NodeContent::Leaf(content)),
         ];
         self.node_children
             .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
@@ -171,21 +356,21 @@ where
                     ));
                 } else {
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_some()
-                        && *self.nodes.get(current_node_key).as_ref().unwrap() == data
+                    if self.nodes.get(current_node_key).is_leaf()
+                        && *self.nodes.get(current_node_key).leaf_data() == data
                     {
                         // The current Node is a leaf, but the data stored equals the data to be set, so no need to go deeper as tha data already matches
                         break;
                     }
-                    if self.nodes.get(current_node_key).is_some()
-                        && *self.nodes.get(current_node_key).as_ref().unwrap() != data
+                    if self.nodes.get(current_node_key).is_leaf()
+                        && *self.nodes.get(current_node_key).leaf_data() != data
                     {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let current_content = self.nodes.get(current_node_key).clone();
-                        let new_children = self.make_uniform_children(current_content.unwrap());
-                        *self.nodes.get_mut(current_node_key) = None;
+                        let content = self.nodes.get(current_node_key).clone();
+                        let new_children = self.make_uniform_children(content.leaf_data().clone());
+                        *self.nodes.get_mut(current_node_key) = NodeContent::default();
                         self.mutable_children_of(current_node_key)
                             .copy_from_slice(&new_children);
                         node_stack.push((
@@ -198,7 +383,7 @@ where
                         ));
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
-                        let child_key = self.nodes.push(None);
+                        let child_key = self.nodes.push(NodeContent::default());
                         self.node_children
                             .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
 
@@ -216,7 +401,7 @@ where
                 }
             } else {
                 // current_bounds.size == min_node_size, which is the desired depth, so set content of current node
-                *self.nodes.get_mut(current_node_key) = Some(data);
+                *self.nodes.get_mut(current_node_key) = NodeContent::Leaf(data);
                 self.deallocate_children_of(node_stack.last().unwrap().0);
                 break;
             }
@@ -240,10 +425,9 @@ where
 
         let mut current_node_key = self.root_node;
         loop {
-            if self.nodes.get(current_node_key).is_some() {
-                return self.nodes.get(current_node_key).as_ref();
+            if self.nodes.get(current_node_key).is_leaf() {
+                return self.nodes.get(current_node_key).as_leaf_ref();
             }
-            let current_node = self.nodes.get(current_node_key);
             let child_octant_at_position = child_octant_for(&current_bounds, position);
             let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
             if crate::object_pool::key_might_be_some(child_at_position) {
@@ -263,10 +447,9 @@ where
 
         let mut current_node_key = self.root_node;
         loop {
-            if self.nodes.get(current_node_key).is_some() {
-                return self.nodes.get_mut(current_node_key).as_mut();
+            if self.nodes.get(current_node_key).is_leaf() {
+                return self.nodes.get_mut(current_node_key).as_mut_leaf_ref();
             }
-            let current_node = self.nodes.get(current_node_key);
             let child_octant_at_position = child_octant_for(&current_bounds, position);
             let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
             if crate::object_pool::key_might_be_some(child_at_position) {
@@ -278,27 +461,22 @@ where
         }
     }
 
-    fn node(&self, node: usize) -> Option<&Option<T>> {
+    fn get_node_leaf_data(&self, node: usize) -> Option<&T> {
         if crate::object_pool::key_might_be_some(node) {
-            return Some(self.nodes.get(node));
+            return self.nodes.get(node).as_leaf_ref();
         }
         None
     }
 
     fn simplify(&mut self, node: usize) -> bool {
-        let mut data = None;
+        let mut data = NodeContent::Nothing;
         if crate::object_pool::key_might_be_some(node) {
             for i in 0..8 {
                 let child_key = self.children_of(node)[i];
-                if let Some(child) = self.node(child_key) {
-                    if child.is_some() {
-                        let leaf_data = child.clone().unwrap();
-                        if data.as_ref().is_none() {
-                            data = Some(leaf_data);
-                        } else if *data.as_ref().unwrap() != leaf_data {
-                            return false;
-                        }
-                    } else {
+                if let Some(leaf_data) = self.get_node_leaf_data(child_key) {
+                    if !data.is_leaf() {
+                        data = NodeContent::Leaf(leaf_data.clone());
+                    } else if data.leaf_data() != leaf_data {
                         return false;
                     }
                 } else {
@@ -353,13 +531,15 @@ where
                     ));
                 } else {
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_some() {
+                    if self.nodes.get(current_node_key).is_leaf() {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let current_content = self.nodes.get(current_node_key).clone();
-                        let new_children = self.make_uniform_children(current_content.unwrap());
-                        *self.nodes.get_mut(current_node_key) = None;
+                        let current_content = self.nodes.get(current_node_key);
+                        assert!(current_content.is_leaf());
+                        let new_children =
+                            self.make_uniform_children(current_content.leaf_data().clone());
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
                         self.mutable_children_of(current_node_key)
                             .copy_from_slice(&new_children);
                         node_stack.push((
@@ -414,61 +594,62 @@ mod octree_tests {
 
     #[test]
     fn test_simple_insert_and_get() {
-        let mut tree = Octree::<f32>::new(2).ok().unwrap();
-        tree.auto_simplify = false;
-        tree.insert(&V3c::new(1, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 0), 6.0).ok();
-        tree.insert(&V3c::new(0, 0, 1), 7.0).ok();
 
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6.0);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 7.0);
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
+        tree.auto_simplify = false;
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 6).ok();
+        tree.insert(&V3c::new(0, 0, 1), 7).ok();
+
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6);
+        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 7);
         assert!(tree.get(&V3c::new(1, 1, 1)).is_none());
     }
 
     #[test]
     fn test_get_mut() {
-        let mut tree = Octree::<f32>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
         tree.auto_simplify = false;
-        tree.insert(&V3c::new(1, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 0), 6.0).ok();
-        tree.insert(&V3c::new(0, 0, 1), 7.0).ok();
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 6).ok();
+        tree.insert(&V3c::new(0, 0, 1), 7).ok();
 
-        assert!(*tree.get_mut(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get_mut(&V3c::new(0, 1, 0)).unwrap() == 6.0);
-        assert!(*tree.get_mut(&V3c::new(0, 0, 1)).unwrap() == 7.0);
+        assert!(*tree.get_mut(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get_mut(&V3c::new(0, 1, 0)).unwrap() == 6);
+        assert!(*tree.get_mut(&V3c::new(0, 0, 1)).unwrap() == 7);
         assert!(tree.get_mut(&V3c::new(1, 1, 1)).is_none());
     }
 
     #[test]
     fn test_insert_at_lod() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.auto_simplify = false;
 
         // This will set the area equal to 8 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 2, 5.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 2, 5).ok();
 
-        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5.0);
+        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
 
         // This will set the area equal to 64 1-sized nodes:
         // a size-4 node includes 2 levels,
         // 1-sized nodes at the bottom level doesn't have children,
         // 2-sized nodes above have 8 children each
         // so one 4-sized node has 8*8 = 64 children
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 1.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 1).ok();
         let mut hits = 0;
         for x in 0..4 {
             for y in 0..4 {
                 for z in 0..4 {
                     if tree.get(&V3c::new(x, y, z)).is_some()
-                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1.0
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1
                     {
                         hits += 1;
                     }
@@ -480,32 +661,32 @@ mod octree_tests {
 
     #[test]
     fn test_insert_at_lod_with_simplify() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         // This will set the area equal to 8 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 2, 5.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 2, 5).ok();
 
-        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5.0);
+        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
 
         // This will set the area equal to 64 1-sized nodes:
         // a size-4 node includes 2 levels,
         // 1-sized nodes at the bottom level doesn't have children,
         // 2-sized nodes above have 8 children each
         // so one 4-sized node has 8*8 = 64 children
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 1.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 1).ok();
         let mut hits = 0;
         for x in 0..4 {
             for y in 0..4 {
                 for z in 0..4 {
                     if tree.get(&V3c::new(x, y, z)).is_some()
-                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1.0
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1
                     {
                         hits += 1;
                     }
@@ -517,81 +698,81 @@ mod octree_tests {
 
     #[test]
     fn test_simplifyable_insert_and_get() {
-        let mut tree = Octree::<f32>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
 
         // The below set of values should be simplified to a single node
-        tree.insert(&V3c::new(0, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 0, 1), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 1), 5.0).ok();
-        tree.insert(&V3c::new(1, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(1, 0, 1), 5.0).ok();
-        tree.insert(&V3c::new(1, 1, 0), 5.0).ok();
-        tree.insert(&V3c::new(1, 1, 1), 5.0).ok();
+        tree.insert(&V3c::new(0, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 0, 1), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 1), 5).ok();
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(1, 0, 1), 5).ok();
+        tree.insert(&V3c::new(1, 1, 0), 5).ok();
+        tree.insert(&V3c::new(1, 1, 1), 5).ok();
 
         // The below should brake the simplified node back to its party
-        tree.insert(&V3c::new(0, 0, 0), 4.0).ok();
+        tree.insert(&V3c::new(0, 0, 0), 4).ok();
 
         // Integrity should be kept
-        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 4.0);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5.0);
+        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 4);
+        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
     }
 
     #[test]
     fn test_simple_clear() {
-        let mut tree = Octree::<f32>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
         tree.auto_simplify = false;
-        tree.insert(&V3c::new(1, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 0), 6.0).ok();
-        tree.insert(&V3c::new(0, 0, 1), 7.0).ok();
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 6).ok();
+        tree.insert(&V3c::new(0, 0, 1), 7).ok();
         tree.clear(&V3c::new(0, 0, 1)).ok();
 
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6.0);
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6);
         assert!(tree.get(&V3c::new(0, 0, 1)).is_none());
         assert!(tree.get(&V3c::new(1, 1, 1)).is_none());
     }
 
     #[test]
     fn test_simplifyable_clear() {
-        let mut tree = Octree::<f32>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
 
         // The below set of values should be simplified to a single node
-        tree.insert(&V3c::new(0, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 0, 1), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 0), 5.0).ok();
-        tree.insert(&V3c::new(0, 1, 1), 5.0).ok();
-        tree.insert(&V3c::new(1, 0, 0), 5.0).ok();
-        tree.insert(&V3c::new(1, 0, 1), 5.0).ok();
-        tree.insert(&V3c::new(1, 1, 0), 5.0).ok();
-        tree.insert(&V3c::new(1, 1, 1), 5.0).ok();
+        tree.insert(&V3c::new(0, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 0, 1), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 1), 5).ok();
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(1, 0, 1), 5).ok();
+        tree.insert(&V3c::new(1, 1, 0), 5).ok();
+        tree.insert(&V3c::new(1, 1, 1), 5).ok();
 
         // The below should brake the simplified node back to its party
         tree.clear(&V3c::new(0, 0, 0)).ok();
 
         // Integrity should be kept
         assert!(tree.get(&V3c::new(0, 0, 0)).is_none());
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5.0);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5.0);
+        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
     }
 
     #[test]
     fn test_clear_at_lod() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         // This will set the area equal to 64 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok();
 
         // This will clear an area equal to 8 1-sized nodes
         tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
@@ -601,7 +782,7 @@ mod octree_tests {
             for y in 0..4 {
                 for z in 0..4 {
                     if tree.get(&V3c::new(x, y, z)).is_some()
-                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 5.0
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 5
                     {
                         hits += 1;
                     }
@@ -616,17 +797,17 @@ mod octree_tests {
     #[cfg(feature = "serialization")]
     #[test]
     fn test_octree_file_io() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         // This will set the area equal to 64 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5.0).ok();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok();
 
         // This will clear an area equal to 8 1-sized nodes
         tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
 
         // save andd load into a new tree
         tree.save("test_junk_octree").ok();
-        let tree_copy = Octree::<f32>::load("test_junk_octree").ok().unwrap();
+        let tree_copy = Octree::<u32>::load("test_junk_octree").ok().unwrap();
 
         let mut hits = 0;
         for x in 0..4 {
@@ -634,7 +815,7 @@ mod octree_tests {
                 for z in 0..4 {
                     assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
                     if tree_copy.get(&V3c::new(x, y, z)).is_some()
-                        && *tree_copy.get(&V3c::new(x, y, z)).unwrap() == 5.0
+                        && *tree_copy.get(&V3c::new(x, y, z)).unwrap() == 5
                     {
                         hits += 1;
                     }
@@ -650,11 +831,11 @@ mod octree_tests {
     use rand::{rngs::ThreadRng, Rng};
 
     #[cfg(feature = "raytracing")]
-    fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
+    fn make_ray_point_to(target: &V3c<u32>, rng: &mut ThreadRng) -> Ray {
         let origin = V3c {
-            x: rng.gen_range(4..10) as f32,
-            y: rng.gen_range(4..10) as f32,
-            z: rng.gen_range(4..10) as f32,
+            x: rng.gen_range(4..10) as u32,
+            y: rng.gen_range(4..10) as u32,
+            z: rng.gen_range(4..10) as u32,
         };
         Ray {
             direction: (*target - origin).normalized(),
@@ -666,7 +847,7 @@ mod octree_tests {
     #[test]
     fn test_get_by_ray() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         let mut filled = Vec::new();
         let mut not_filled = Vec::new();
         for x in 1..2 {
@@ -698,7 +879,7 @@ mod octree_tests {
     #[test]
     fn test_get_by_ray_from_inside() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<f32>::new(16).ok().unwrap();
+        let mut tree = Octree::<u32>::new(16).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
@@ -724,7 +905,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_unreachable() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(3, 0, 0), 0.).ok();
         tree.insert(&V3c::new(3, 3, 0), 1.).ok();
         tree.insert(&V3c::new(0, 3, 0), 2.).ok();
@@ -754,7 +935,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_edges() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(3, 0, 0), 0.).ok();
         tree.insert(&V3c::new(3, 3, 0), 1.).ok();
         tree.insert(&V3c::new(0, 3, 0), 2.).ok();
@@ -791,7 +972,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_ray_behind_octree() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(0, 3, 0), 5.).ok();
         let origin = V3c::new(2., 2., -5.);
         let ray = Ray {
@@ -807,7 +988,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_overlapping_voxels() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(0, 0, 0), 5.).ok();
         tree.insert(&V3c::new(1, 0, 0), 6.).ok();
 
@@ -829,7 +1010,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_edge_raycast() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
@@ -855,7 +1036,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_voxel_corner() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
@@ -882,7 +1063,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_bottom_edge() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
@@ -909,7 +1090,7 @@ mod octree_tests {
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_loop_stuck() {
-        let mut tree = Octree::<f32>::new(4).ok().unwrap();
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
         tree.insert(&V3c::new(3, 0, 0), 0.).ok();
         tree.insert(&V3c::new(3, 3, 0), 1.).ok();
         tree.insert(&V3c::new(0, 3, 0), 2.).ok();

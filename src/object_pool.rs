@@ -19,39 +19,48 @@ pub fn key_might_be_some(key: usize) -> bool {
     key < usize::MAX
 }
 
-#[cfg(feature = "serialization")]
-use std::fs::File;
-#[cfg(feature = "serialization")]
-use std::io::Read;
-#[cfg(feature = "serialization")]
-use std::io::Write;
-
-impl<
-        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default,
-    > ReusableItem<T>
+use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+impl<T> ToBencode for ReusableItem<T>
+where
+    T: ToBencode,
 {
-    pub fn create(item: T) -> Self {
-        Self {
-            reserved: false,
-            item,
+    const MAX_DEPTH: usize = 4;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit_int(self.reserved as u8)?;
+            e.emit(&self.item)
+        })
+    }
+}
+
+use bendy::decoding::{FromBencode, Object};
+impl<T> FromBencode for ReusableItem<T>
+where
+    T: FromBencode,
+{
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let reserved = match list.next_object()?.unwrap() {
+                    Object::Integer(i) if i == "0" => Ok(false),
+                    Object::Integer(i) if i == "1" => Ok(true),
+                    Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field reserved",
+                        format!("the number: {}", i),
+                    )),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field reserved",
+                        "Something else",
+                    )),
+                }?;
+                let item = T::decode_bencode_object(list.next_object()?.unwrap())?;
+                Ok(Self { item, reserved })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "List of ReusableItem<T> fields",
+                "Something else",
+            )),
         }
-    }
-
-    #[cfg(feature = "serialization")]
-    pub fn write(&self, path: String) -> Result<(), std::io::Error> {
-        let bytes = bendy::serde::to_bytes(self).ok().unwrap();
-        let mut file = File::create(path)?;
-        file.write_all(&bytes)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "serialization")]
-    pub fn read(path: String) -> Result<Self, std::io::Error> {
-        let mut file = File::open(path)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
     }
 }
 
@@ -65,6 +74,47 @@ impl<
 pub(crate) struct ObjectPool<T: Default> {
     buffer: Vec<ReusableItem<T>>, // Pool of objects to be reused
     first_available: usize,       // the index of the first available item
+}
+
+impl<T> ToBencode for ObjectPool<T>
+where
+    T: Default + ToBencode,
+{
+    const MAX_DEPTH: usize = 4;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit_int(self.first_available as usize)?;
+            e.emit(&self.buffer)
+        })
+    }
+}
+
+impl<T> FromBencode for ObjectPool<T>
+where
+    T: FromBencode + Default,
+{
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let first_available = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<usize>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field first_available",
+                        "Something else",
+                    )),
+                }?;
+                let buffer = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
+                Ok(Self {
+                    first_available,
+                    buffer,
+                })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "List of ObjectPool<T> fields",
+                "Something else",
+            )),
+        }
+    }
 }
 
 impl<
@@ -160,22 +210,6 @@ impl<
         assert!(key < self.buffer.len() && self.buffer[key].reserved);
         &mut self.buffer[key].item
     }
-
-    #[cfg(feature = "serialization")]
-    pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
-        let bytes = bendy::serde::to_bytes(&self).ok().unwrap();
-        let mut file = File::create(path)?;
-        file.write_all(&bytes)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "serialization")]
-    pub fn load(path: &str) -> Result<Self, std::io::Error> {
-        let mut file = File::open(path)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(bendy::serde::from_bytes(&bytes).ok().unwrap())
-    }
 }
 
 #[cfg(test)]
@@ -205,29 +239,5 @@ mod tests {
 
         pool.free(key);
         assert!(pool.pop(key).is_none());
-    }
-
-    #[cfg(feature = "serialization")]
-    #[test]
-    fn test_reusable_item_file_io() {
-        use super::ReusableItem;
-        let item = ReusableItem::create(5.0);
-        item.write("test_junk_item".to_string()).ok().unwrap();
-        let cache_item = ReusableItem::read("test_junk_item".to_string())
-            .ok()
-            .unwrap();
-        assert!(item.item == cache_item.item);
-    }
-
-    #[cfg(feature = "serialization")]
-    #[test]
-    fn test_pool_file_io() {
-        let mut pool = ObjectPool::<f32>::with_capacity(3);
-        let test_value = 5.;
-        let key = pool.push(test_value);
-        pool.save("test_junk_pool").ok();
-
-        let copy_pool = ObjectPool::<f32>::load("test_junk_pool").ok().unwrap();
-        assert!(*copy_pool.get(key) == test_value);
     }
 }
