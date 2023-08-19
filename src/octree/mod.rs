@@ -1,13 +1,12 @@
-pub mod raytracing;
 pub mod bytecode;
 pub mod detail;
+pub mod raytracing;
 
-use crate::octree::detail::{NodeContent, bound_contains, child_octant_for};
-use crate::spatial::math::{V3c, hash_region, offset_region};
+use crate::object_pool::key_none_value;
+use crate::octree::detail::{bound_contains, child_octant_for, NodeChildren, NodeContent};
+use crate::spatial::math::{hash_region, offset_region, V3c};
 use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
-
-
 
 /// error types during usage or creation of the octree
 pub enum OctreeError {
@@ -22,7 +21,7 @@ pub struct Octree<T: Default + ToBencode + FromBencode> {
     root_node: usize,
     root_size: u32,
     nodes: ObjectPool<NodeContent<T>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
-    node_children: Vec<usize>,
+    node_children: Vec<NodeChildren<usize>>, // Children index values of each Node
 }
 
 impl<
@@ -30,7 +29,7 @@ impl<
         #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
     > Octree<T>
 where
-    T: Default + PartialEq + Clone + std::fmt::Debug,
+    T: Default + PartialEq + Clone,
 {
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -68,11 +67,11 @@ where
             return Err(OctreeError::InvalidNodeSize(size));
         }
         let mut nodes = ObjectPool::<NodeContent<T>>::with_capacity(size.pow(3) as usize);
-        let mut node_children = Vec::with_capacity((size.pow(3) * 8) as usize);
-        node_children.resize(8, crate::object_pool::key_none_value());
+        let mut node_children = Vec::with_capacity(size.pow(3) as usize);
+        node_children.push(NodeChildren::new(key_none_value()));
         Ok(Self {
             auto_simplify: true,
-            root_node: nodes.push(NodeContent::default()),
+            root_node: nodes.push(NodeContent::Nothing),
             root_size: size,
             nodes,
             node_children,
@@ -114,10 +113,10 @@ where
             if current_bounds.size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if crate::object_pool::key_might_be_some(
-                    self.children_of(current_node_key)[target_child_octant],
+                    self.node_children[current_node_key][target_child_octant],
                 ) {
                     node_stack.push((
-                        self.children_of(current_node_key)[target_child_octant],
+                        self.node_children[current_node_key][target_child_octant],
                         Cube {
                             min_position: current_bounds.min_position
                                 + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -140,11 +139,10 @@ where
                         // as separate Nodes with the same data as their parent to keep integrity
                         let content = self.nodes.get(current_node_key).clone();
                         let new_children = self.make_uniform_children(content.leaf_data().clone());
-                        *self.nodes.get_mut(current_node_key) = NodeContent::default();
-                        self.mutable_children_of(current_node_key)
-                            .copy_from_slice(&new_children);
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
+                        self.node_children[current_node_key].set(new_children);
                         node_stack.push((
-                            self.children_of(current_node_key)[target_child_octant],
+                            self.node_children[current_node_key][target_child_octant],
                             Cube {
                                 min_position: current_bounds.min_position
                                     + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -153,9 +151,11 @@ where
                         ));
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
-                        let child_key = self.nodes.push(NodeContent::default());
-                        self.node_children
-                            .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
+                        let child_key = self.nodes.push(NodeContent::Nothing);
+                        self.node_children.resize(
+                            self.nodes.len(),
+                            NodeChildren::new(key_none_value()),
+                        );
 
                         node_stack.push((
                             child_key,
@@ -165,7 +165,7 @@ where
                                 size: current_bounds.size / 2,
                             },
                         ));
-                        self.mutable_children_of(current_node_key)[target_child_octant] =
+                        self.node_children[current_node_key][target_child_octant] =
                             node_stack.last().unwrap().0;
                     }
                 }
@@ -200,7 +200,7 @@ where
                 return self.nodes.get(current_node_key).as_leaf_ref();
             }
             let child_octant_at_position = child_octant_for(&current_bounds, position);
-            let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
+            let child_at_position = self.node_children[current_node_key][child_octant_at_position];
             if crate::object_pool::key_might_be_some(child_at_position) {
                 current_node_key = child_at_position;
                 current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
@@ -223,7 +223,7 @@ where
                 return self.nodes.get_mut(current_node_key).as_mut_leaf_ref();
             }
             let child_octant_at_position = child_octant_for(&current_bounds, position);
-            let child_at_position = self.children_of(current_node_key)[child_octant_at_position];
+            let child_at_position = self.node_children[current_node_key][child_octant_at_position];
             if crate::object_pool::key_might_be_some(child_at_position) {
                 current_node_key = child_at_position;
                 current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
@@ -266,11 +266,11 @@ where
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if crate::object_pool::key_might_be_some(
-                    self.children_of(current_node_key)[target_child_octant],
+                    self.node_children[current_node_key][target_child_octant],
                 ) {
                     //Iteration needs to go deeper
                     node_stack.push((
-                        self.children_of(current_node_key)[target_child_octant],
+                        self.node_children[current_node_key][target_child_octant],
                         Cube {
                             min_position: current_bounds.min_position
                                 + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -288,10 +288,9 @@ where
                         let new_children =
                             self.make_uniform_children(current_content.leaf_data().clone());
                         *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
-                        self.mutable_children_of(current_node_key)
-                            .copy_from_slice(&new_children);
+                        self.node_children[current_node_key].set(new_children);
                         node_stack.push((
-                            self.children_of(current_node_key)[target_child_octant],
+                            self.node_children[current_node_key][target_child_octant],
                             Cube {
                                 min_position: current_bounds.min_position
                                     + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -311,8 +310,8 @@ where
 
                 // Set the parents child to None
                 if node_stack.len() >= 2 && target_child_octant < 9 {
-                    self.mutable_children_of(node_stack[node_stack.len() - 2].0)
-                        [target_child_octant] = crate::object_pool::key_none_value();
+                    let parent_key = node_stack[node_stack.len() - 2].0;
+                    self.node_children[parent_key][target_child_octant] = key_none_value();
                 }
                 break;
             }

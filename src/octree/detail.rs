@@ -1,12 +1,16 @@
-use crate::octree::{V3c, Cube, Octree, hash_region};
+use crate::object_pool::key_none_value;
+use crate::octree::{hash_region, Cube, Octree, V3c};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
+#[cfg(feature = "serialization")]
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
 ///####################################################################################
-/// Node and support types, functions for Octree
+/// Utility functions
 ///####################################################################################
 
 /// Returns whether the given bound contains the given position.
-pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
+pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
     position.x >= bounds.min_position.x
         && position.x <= bounds.min_position.x + bounds.size
         && position.y >= bounds.min_position.y
@@ -16,7 +20,7 @@ pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
 }
 
 /// Returns with the octant value(i.e. index) of the child for the given position
-pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> usize {
+pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> usize {
     assert!(bound_contains(bounds, position));
     hash_region(
         &(*position - bounds.min_position).into(),
@@ -24,16 +28,96 @@ pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> usize {
     )
 }
 
-#[cfg(feature = "serialization")]
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+///####################################################################################
+/// NodeChildrenArray
+///####################################################################################
+#[derive(Default, Copy, Clone)]
+pub(in crate::octree) enum NodeChildrenArray<T: Default> {
+    #[default]
+    NoChildren,
+    Children([T; 8]),
+}
+
+#[derive(Copy, Clone)]
+pub(in crate::octree) struct NodeChildren<T: Default> {
+    default_key: T,
+    pub(in crate::octree) content: NodeChildrenArray<T>,
+}
+
+impl<T> NodeChildren<T>
+where
+    T: Default + Copy + Clone,
+{
+    pub(in crate::octree) fn new(default_key: T) -> Self {
+        Self {
+            default_key,
+            content: NodeChildrenArray::default(),
+        }
+    }
+
+    pub(in crate::octree) fn from(default_key: T, children: [T; 8]) -> Self {
+        Self {
+            default_key,
+            content: NodeChildrenArray::Children(children),
+        }
+    }
+
+    pub(in crate::octree) fn iter(&self) -> Option<std::slice::Iter<T>> {
+        match &self.content {
+            NodeChildrenArray::Children(c) => Some(c.iter()),
+            _ => None,
+        }
+    }
+
+    pub(in crate::octree) fn set(&mut self, children: [T; 8]) {
+        self.content = NodeChildrenArray::Children(children)
+    }
+}
+
+///####################################################################################
+/// NodeChildren
+///####################################################################################
+use std::ops::{Index, IndexMut};
+impl<T> Index<usize> for NodeChildren<T>
+where
+    T: Default + Copy + Clone,
+{
+    type Output = T;
+    fn index(&self, index: usize) -> &T {
+        match &self.content {
+            NodeChildrenArray::Children(c) => &c[index],
+            _ => &self.default_key,
+        }
+    }
+}
+
+impl<T> IndexMut<usize> for NodeChildren<T>
+where
+    T: Default + Copy + Clone,
+{
+    fn index_mut(&mut self, index: usize) -> &mut T {
+        if let NodeChildrenArray::NoChildren = &mut self.content {
+            self.content = NodeChildrenArray::Children([self.default_key; 8]);
+        }
+        match &mut self.content {
+            NodeChildrenArray::Children(c) => &mut c[index],
+            _ => unreachable!(),
+        }
+    }
+}
 
 #[derive(Default)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(in crate::octree)enum NodeContent<T> {
+pub(in crate::octree) enum NodeContent<T> {
     #[default]
     Nothing,
     Leaf(T),
 }
+
+///####################################################################################
+/// NodeContent
+///####################################################################################
 
 impl<T> NodeContent<T> {
     pub fn is_leaf(&self) -> bool {
@@ -65,7 +149,6 @@ impl<T> NodeContent<T> {
     }
 }
 
-
 ///####################################################################################
 /// Octree
 ///####################################################################################
@@ -77,16 +160,8 @@ impl<
         #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
     > Octree<T>
 where
-    T: Default + PartialEq + Clone + std::fmt::Debug,
+    T: Default + PartialEq + Clone,
 {
-    pub(in crate::octree) fn children_of(&self, node: usize) -> &[usize] {
-        &self.node_children[(node * 8)..(node * 8 + 8)]
-    }
-
-    pub(in crate::octree) fn mutable_children_of(&mut self, node: usize) -> &mut [usize] {
-        &mut self.node_children[(node * 8)..(node * 8 + 8)]
-    }
-
     pub(in crate::octree) fn make_uniform_children(&mut self, content: T) -> [usize; 8] {
         let children = [
             self.nodes.push(NodeContent::Leaf(content.clone())),
@@ -99,24 +174,24 @@ where
             self.nodes.push(NodeContent::Leaf(content)),
         ];
         self.node_children
-            .resize(self.nodes.len() * 8, crate::object_pool::key_none_value());
+            .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
         children
     }
 
     pub(in crate::octree) fn deallocate_children_of(&mut self, node: usize) {
         let mut to_deallocate = Vec::new();
-        for child in self.children_of(node).iter() {
-            if crate::object_pool::key_might_be_some(*child) {
-                to_deallocate.push(*child);
+        if let Some(children) = self.node_children[node].iter() {
+            for child in children {
+                if crate::object_pool::key_might_be_some(*child) {
+                    to_deallocate.push(*child);
+                }
+            }
+            for child in to_deallocate {
+                self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
+                self.nodes.free(child);
             }
         }
-        for child in to_deallocate {
-            self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
-            self.nodes.free(child);
-        }
-        for child in self.mutable_children_of(node).iter_mut() {
-            *child = crate::object_pool::key_none_value();
-        }
+        self.node_children[node].content = NodeChildrenArray::NoChildren;
     }
 
     pub(in crate::octree) fn get_node_leaf_data(&self, node: usize) -> Option<&T> {
@@ -130,7 +205,7 @@ where
         let mut data = NodeContent::Nothing;
         if crate::object_pool::key_might_be_some(node) {
             for i in 0..8 {
-                let child_key = self.children_of(node)[i];
+                let child_key = self.node_children[node][i];
                 if let Some(leaf_data) = self.get_node_leaf_data(child_key) {
                     if !data.is_leaf() {
                         data = NodeContent::Leaf(leaf_data.clone());

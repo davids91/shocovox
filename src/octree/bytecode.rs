@@ -1,5 +1,5 @@
-use crate::octree::{NodeContent, Octree};
 use crate::object_pool::ObjectPool;
+use crate::octree::{detail::NodeChildrenArray, NodeChildren, NodeContent, Octree};
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
@@ -64,14 +64,70 @@ where
                 // }
             }
             _ => Err(bendy::decoding::Error::unexpected_token(
-                "A NodeContent Object",
+                "A NodeContent Object, either a List or a ByteString",
                 "Something else",
             )),
         }
     }
 }
 
+// using generic arguments means the default key needs to be serialzied along with the data, which means a lot of wasted space..
+// so serialization for the current ObjectPool key is adequate; The engineering hour cost of implementing new serialization logic
+// every time the ObjectPool::Itemkey type changes is acepted.
+impl ToBencode for NodeChildren<usize> {
+    const MAX_DEPTH: usize = 4;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        match &self.content {
+            NodeChildrenArray::Children(c) => encoder.emit_list(|e| {
+                e.emit(c[0])?;
+                e.emit(c[1])?;
+                e.emit(c[2])?;
+                e.emit(c[3])?;
+                e.emit(c[4])?;
+                e.emit(c[5])?;
+                e.emit(c[6])?;
+                e.emit(c[7])
+            }),
+            NodeChildrenArray::NoChildren => encoder.emit_str("##x##"),
+        }
+    }
+}
 
+impl FromBencode for NodeChildren<usize> {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        use crate::object_pool::key_none_value;
+        match data {
+            Object::List(mut list) => {
+                // let mut children_array : [usize; 8];
+                let mut c = Vec::new();
+                for _ in 0..8 {
+                    c.push(
+                        usize::decode_bencode_object(list.next_object()?.unwrap())
+                            .ok()
+                            .unwrap(),
+                    );
+                }
+                Ok(NodeChildren::from(
+                    key_none_value(),
+                    c.try_into().ok().unwrap(),
+                ))
+            }
+            Object::Bytes(_b) =>
+            // Should be "##x##"
+            {
+                Ok(NodeChildren::new(key_none_value()))
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "A NodeChildren Object, Either a List or a ByteString",
+                "Something else",
+            )),
+        }
+    }
+}
+
+///####################################################################################
+/// Octree
+///####################################################################################
 impl<T> ToBencode for Octree<T>
 where
     T: Default + ToBencode + FromBencode,

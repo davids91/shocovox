@@ -3,7 +3,6 @@
 // - Actually implement raycast logic
 // - add Vulkan API wrapper/bevy wrapper for raycasting( or both? )
 // - octants to have names after all?
-// - Remove debug traits
 // - have a safeguard for tests where infinite loop is expected
 // - Implement lazy-loading
 
