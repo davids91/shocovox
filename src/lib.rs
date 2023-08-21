@@ -5,6 +5,8 @@
 // - octants to have names after all?
 // - have a safeguard for tests where infinite loop is expected
 // - Implement lazy-loading
+// - make ObjectPool threadSafe independenct of octree
+// - make Octree Thread-safe with an RwLock implementation
 
 pub mod spatial;
 pub mod octree;

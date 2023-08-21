@@ -5,8 +5,7 @@ use std::vec::Vec;
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
 )]
-#[derive(Clone)]
-struct ReusableItem<T> {
+struct ReusableItem<T: Clone> {
     reserved: bool,
     item: T,
 }
@@ -22,13 +21,13 @@ pub fn key_might_be_some(key: usize) -> bool {
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 impl<T> ToBencode for ReusableItem<T>
 where
-    T: ToBencode,
+    T: Clone + ToBencode,
 {
-    const MAX_DEPTH: usize = 4;
+    const MAX_DEPTH: usize = 6;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.reserved as u8)?;
-            e.emit(&self.item)
+            e.emit(self.item.clone())
         })
     }
 }
@@ -36,7 +35,7 @@ where
 use bendy::decoding::{FromBencode, Object};
 impl<T> FromBencode for ReusableItem<T>
 where
-    T: FromBencode,
+    T: Clone + FromBencode,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -64,23 +63,27 @@ where
     }
 }
 
+///####################################################################################
+/// ObjectPool
+///####################################################################################
+
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
-#[derive(Default, Clone)]
+#[derive(Default)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
 )]
-pub(crate) struct ObjectPool<T: Default> {
+pub(crate) struct ObjectPool<T: Clone> {
     buffer: Vec<ReusableItem<T>>, // Pool of objects to be reused
     first_available: usize,       // the index of the first available item
 }
 
 impl<T> ToBencode for ObjectPool<T>
 where
-    T: Default + ToBencode,
+    T: Default + Clone + ToBencode,
 {
-    const MAX_DEPTH: usize = 4;
+    const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.first_available as usize)?;
@@ -91,7 +94,7 @@ where
 
 impl<T> FromBencode for ObjectPool<T>
 where
-    T: FromBencode + Default,
+    T: Default + Clone + FromBencode,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -118,8 +121,8 @@ where
 }
 
 impl<
-        #[cfg(feature = "serialization")] T: Default + serde::Serialize + serde::de::DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default,
+        #[cfg(feature = "serialization")] T: Default + Clone + serde::Serialize + serde::de::DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default + Clone,
     > ObjectPool<T>
 {
     pub(crate) fn with_capacity(capacity: usize) -> Self {

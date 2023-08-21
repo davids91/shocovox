@@ -9,6 +9,7 @@ use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 /// error types during usage or creation of the octree
+#[derive(Debug)]
 pub enum OctreeError {
     InvalidNodeSize(u32),
     InvalidPosition { x: u32, y: u32, z: u32 },
@@ -16,7 +17,10 @@ pub enum OctreeError {
 
 use crate::object_pool::ObjectPool;
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct Octree<T: Default + ToBencode + FromBencode> {
+pub struct Octree<T>
+where
+    T: Default + Clone + ToBencode + FromBencode,
+{
     pub auto_simplify: bool,
     root_node: usize,
     root_size: u32,
@@ -152,10 +156,8 @@ where
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
                         let child_key = self.nodes.push(NodeContent::Nothing);
-                        self.node_children.resize(
-                            self.nodes.len(),
-                            NodeChildren::new(key_none_value()),
-                        );
+                        self.node_children
+                            .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
 
                         node_stack.push((
                             child_key,
@@ -283,10 +285,9 @@ where
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let current_content = self.nodes.get(current_node_key);
-                        assert!(current_content.is_leaf());
-                        let new_children =
-                            self.make_uniform_children(current_content.leaf_data().clone());
+                        assert!(self.nodes.get(current_node_key).is_leaf());
+                        let current_data = self.nodes.get(current_node_key).leaf_data().clone();
+                        let new_children = self.make_uniform_children(current_data);
                         *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((

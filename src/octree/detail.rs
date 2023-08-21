@@ -28,9 +28,8 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
     )
 }
 
-
 ///####################################################################################
-/// NodeChildrenArray
+/// NodeChildrenArray + NodeChildren
 ///####################################################################################
 #[derive(Default, Copy, Clone)]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
@@ -47,7 +46,7 @@ pub(in crate::octree) struct NodeChildren<T: Default> {
 
 impl<T> NodeChildren<T>
 where
-    T: Default + Copy + Clone,
+    T: Default + Clone,
 {
     pub(in crate::octree) fn new(default_key: T) -> Self {
         Self {
@@ -75,9 +74,6 @@ where
     }
 }
 
-///####################################################################################
-/// NodeChildren
-///####################################################################################
 use std::ops::{Index, IndexMut};
 impl<T> Index<usize> for NodeChildren<T>
 where
@@ -107,19 +103,25 @@ where
     }
 }
 
+///####################################################################################
+/// NodeContent
+///####################################################################################
 #[derive(Default)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(in crate::octree) enum NodeContent<T> {
+#[derive(Clone)]
+pub(in crate::octree) enum NodeContent<T>
+where
+    T: Clone,
+{
     #[default]
     Nothing,
     Leaf(T),
 }
 
-///####################################################################################
-/// NodeContent
-///####################################################################################
-
-impl<T> NodeContent<T> {
+impl<T> NodeContent<T>
+where
+    T: Clone,
+{
     pub fn is_leaf(&self) -> bool {
         match self {
             NodeContent::Leaf(_) => true,
@@ -194,22 +196,19 @@ where
         self.node_children[node].content = NodeChildrenArray::NoChildren;
     }
 
-    pub(in crate::octree) fn get_node_leaf_data(&self, node: usize) -> Option<&T> {
-        if crate::object_pool::key_might_be_some(node) {
-            return self.nodes.get(node).as_leaf_ref();
-        }
-        None
-    }
-
     pub(in crate::octree) fn simplify(&mut self, node: usize) -> bool {
         let mut data = NodeContent::Nothing;
         if crate::object_pool::key_might_be_some(node) {
             for i in 0..8 {
                 let child_key = self.node_children[node][i];
-                if let Some(leaf_data) = self.get_node_leaf_data(child_key) {
-                    if !data.is_leaf() {
-                        data = NodeContent::Leaf(leaf_data.clone());
-                    } else if data.leaf_data() != leaf_data {
+                if crate::object_pool::key_might_be_some(child_key) {
+                    if let Some(leaf_data) = self.nodes.get(child_key).as_leaf_ref() {
+                        if !data.is_leaf() {
+                            data = NodeContent::Leaf(leaf_data.clone());
+                        } else if data.leaf_data() != leaf_data {
+                            return false;
+                        }
+                    } else {
                         return false;
                     }
                 } else {
@@ -222,46 +221,5 @@ where
         } else {
             false
         }
-    }
-}
-
-///####################################################################################
-/// Tests
-///####################################################################################
-#[cfg(test)]
-mod octree_serialization_tests {
-    use crate::octree::Octree;
-    use crate::octree::V3c;
-
-    #[test]
-    fn test_octree_file_io() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-
-        // This will set the area equal to 64 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok();
-
-        // This will clear an area equal to 8 1-sized nodes
-        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
-
-        // save andd load into a new tree
-        tree.save("test_junk_octree").ok();
-        let tree_copy = Octree::<u32>::load("test_junk_octree").ok().unwrap();
-
-        let mut hits = 0;
-        for x in 0..4 {
-            for y in 0..4 {
-                for z in 0..4 {
-                    assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
-                    if tree_copy.get(&V3c::new(x, y, z)).is_some()
-                        && *tree_copy.get(&V3c::new(x, y, z)).unwrap() == 5
-                    {
-                        hits += 1;
-                    }
-                }
-            }
-        }
-
-        // number of hits should be the number of nodes set minus the number of nodes cleared
-        assert!(hits == (64 - 8));
     }
 }

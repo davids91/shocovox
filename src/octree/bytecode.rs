@@ -4,9 +4,9 @@ use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
 where
-    T: Default + ToBencode,
+    T: Default + Clone + ToBencode,
 {
-    const MAX_DEPTH: usize = 4;
+    const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         if self.is_leaf() {
             encoder.emit_list(|e| {
@@ -22,12 +22,12 @@ where
 use bendy::decoding::{FromBencode, Object};
 impl<T> FromBencode for NodeContent<T>
 where
-    T: FromBencode,
+    T: Clone + FromBencode,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
             Object::List(mut list) => {
-                list.next_object()?; // Shopuld be "###"
+                list.next_object()?; // Should be "###"
                 if let Some(o) = list.next_object()? {
                     Ok(NodeContent::Leaf(T::decode_bencode_object(o)?))
                 } else {
@@ -75,7 +75,7 @@ where
 // so serialization for the current ObjectPool key is adequate; The engineering hour cost of implementing new serialization logic
 // every time the ObjectPool::Itemkey type changes is acepted.
 impl ToBencode for NodeChildren<usize> {
-    const MAX_DEPTH: usize = 4;
+    const MAX_DEPTH: usize = 2;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         match &self.content {
             NodeChildrenArray::Children(c) => encoder.emit_list(|e| {
@@ -130,14 +130,14 @@ impl FromBencode for NodeChildren<usize> {
 ///####################################################################################
 impl<T> ToBencode for Octree<T>
 where
-    T: Default + ToBencode + FromBencode,
+    T: Default + Clone + ToBencode + FromBencode,
 {
-    const MAX_DEPTH: usize = 8;
+    const MAX_DEPTH: usize = 10;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.root_node as u8)?;
-            e.emit_int(self.root_size as u8)?;
+            e.emit_int(self.root_node as u32)?;
+            e.emit_int(self.root_size as u32)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
         })
@@ -146,7 +146,7 @@ where
 
 impl<T> FromBencode for Octree<T>
 where
-    T: Default + ToBencode + FromBencode,
+    T: Default + Clone + ToBencode + FromBencode,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -191,6 +191,72 @@ where
                 })
             }
             _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
+        }
+    }
+}
+
+///####################################################################################
+/// Tests
+///####################################################################################
+#[cfg(test)]
+mod octree_serialization_tests {
+    use crate::octree::Octree;
+    use crate::octree::V3c;
+
+    #[test]
+    fn test_octree_file_io() {
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+
+        // This will set the area equal to 64 1-sized nodes
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok();
+
+        // This will clear an area equal to 8 1-sized nodes
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
+
+        // save andd load into a new tree
+        tree.save("test_junk_octree").ok();
+        let tree_copy = Octree::<u32>::load("test_junk_octree").ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
+                    if tree_copy.get(&V3c::new(x, y, z)).is_some()
+                        && *tree_copy.get(&V3c::new(x, y, z)).unwrap() == 5
+                    {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (64 - 8));
+    }
+
+    #[test]
+    fn test_big_octree_serialize() {
+        let mut tree = Octree::<u32>::new(512).ok().unwrap();
+        for x in 256..300 {
+            for y in 256..300 {
+                for z in 256..300 {
+                    let pos = V3c::new(x, y, z);
+                    tree.insert(&pos, x + y + z).ok().unwrap();
+                }
+            }
+        }
+
+        let serialized = tree.to_bytes();
+        let deserialized = Octree::<u32>::from_bytes(serialized);
+
+        for x in 256..300 {
+            for y in 256..300 {
+                for z in 256..300 {
+                    let pos = V3c::new(x, y, z);
+                    assert!(deserialized.get(&pos).is_some_and(|v| *v == (x + y + z)));
+                }
+            }
         }
     }
 }
