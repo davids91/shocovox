@@ -161,6 +161,7 @@ impl<
 
     pub(crate) fn allocate(&mut self) -> usize {
         let key = if self.check_first_available() {
+            self.buffer[self.first_available].reserved = true;
             self.first_available
         } else {
             // reserve place for additional items
@@ -242,5 +243,19 @@ mod tests {
 
         pool.free(key);
         assert!(pool.pop(key).is_none());
+    }
+
+    #[test]
+    fn test_edge_case_reused_item() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+        let mut pool = ObjectPool::<f32>::with_capacity(3);
+        let test_value = 5.;
+        let key_1 = pool.push(test_value);
+        pool.push(test_value * 2.);
+        pool.pop(key_1);
+        assert!(pool.first_available == 0); // the first item should be available
+
+        pool.push(test_value * 3.);
+        assert!(*pool.get(key_1) == test_value * 3.); // the original key is reused to hold the latest value
     }
 }
