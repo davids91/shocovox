@@ -2,7 +2,10 @@
 /// V3c
 ///####################################################################################
 #[derive(Default, Clone, Copy, Debug)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct V3c<T> {
     pub x: T,
     pub y: T,
@@ -27,18 +30,36 @@ where
 
 impl V3c<f32> {
     pub fn length(&self) -> f32 {
-        (self.x.powf(2.0) + self.y.powf(2.0) + self.z.powf(2.0)).sqrt()
+        ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()
     }
-
     pub fn normalized(self) -> V3c<f32> {
         self / self.length()
     }
+}
 
-    pub fn dot(&self, other: &V3c<f32>) -> f32 {
+impl V3c<u32> {
+    pub fn length(&self) -> f32 {
+        (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
+    }
+    pub fn normalized(self) -> V3c<f32> {
+        let result : V3c<f32> = self.into();
+        result / self.length()
+    }
+}
+
+impl<T> V3c<T>
+where
+    T: std::ops::Mul<Output = T>
+        + std::ops::Div<Output = T>
+        + std::ops::Add<Output = T>
+        + std::ops::Sub<Output = T>
+        + std::marker::Copy,
+{
+    pub fn dot(&self, other: &V3c<T>) -> T {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
-    pub fn cross(self, other: V3c<f32>) -> V3c<f32> {
+    pub fn cross(self, other: V3c<T>) -> V3c<T> {
         V3c {
             x: self.y * other.z - self.z * other.y,
             y: self.z * other.x - self.x * other.z,

@@ -116,7 +116,7 @@ where
 
             if current_bounds.size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
-                if crate::object_pool::key_might_be_some(
+                if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
                 ) {
                     node_stack.push((
@@ -203,7 +203,7 @@ where
             }
             let child_octant_at_position = child_octant_for(&current_bounds, position);
             let child_at_position = self.node_children[current_node_key][child_octant_at_position];
-            if crate::object_pool::key_might_be_some(child_at_position) {
+            if crate::object_pool::key_might_be_valid(child_at_position) {
                 current_node_key = child_at_position;
                 current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
             } else {
@@ -226,7 +226,7 @@ where
             }
             let child_octant_at_position = child_octant_for(&current_bounds, position);
             let child_at_position = self.node_children[current_node_key][child_octant_at_position];
-            if crate::object_pool::key_might_be_some(child_at_position) {
+            if crate::object_pool::key_might_be_valid(child_at_position) {
                 current_node_key = child_at_position;
                 current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
             } else {
@@ -267,7 +267,7 @@ where
             if current_bounds.size > min_node_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 target_child_octant = child_octant_for(&current_bounds, position);
-                if crate::object_pool::key_might_be_some(
+                if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
                 ) {
                     //Iteration needs to go deeper

@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
-raytracing = [] #["dep:image", "dep:show-image"] # conflicts with serde!
+default = ["raytracing"]
+raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!
 serialization = ["dep:serde"]
 
 [dependencies]

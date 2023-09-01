@@ -13,86 +13,140 @@ impl RGB {
     }
 }
 
+use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+
+impl ToBencode for RGB {
+    const MAX_DEPTH: usize = 8;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit_int(self.r)?;
+            e.emit_int(self.g)?;
+            e.emit_int(self.b)
+        })
+    }
+}
+
+use bendy::decoding::{FromBencode, Object};
+impl FromBencode for RGB {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let r = u8::decode_bencode_object(list.next_object()?.unwrap())
+                    .ok()
+                    .unwrap();
+                let g = u8::decode_bencode_object(list.next_object()?.unwrap())
+                    .ok()
+                    .unwrap();
+                let b = u8::decode_bencode_object(list.next_object()?.unwrap())
+                    .ok()
+                    .unwrap();
+                Ok(Self { r, g, b })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "An RGB Object, List of 3 numbers",
+                "Something else",
+            )),
+        }
+    }
+}
+
 #[cfg(feature = "raytracing")]
 use rand::Rng;
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::spatial::math::V3c;
-
-#[cfg(feature = "raytracing")]
-use shocovox_rs::spatial::Ray;
+use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 
 #[cfg(feature = "raytracing")]
 #[show_image::main]
 fn main() {
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<RGB>::new(4).ok().unwrap();
+    let tree_size = 64;
+    let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
+        .ok()
+        .unwrap();
     tree.insert(&V3c::new(3, 0, 0), RGB::new(255, 0, 0)).ok();
     tree.insert(&V3c::new(3, 3, 0), RGB::new(0, 255, 0)).ok();
     tree.insert(&V3c::new(0, 3, 0), RGB::new(0, 0, 255)).ok();
 
-    for y in 0..4 {
-        tree.insert(
-            &V3c::new(0, y, y),
-            RGB {
-                r: 64 * y as u8 + 50,
-                g: 64 * y as u8 + 50,
-                b: 64 * y as u8 + 50,
-            },
-        )
-        .ok();
-        tree.insert(
-            &V3c::new(1, y, y),
-            RGB {
-                r: 255,
-                g: 64 * y as u8,
-                b: 64 * y as u8,
-            },
-        )
-        .ok();
-        tree.insert(
-            &V3c::new(2, y, y),
-            RGB {
-                r: 64 * y as u8,
-                g: 255,
-                b: 64 * y as u8,
-            },
-        )
-        .ok();
-        tree.insert(
-            &V3c::new(3, y, y),
-            RGB {
-                r: 64 * y as u8,
-                g: 64 * y as u8,
-                b: 255,
-            },
-        )
-        .ok();
+    for x in 0..tree_size {
+        for y in 0..tree_size {
+            for z in 0..tree_size {
+                if
+                0 == x
+                    || 0 == y
+                    || 0 == z
+                    || ((tree_size / 2) < x && (tree_size / 2) < y && (tree_size / 2) < z)
+                {
+                    tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
+                }
+            }
+        }
     }
+
+    // for y in 0..tree_size {
+    //     for x in 0..(tree_size / 4) {
+    //         tree.insert(
+    //             &V3c::new(x, y, y),
+    //             RGB {
+    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //             },
+    //         )
+    //         .ok();
+    //         tree.insert(
+    //             &V3c::new(x + 1, y, y),
+    //             RGB {
+    //                 r: 255,
+    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //             },
+    //         )
+    //         .ok();
+    //         tree.insert(
+    //             &V3c::new(x + 2, y, y),
+    //             RGB {
+    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 g: 255,
+    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //             },
+    //         )
+    //         .ok();
+    //         tree.insert(
+    //             &V3c::new(x + 3, y, y),
+    //             RGB {
+    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
+    //                 b: 255,
+    //             },
+    //         )
+    //         .ok();
+    //     }
+    // }
 
     use show_image::create_window;
     let window = create_window("image", Default::default()).ok().unwrap();
 
-    let radius = 10.;
+    let radius = 2. * tree_size as f32;
     let mut rng = rand::thread_rng();
-    let mut angles = V3c::new(0., 0., 0.);
-    let mut velos = V3c::new(0., 0., 0.);
+    let mut angle = 40.;
+    let mut velos = V3c::new(-0.05, 0., 0.);
 
     loop {
         //generate a random number to add to velos
         velos = velos
             + V3c::new(
-                rng.gen_range(0..10) as f32 / 3600.,
-                rng.gen_range(0..10) as f32 / 3600.,
-                rng.gen_range(0..10) as f32 / 3600.,
+                (-5 + rng.gen_range(0..10)) as f32 / 2000.,
+                (-5 + rng.gen_range(0..10)) as f32 / 2000.,
+                (-5 + rng.gen_range(0..10)) as f32 / 2000.,
             );
-        angles = angles + velos;
+        angle = angle + velos.x;
 
         // Set the viewport
         let origin = V3c::new(
-            angles.x.sin() * radius,
+            angle.sin() * radius,
             radius, //angles.y.sin() * radius,
-            angles.z.sin() * radius,
+            angle.cos() * radius,
         );
         let viewport = Ray {
             direction: (V3c::unit(0.) - origin).normalized(),
@@ -120,7 +174,12 @@ fn main() {
         let mut img = ImageBuffer::new(viewport_resolution_width, viewport_resolution_height);
 
         // cast each ray for a hit
-        'outer: for y in 0..viewport_resolution_width {
+        //TODO: Do it in parallel
+        // use rayon::iter::ParallelIterator;
+        // use rayon::iter::IntoParallelIterator;
+        // (0..viewport_resolution_width).into_par_iter().for_each(|y|
+        for y in 0..viewport_resolution_width
+        {
             for x in 0..viewport_resolution_height {
                 let actual_y_in_image = viewport_resolution_height - y - 1;
                 //from the origin of the camera to the current point of the viewport
@@ -131,7 +190,10 @@ fn main() {
                     origin: viewport.origin,
                     direction: (glass_point - viewport.origin).normalized(),
                 };
+                // print!("   {ray:?}   ");
 
+                use std::io::Write;
+                std::io::stdout().flush().ok().unwrap();
                 // if x == 362 && y == 142 {
                 //     img.put_pixel(x, actual_y_in_image, Rgb([0, 255, 255]));
                 //     println!("{ray:?}");

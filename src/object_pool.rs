@@ -14,7 +14,7 @@ pub fn key_none_value() -> usize {
     usize::MAX
 }
 
-pub fn key_might_be_some(key: usize) -> bool {
+pub fn key_might_be_valid(key: usize) -> bool {
     key < usize::MAX
 }
 

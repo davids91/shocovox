@@ -1,4 +1,5 @@
-use crate::object_pool::key_none_value;
+#[cfg(feature = "raytracing")]
+use crate::object_pool::{key_might_be_valid, key_none_value};
 use crate::octree::{hash_region, Cube, Octree, V3c};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
@@ -31,6 +32,7 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
 ///####################################################################################
 /// NodeChildrenArray + NodeChildren
 ///####################################################################################
+#[derive(Debug)]
 #[derive(Default, Copy, Clone)]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
@@ -38,6 +40,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     Children([T; 8]),
 }
 
+#[derive(Debug)]
 #[derive(Copy, Clone)]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     default_key: T,
@@ -184,7 +187,7 @@ where
         let mut to_deallocate = Vec::new();
         if let Some(children) = self.node_children[node].iter() {
             for child in children {
-                if crate::object_pool::key_might_be_some(*child) {
+                if crate::object_pool::key_might_be_valid(*child) {
                     to_deallocate.push(*child);
                 }
             }
@@ -198,10 +201,10 @@ where
 
     pub(in crate::octree) fn simplify(&mut self, node: usize) -> bool {
         let mut data = NodeContent::Nothing;
-        if crate::object_pool::key_might_be_some(node) {
+        if crate::object_pool::key_might_be_valid(node) {
             for i in 0..8 {
                 let child_key = self.node_children[node][i];
-                if crate::object_pool::key_might_be_some(child_key) {
+                if crate::object_pool::key_might_be_valid(child_key) {
                     if let Some(leaf_data) = self.nodes.get(child_key).as_leaf_ref() {
                         if !data.is_leaf() {
                             data = NodeContent::Leaf(leaf_data.clone());
