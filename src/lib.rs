@@ -7,7 +7,7 @@
 // - make ObjectPool threadSafe independenct of octree
 // - make Octree Thread-safe with an RwLock implementation
 // - sort out includes ( uses )
-// - get_step_to_next_sibling should never return with 0 length vector
+// - in some camera angles some pixels are
 
 pub mod spatial;
 pub mod octree;

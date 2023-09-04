@@ -5,7 +5,7 @@ use crate::spatial::{
 };
 
 #[cfg(feature = "raytracing")]
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.005;
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.001;
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug)]

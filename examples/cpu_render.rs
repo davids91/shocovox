@@ -61,23 +61,30 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 fn main() {
     // fill octree with data
     let tree_size = 64;
+    let viewport_resolution_width = 512;
+    let viewport_resolution_height = 512;
     let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
         .ok()
         .unwrap();
-    tree.insert(&V3c::new(3, 0, 0), RGB::new(255, 0, 0)).ok();
-    tree.insert(&V3c::new(3, 3, 0), RGB::new(0, 255, 0)).ok();
-    tree.insert(&V3c::new(0, 3, 0), RGB::new(0, 0, 255)).ok();
 
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
-                if
-                0 == x
-                    || 0 == y
-                    || 0 == z
+                if x < (tree_size / 4)
+                    || y < (tree_size / 4)
+                    || z < (tree_size / 4)
                     || ((tree_size / 2) < x && (tree_size / 2) < y && (tree_size / 2) < z)
                 {
-                    tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
+                    // tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        RGB::new(
+                            (255 as f32 * x as f32 / tree_size as f32) as u8,
+                            (255 as f32 * y as f32 / tree_size as f32) as u8,
+                            (255 as f32 * z as f32 / tree_size as f32) as u8,
+                        ),
+                    )
+                    .ok();
                 }
             }
         }
@@ -157,8 +164,6 @@ fn main() {
         let viewport_right_direction = viewport_up_direction.cross(viewport.direction).normalized();
         let viewport_width = 4.;
         let viewport_height = 4.;
-        let viewport_resolution_width = 512;
-        let viewport_resolution_height = 512;
         let viewport_fov = 3.;
         let pixel_width = viewport_width as f32 / viewport_resolution_width as f32;
         let pixel_height = viewport_height as f32 / viewport_resolution_height as f32;
@@ -178,8 +183,7 @@ fn main() {
         // use rayon::iter::ParallelIterator;
         // use rayon::iter::IntoParallelIterator;
         // (0..viewport_resolution_width).into_par_iter().for_each(|y|
-        for y in 0..viewport_resolution_width
-        {
+        for y in 0..viewport_resolution_width {
             for x in 0..viewport_resolution_height {
                 let actual_y_in_image = viewport_resolution_height - y - 1;
                 //from the origin of the camera to the current point of the viewport
@@ -188,7 +192,14 @@ fn main() {
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
                     origin: viewport.origin,
-                    direction: (glass_point - viewport.origin).normalized(),
+                    direction: (glass_point - viewport.origin
+                        // + V3c::new( // random offset
+                        //     rng.gen_range(-10..10) as f32 / 1000.,
+                        //     rng.gen_range(-10..10) as f32 / 1000.,
+                        //     rng.gen_range(-10..10) as f32 / 1000.,
+                        // )
+                    )
+                    .normalized(),
                 };
                 // print!("   {ray:?}   ");
 
@@ -237,6 +248,7 @@ fn main() {
 
         // Create a window with default options and display the image.
         window.set_image("image-001", image).ok();
+        // TODO if window is closed, exit!
     }
 }
 
