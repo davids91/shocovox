@@ -60,20 +60,21 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 #[show_image::main]
 fn main() {
     // fill octree with data
-    let tree_size = 64;
-    let viewport_resolution_width = 512;
-    let viewport_resolution_height = 512;
+    let tree_size = 4;
+    let viewport_resolution_width = 128;
+    let viewport_resolution_height = 128;
     let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
         .ok()
         .unwrap();
 
+    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151)).ok();
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
                 if x < (tree_size / 4)
                     || y < (tree_size / 4)
                     || z < (tree_size / 4)
-                    || ((tree_size / 2) < x && (tree_size / 2) < y && (tree_size / 2) < z)
+                    || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                 {
                     // tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
                     tree.insert(

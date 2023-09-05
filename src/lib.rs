@@ -7,7 +7,6 @@
 // - make ObjectPool threadSafe independenct of octree
 // - make Octree Thread-safe with an RwLock implementation
 // - sort out includes ( uses )
-// - in some camera angles some pixels are
 
 pub mod spatial;
 pub mod octree;
