@@ -13,40 +13,13 @@ impl RGB {
     }
 }
 
-use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
-
-impl ToBencode for RGB {
-    const MAX_DEPTH: usize = 8;
-    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
-        encoder.emit_list(|e| {
-            e.emit_int(self.r)?;
-            e.emit_int(self.g)?;
-            e.emit_int(self.b)
-        })
+#[cfg(feature = "raytracing")]
+impl shocovox_rs::octree::VoxelData for RGB {
+    fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
     }
-}
-
-use bendy::decoding::{FromBencode, Object};
-impl FromBencode for RGB {
-    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
-        match data {
-            Object::List(mut list) => {
-                let r = u8::decode_bencode_object(list.next_object()?.unwrap())
-                    .ok()
-                    .unwrap();
-                let g = u8::decode_bencode_object(list.next_object()?.unwrap())
-                    .ok()
-                    .unwrap();
-                let b = u8::decode_bencode_object(list.next_object()?.unwrap())
-                    .ok()
-                    .unwrap();
-                Ok(Self { r, g, b })
-            }
-            _ => Err(bendy::decoding::Error::unexpected_token(
-                "An RGB Object, List of 3 numbers",
-                "Something else",
-            )),
-        }
+    fn color(&self) -> [u8; 3] {
+        [self.r, self.g, self.b]
     }
 }
 
@@ -193,14 +166,15 @@ fn main() {
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
                     origin: viewport.origin,
-                    direction: (glass_point - viewport.origin
+                    direction: (
+                        glass_point - viewport.origin
                         // + V3c::new( // random offset
                         //     rng.gen_range(-10..10) as f32 / 1000.,
                         //     rng.gen_range(-10..10) as f32 / 1000.,
                         //     rng.gen_range(-10..10) as f32 / 1000.,
                         // )
                     )
-                    .normalized(),
+                        .normalized(),
                 };
                 // print!("   {ray:?}   ");
 

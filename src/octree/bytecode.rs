@@ -1,17 +1,20 @@
 use crate::object_pool::ObjectPool;
-use crate::octree::{detail::NodeChildrenArray, NodeChildren, NodeContent, Octree};
+use crate::octree::{detail::NodeChildrenArray, NodeChildren, NodeContent, Octree, VoxelData};
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
 where
-    T: Default + Clone + ToBencode,
+    T: Clone + VoxelData,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         if self.is_leaf() {
             encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                e.emit(self.leaf_data())
+                let color = self.leaf_data().color();
+                e.emit(color[0])?;
+                e.emit(color[1])?;
+                e.emit(color[2])
             })
         } else {
             encoder.emit_str("##x##")
@@ -22,19 +25,34 @@ where
 use bendy::decoding::{FromBencode, Object};
 impl<T> FromBencode for NodeContent<T>
 where
-    T: Clone + FromBencode,
+    T: Clone + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
             Object::List(mut list) => {
                 list.next_object()?; // Should be "###"
-                if let Some(o) = list.next_object()? {
-                    Ok(NodeContent::Leaf(T::decode_bencode_object(o)?))
-                } else {
-                    Err(bendy::decoding::Error::missing_field(
-                        "Content of Leaf NodeContent object",
-                    ))
-                }
+                let r = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field red color component",
+                        "Something else",
+                    )),
+                }?;
+                let g = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field red color component",
+                        "Something else",
+                    )),
+                }?;
+                let b = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field red color component",
+                        "Something else",
+                    )),
+                }?;
+                Ok(NodeContent::Leaf(T::new(r, g, b)))
                 // let s = String::from_utf8(list.next_object()?.unwrap().try_into_bytes()?.to_vec())?;
                 // if s == "###" {
                 //     if let Some(o) = list.next_object()? {
@@ -130,7 +148,7 @@ impl FromBencode for NodeChildren<usize> {
 ///####################################################################################
 impl<T> ToBencode for Octree<T>
 where
-    T: Default + Clone + ToBencode + FromBencode,
+    T: Default + Clone + VoxelData,
 {
     const MAX_DEPTH: usize = 10;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -146,7 +164,7 @@ where
 
 impl<T> FromBencode for Octree<T>
 where
-    T: Default + Clone + ToBencode + FromBencode,
+    T: Default + Clone + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {

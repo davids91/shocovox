@@ -1,7 +1,6 @@
 #[cfg(feature = "raytracing")]
-use crate::object_pool::{key_might_be_valid, key_none_value};
-use crate::octree::{hash_region, Cube, Octree, V3c};
-use bendy::{decoding::FromBencode, encoding::ToBencode};
+use crate::object_pool::key_none_value;
+use crate::octree::{hash_region, Cube, Octree, VoxelData, V3c};
 
 #[cfg(feature = "serialization")]
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -112,7 +111,7 @@ where
 #[derive(Default)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone)]
-pub(in crate::octree) enum NodeContent<T>
+pub(crate) enum NodeContent<T>
 where
     T: Clone,
 {
@@ -161,8 +160,8 @@ where
 use serde::{de::DeserializeOwned, Serialize};
 
 impl<
-        #[cfg(feature = "serialization")] T: Default + ToBencode + FromBencode + Serialize + DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
+        #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default + VoxelData,
     > Octree<T>
 where
     T: Default + PartialEq + Clone,

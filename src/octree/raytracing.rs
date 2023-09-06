@@ -1,5 +1,5 @@
 #[cfg(feature = "raytracing")]
-use crate::octree::{Cube, Octree, V3c};
+use crate::octree::{Cube, Octree, VoxelData, V3c};
 
 #[cfg(feature = "raytracing")]
 use crate::spatial::{
@@ -46,12 +46,9 @@ impl NodeStackItem {
     }
 }
 
-#[cfg(feature = "raytracing")]
-use bendy::{decoding::FromBencode, encoding::ToBencode};
-
 impl<
-        #[cfg(feature = "serialization")] T: Default + ToBencode + FromBencode + Serialize + DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
+        #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default + VoxelData,
     > Octree<T>
 where
     T: Default + PartialEq + Clone + std::fmt::Debug,

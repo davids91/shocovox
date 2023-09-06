@@ -15,11 +15,29 @@ pub enum OctreeError {
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
+pub trait VoxelData {
+    fn new(r: u8, g: u8, b: u8) -> Self;
+    fn color(&self) -> [u8; 3];
+}
+
+impl VoxelData for u32 {
+    fn new(r: u8, g: u8, b: u8) -> Self {
+        r as u32 & 0x000000FF | ((g as u32 & 0x000000FF) << 8) | ((b as u32 & 0x000000FF) << 16)
+    }
+    fn color(&self) -> [u8; 3] {
+        [
+            (self & 0x000000FF) as u8,
+            ((self & 0x0000FF00) >> 8) as u8,
+            ((self & 0x00FF0000) >> 16) as u8,
+        ]
+    }
+}
+
 use crate::object_pool::ObjectPool;
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub struct Octree<T>
 where
-    T: Default + Clone + ToBencode + FromBencode,
+    T: Default + Clone + VoxelData,
 {
     pub auto_simplify: bool,
     root_node: usize,
@@ -29,8 +47,8 @@ where
 }
 
 impl<
-        #[cfg(feature = "serialization")] T: Default + ToBencode + FromBencode + Serialize + DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + ToBencode + FromBencode,
+        #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
+        #[cfg(not(feature = "serialization"))] T: Default + VoxelData,
     > Octree<T>
 where
     T: Default + PartialEq + Clone,
