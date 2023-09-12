@@ -46,15 +46,4 @@ impl Cube {
             && (point.z >= self.min_position.z as f32 - edges_epsilon)
             && (point.z < (self.min_position.z + self.size) as f32 + edges_epsilon)
     }
-
-    /// Tells if the given point is iniside the points, coordinates in exclusive exclusive range,
-    /// Edges excluded
-    pub(crate) fn includes_point(&self, point: &V3c<f32>) -> bool {
-        (point.x >= self.min_position.x as f32)
-            && (point.x < (self.min_position.x + self.size) as f32)
-            && (point.y > self.min_position.y as f32)
-            && (point.y < (self.min_position.y + self.size) as f32)
-            && (point.z > self.min_position.z as f32)
-            && (point.z < (self.min_position.z + self.size) as f32)
-    }
 }

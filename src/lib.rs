@@ -4,6 +4,7 @@
 // - Implement lazy-loading
 // - make ObjectPool threadSafe independenct of octree
 // - make Octree Thread-safe with an RwLock implementation
+// - Get by ray at LOD
 
 pub mod spatial;
 pub mod octree;

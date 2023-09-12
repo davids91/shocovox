@@ -1,5 +1,7 @@
 pub mod bytecode;
 pub mod detail;
+
+#[cfg(feature = "raytracing")]
 pub mod raytracing;
 
 use crate::object_pool::key_none_value;

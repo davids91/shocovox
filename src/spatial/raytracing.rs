@@ -63,49 +63,17 @@ impl Cube {
     #[cfg(feature = "raytracing")]
     pub fn face(&self, face: CubeFaces) -> Ray {
         let midpoint = self.midpoint();
-        match face {
-            CubeFaces::FRONT => {
-                let direction = V3c::new(0., 0., -1.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
-            CubeFaces::LEFT => {
-                let direction = V3c::new(-1., 0., 0.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
-            CubeFaces::REAR => {
-                let direction = V3c::new(0., 0., 1.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
-            CubeFaces::RIGHT => {
-                let direction = V3c::new(1., 0., 0.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
-            CubeFaces::TOP => {
-                let direction = V3c::new(0., 1., 0.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
-            CubeFaces::BOTTOM => {
-                let direction = V3c::new(0., -1., 0.);
-                Ray {
-                    origin: midpoint + direction * (self.size as f32 / 2.),
-                    direction,
-                }
-            }
+        let direction = match face {
+            CubeFaces::FRONT => V3c::new(0., 0., -1.),
+            CubeFaces::LEFT => V3c::new(-1., 0., 0.),
+            CubeFaces::REAR => V3c::new(0., 0., 1.),
+            CubeFaces::RIGHT => V3c::new(1., 0., 0.),
+            CubeFaces::TOP => V3c::new(0., 1., 0.),
+            CubeFaces::BOTTOM => V3c::new(0., -1., 0.),
+        };
+        Ray {
+            origin: midpoint + direction * (self.size as f32 / 2.),
+            direction,
         }
     }
 
@@ -117,7 +85,7 @@ impl Cube {
         let mut distances: Vec<f32> = Vec::new();
         let mut impact_normal = V3c::default();
 
-        if self.includes_point(&ray.origin) {
+        if self.contains_point(&ray.origin) {
             distances.push(0.);
         }
 
@@ -132,14 +100,16 @@ impl Cube {
                 if 0. <= d && self.contains_point(&ray.point_at(d)) {
                     // ray hits the plane only when the resulting distance is at least positive,
                     // and the point is contained inside the cube
-                    if distances.len() == 2 && (distances[0] - distances[1]).abs() < FLOAT_ERROR_TOLERANCE {
+                    if distances.len() == 2
+                        && (distances[0] - distances[1]).abs() < FLOAT_ERROR_TOLERANCE
+                    {
                         distances[1] = d; // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
                     } else if distances.len() < 2 {
                         distances.push(d); // not enough hits are gathered
                     } else {
                         break; // enough hits are gathered, exit the loop
                     }
-                    if !distances.is_empty() && d <= distances[0] {
+                    if distances.is_empty() || d <= distances[0] {
                         impact_normal = face.direction;
                     }
                 }

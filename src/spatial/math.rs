@@ -42,7 +42,7 @@ impl V3c<u32> {
         (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
     }
     pub fn normalized(self) -> V3c<f32> {
-        let result : V3c<f32> = self.into();
+        let result: V3c<f32> = self.into();
         result / self.length()
     }
 }
@@ -250,4 +250,25 @@ pub fn plane_line_intersection_distance(
         return None;
     }
     Some(plane_line_dot_to_plane / directions_dot)
+}
+
+#[cfg(test)]
+mod intersection_tests {
+
+    use crate::spatial::{math::plane_line_intersection_distance, V3c};
+
+    #[test]
+    fn test_negative_intersection() {
+        let plane_point = V3c::new(0., 0., 0.);
+        let plane_normal = V3c::new(0., 1., 0.);
+        let line_origin = V3c::new(0., 1., 0.);
+        let line_direction = V3c::new(0., 1., 0.);
+        assert!(plane_line_intersection_distance(
+            &plane_point,
+            &plane_normal,
+            &line_origin,
+            &line_direction
+        )
+        .is_some_and(|v| v == -1.));
+    }
 }

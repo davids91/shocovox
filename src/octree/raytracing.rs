@@ -1,13 +1,10 @@
-#[cfg(feature = "raytracing")]
-use crate::octree::{Cube, Octree, VoxelData, V3c};
+use crate::octree::{Cube, Octree, V3c, VoxelData};
 
-#[cfg(feature = "raytracing")]
 use crate::spatial::{
     math::{hash_region, offset_region, plane_line_intersection_distance},
     raytracing::Ray,
 };
 
-#[cfg(feature = "raytracing")]
 pub(crate) struct NodeStackItem {
     pub(crate) bounds: Cube,
     pub(crate) node: usize,
@@ -15,7 +12,6 @@ pub(crate) struct NodeStackItem {
     pub(crate) child_center: V3c<f32>,
 }
 
-#[cfg(feature = "raytracing")]
 impl NodeStackItem {
     pub(crate) fn new(bounds: Cube, node: usize, target_octant: usize) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
@@ -65,40 +61,42 @@ where
             );
 
         // Find the min of the 3 plane intersections
-        let min_x_plane = plane_line_intersection_distance(
+        let x_plane_distance = plane_line_intersection_distance(
             &ref_point,
             &V3c::new(1., 0., 0.),
             &ray.origin,
             &ray.direction,
         )
         .unwrap();
-        let min_y_plane = plane_line_intersection_distance(
+        let y_plane_distance = plane_line_intersection_distance(
             &ref_point,
             &V3c::new(0., 1., 0.),
             &ray.origin,
             &ray.direction,
         )
         .unwrap();
-        let min_z_plane = plane_line_intersection_distance(
+        let z_plane_distance = plane_line_intersection_distance(
             &ref_point,
             &V3c::new(0., 0., 1.),
             &ray.origin,
             &ray.direction,
         )
         .unwrap();
-        let min_d = min_x_plane.min(min_y_plane).min(min_z_plane);
+        let min_d = x_plane_distance.min(y_plane_distance).min(z_plane_distance);
+
+        // Step along the axes with the minimum distances
         V3c::new(
-            if (min_d - min_x_plane).abs() < FLOAT_ERROR_TOLERANCE {
+            if (min_d - x_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
                 (current.size as f32).copysign(ray.direction.x)
             } else {
                 0.
             },
-            if (min_d - min_y_plane).abs() < FLOAT_ERROR_TOLERANCE {
+            if (min_d - y_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
                 (current.size as f32).copysign(ray.direction.y)
             } else {
                 0.
             },
-            if (min_d - min_z_plane).abs() < FLOAT_ERROR_TOLERANCE {
+            if (min_d - z_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
                 (current.size as f32).copysign(ray.direction.z)
             } else {
                 0.
@@ -106,8 +104,6 @@ where
         )
     }
 
-    //TODO: Get by ray at LOD
-    #[cfg(feature = "raytracing")]
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
@@ -116,14 +112,14 @@ where
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
         if let Some(root_hit) = root_bounds.intersect_ray(&ray) {
-            if self.nodes.get(self.root_node).is_leaf() {
+            current_d = root_hit.impact_distance.unwrap_or(0.);
+            if self.nodes.get(self.root_node as usize).is_leaf() {
                 return Some((
-                    self.nodes.get(self.root_node).leaf_data(),
-                    ray.point_at(root_hit.impact_distance.unwrap_or(0.)),
+                    self.nodes.get(self.root_node as usize).leaf_data(),
+                    ray.point_at(current_d),
                     root_hit.impact_normal,
                 ));
             }
-            current_d = root_hit.impact_distance.unwrap_or(0.);
             let target_octant = hash_region(
                 &(ray.point_at(current_d) - root_bounds.min_position.into()),
                 self.root_size as f32,
@@ -199,13 +195,9 @@ where
 #[cfg(test)]
 mod octree_raytracing_tests {
 
-    #[cfg(feature = "raytracing")]
     use crate::octree::{raytracing::Ray, Octree, V3c};
-
-    #[cfg(feature = "raytracing")]
     use rand::{rngs::ThreadRng, Rng};
 
-    #[cfg(feature = "raytracing")]
     fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
         let origin = V3c {
             x: rng.gen_range(8..16) as f32,
@@ -218,7 +210,6 @@ mod octree_raytracing_tests {
         }
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_get_by_ray_from_outside() {
         let mut rng = rand::thread_rng();
@@ -241,7 +232,6 @@ mod octree_raytracing_tests {
         }
     }
 
-    #[cfg(feature = "raytracing")]
     fn make_edge_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
         let origin = V3c {
             x: rng.gen_range(0..8) as f32,
@@ -254,7 +244,6 @@ mod octree_raytracing_tests {
         }
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_get_by_ray_from_edge() {
         let mut rng = rand::thread_rng();
@@ -282,7 +271,6 @@ mod octree_raytracing_tests {
         }
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_get_by_ray_from_inside() {
         let mut rng = rand::thread_rng();
@@ -309,7 +297,6 @@ mod octree_raytracing_tests {
         }
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_unreachable() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -339,7 +326,6 @@ mod octree_raytracing_tests {
         let _ = tree.get_by_ray(&ray); //Should not fail with unreachable code panic
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_empty_line_in_middle() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -369,7 +355,6 @@ mod octree_raytracing_tests {
         assert!(tree.get_by_ray(&ray).is_some());
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_zero_advance() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -399,7 +384,6 @@ mod octree_raytracing_tests {
         assert!(tree.get_by_ray(&ray).is_some());
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_cube_edges() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -436,7 +420,6 @@ mod octree_raytracing_tests {
         assert!(tree.get_by_ray(&ray).is_some_and(|v| *v.0 == 6));
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_ray_behind_octree() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -452,7 +435,6 @@ mod octree_raytracing_tests {
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5);
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_overlapping_voxels() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -474,7 +456,6 @@ mod octree_raytracing_tests {
         assert!(tree.get_by_ray(&test_ray).is_some_and(|hit| *hit.0 == 6));
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_edge_raycast() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -500,7 +481,6 @@ mod octree_raytracing_tests {
         assert!(result.is_none() || *result.unwrap().0 == 5);
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_voxel_corner() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -527,7 +507,6 @@ mod octree_raytracing_tests {
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5);
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_bottom_edge() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
@@ -554,7 +533,6 @@ mod octree_raytracing_tests {
         assert!(*tree.get_by_ray(&ray).unwrap().0 == 5);
     }
 
-    #[cfg(feature = "raytracing")]
     #[test]
     fn test_edge_case_loop_stuck() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
