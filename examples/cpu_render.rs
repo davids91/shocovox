@@ -15,11 +15,14 @@ impl RGB {
 
 #[cfg(feature = "raytracing")]
 impl shocovox_rs::octree::VoxelData for RGB {
-    fn new(r: u8, g: u8, b: u8) -> Self {
+    fn new(r: u8, g: u8, b: u8, _user_data: Option<u32>) -> Self {
         Self { r, g, b }
     }
-    fn color(&self) -> [u8; 3] {
+    fn albedo(&self) -> [u8; 3] {
         [self.r, self.g, self.b]
+    }
+    fn user_data(&self) -> Option<u32> {
+        None
     }
 }
 
@@ -133,8 +136,12 @@ fn main() {
             direction: (V3c::unit(0.) - origin).normalized(),
             origin,
         };
+        // let viewport = Ray {
+        //     direction: V3c::new(0.,0.,1.),
+        //     origin: V3c::new(2., 2., -8.),
+        // };
 
-        let viewport_up_direction = V3c::new(0., 1., 0.); //TODO: up is actually left?!
+        let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction.cross(viewport.direction).normalized();
         let viewport_width = 4.;
         let viewport_height = 4.;

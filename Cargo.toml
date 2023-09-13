@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["raytracing"]
+default = ["bevy_wgpu"]
 raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!
 serialization = ["dep:serde"]
+bevy_wgpu = ["dep:bevy", "raytracing"]
 
 [dependencies]
 serde = { version = "1.0.183", features = ["derive"], optional = true }
@@ -16,6 +17,8 @@ bendy = { git = "https://github.com/davids91/bendy.git" , features = ["std", "se
 image = { version = "0.24.6", optional = true }
 show-image = { version = "0.13.1", optional = true }
 
+# for example bevy_wgpu
+bevy = { version = "0.11.2", features = ["dynamic_linking"], optional = true}
 [dev-dependencies]
 lldb = "0.0.11" # debugging
 rand = "0.8.5"

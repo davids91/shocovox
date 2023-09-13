@@ -5,7 +5,7 @@ use crate::spatial::{
 };
 
 #[cfg(feature = "raytracing")]
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.001;
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug)]
@@ -100,14 +100,16 @@ impl Cube {
                 if 0. <= d && self.contains_point(&ray.point_at(d)) {
                     // ray hits the plane only when the resulting distance is at least positive,
                     // and the point is contained inside the cube
-                    if distances.len() == 2
+                    if 1 < distances.len()
                         && (distances[0] - distances[1]).abs() < FLOAT_ERROR_TOLERANCE
                     {
-                        distances[1] = d; // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
+                        // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
+                        distances[1] = d;
                     } else if distances.len() < 2 {
-                        distances.push(d); // not enough hits are gathered
-                    } else {
-                        break; // enough hits are gathered, exit the loop
+                        // not enough hits are gathered yet
+                        distances.push(d); 
+                    } else {  // enough hits are gathered, exit the loop
+                        break;
                     }
                     if distances.is_empty() || d <= distances[0] {
                         impact_normal = face.direction;

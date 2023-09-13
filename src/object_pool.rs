@@ -5,17 +5,18 @@ use std::vec::Vec;
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
 )]
+#[derive(Clone)]
 struct ReusableItem<T: Clone> {
     reserved: bool,
     item: T,
 }
 
-pub fn key_none_value() -> usize {
-    usize::MAX
+pub fn key_none_value() -> u32 {
+    u32::MAX
 }
 
-pub fn key_might_be_valid(key: usize) -> bool {
-    key < usize::MAX
+pub fn key_might_be_valid(key: u32) -> bool {
+    key < u32::MAX
 }
 
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
@@ -69,7 +70,7 @@ where
 
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)

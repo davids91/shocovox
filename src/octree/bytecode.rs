@@ -4,17 +4,22 @@ use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
 where
-    T: Clone + VoxelData,
+    T: Clone + Default + VoxelData,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         if self.is_leaf() {
             encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                let color = self.leaf_data().color();
+                let color = self.leaf_data().albedo();
                 e.emit(color[0])?;
                 e.emit(color[1])?;
-                e.emit(color[2])
+                e.emit(color[2])?;
+                if let Some(d) = self.leaf_data().user_data() {
+                    e.emit(d)
+                } else {
+                    e.emit_str("##x##")
+                }
             })
         } else {
             encoder.emit_str("##x##")
@@ -52,34 +57,14 @@ where
                         "Something else",
                     )),
                 }?;
-                Ok(NodeContent::Leaf(T::new(r, g, b)))
-                // let s = String::from_utf8(list.next_object()?.unwrap().try_into_bytes()?.to_vec())?;
-                // if s == "###" {
-                //     if let Some(o) = list.next_object()? {
-                //         Ok(NodeContent::Leaf(T::decode_bencode_object(o)?))
-                //     } else {
-                //         Err(bendy::decoding::Error::missing_field(
-                //             "Content of Leaf NodeContent object",
-                //         ))
-                //     }
-                // } else {
-                //     Err(bendy::decoding::Error::unexpected_token(
-                //         "A NodeContent Object marker for 'something'",
-                //         s,
-                //     ))
-                // }
+                let user_data = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
+                    _ => None,
+                };
+                Ok(NodeContent::Leaf(T::new(r, g, b, user_data)))
             }
-            Object::Bytes(_b) => {
+            Object::Bytes(_b) => { // should be "##x##"
                 Ok(NodeContent::Nothing)
-                // let s = String::from_utf8(b.to_vec())?;
-                // if s == "##x##" {
-                //     Ok(NodeContent::Nothing)
-                // } else {
-                //     Err(bendy::decoding::Error::unexpected_token(
-                //         "A NodeContent Object marker for 'nothing'",
-                //         s,
-                //     ))
-                // }
             }
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "A NodeContent Object, either a List or a ByteString",
@@ -92,7 +77,7 @@ where
 // using generic arguments means the default key needs to be serialzied along with the data, which means a lot of wasted space..
 // so serialization for the current ObjectPool key is adequate; The engineering hour cost of implementing new serialization logic
 // every time the ObjectPool::Itemkey type changes is acepted.
-impl ToBencode for NodeChildren<usize> {
+impl ToBencode for NodeChildren<u32> {
     const MAX_DEPTH: usize = 2;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         match &self.content {
@@ -111,16 +96,15 @@ impl ToBencode for NodeChildren<usize> {
     }
 }
 
-impl FromBencode for NodeChildren<usize> {
+impl FromBencode for NodeChildren<u32> {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         use crate::object_pool::key_none_value;
         match data {
             Object::List(mut list) => {
-                // let mut children_array : [usize; 8];
                 let mut c = Vec::new();
                 for _ in 0..8 {
                     c.push(
-                        usize::decode_bencode_object(list.next_object()?.unwrap())
+                        u32::decode_bencode_object(list.next_object()?.unwrap())
                             .ok()
                             .unwrap(),
                     );
@@ -183,7 +167,7 @@ where
                 }?;
 
                 let root_node = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<usize>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field root_node_key",
                         "Something else",

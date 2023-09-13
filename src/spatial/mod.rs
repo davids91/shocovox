@@ -23,7 +23,7 @@ impl Cube {
     }
 
     /// Creates a bounding box within an area described by the min_position and size, for the given octant
-    pub(crate) fn child_bounds_for(&self, octant: usize) -> Cube {
+    pub(crate) fn child_bounds_for(&self, octant: u32) -> Cube {
         let child_size = self.size / 2;
         Cube {
             min_position: (self.min_position + (offset_region(octant) * child_size)),
@@ -38,12 +38,12 @@ impl Cube {
     /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
     /// Edges included
     pub(crate) fn contains_point(&self, point: &V3c<f32>) -> bool {
-        let edges_epsilon = 0.00001;
-        (point.x >= self.min_position.x as f32 - edges_epsilon)
-            && (point.x < (self.min_position.x + self.size) as f32 + edges_epsilon)
-            && (point.y >= self.min_position.y as f32 - edges_epsilon)
-            && (point.y < (self.min_position.y + self.size) as f32 + edges_epsilon)
-            && (point.z >= self.min_position.z as f32 - edges_epsilon)
-            && (point.z < (self.min_position.z + self.size) as f32 + edges_epsilon)
+        use self::raytracing::FLOAT_ERROR_TOLERANCE;
+        (point.x >= self.min_position.x as f32 - FLOAT_ERROR_TOLERANCE)
+            && (point.x < (self.min_position.x + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
+            && (point.y >= self.min_position.y as f32 - FLOAT_ERROR_TOLERANCE)
+            && (point.y < (self.min_position.y + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
+            && (point.z >= self.min_position.z as f32 - FLOAT_ERROR_TOLERANCE)
+            && (point.z < (self.min_position.z + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
     }
 }

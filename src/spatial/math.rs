@@ -169,7 +169,7 @@ mod vector_tests {
 ///####################################################################################
 /// Octant
 ///####################################################################################
-pub(crate) fn offset_region(octant: usize) -> V3c<u32> {
+pub(crate) fn offset_region(octant: u32) -> V3c<u32> {
     match octant {
         0 => V3c::new(0, 0, 0),
         1 => V3c::new(1, 0, 0),
@@ -185,15 +185,15 @@ pub(crate) fn offset_region(octant: usize) -> V3c<u32> {
 
 /// Each Node is separated to 8 Octants based on their relative position inside the Nodes occupying space.
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
-pub fn hash_region(offset: &V3c<f32>, size: f32) -> usize {
+pub fn hash_region(offset: &V3c<f32>, size: f32) -> u32 {
     let midpoint = V3c::unit(size / 2.);
     // The below is rewritten to be branchless
     // (if offset.x < midpoint.x { 0 } else { 1 })
     //     + if offset.z < midpoint.z { 0 } else { 2 }
     //     + if offset.y < midpoint.y { 0 } else { 4 }
-    (offset.x >= midpoint.x) as usize
-        + (offset.z >= midpoint.z) as usize * 2
-        + (offset.y >= midpoint.y) as usize * 4
+    (offset.x >= midpoint.x) as u32
+        + (offset.z >= midpoint.z) as u32 * 2
+        + (offset.y >= midpoint.y) as u32 * 4
 }
 
 #[cfg(test)]

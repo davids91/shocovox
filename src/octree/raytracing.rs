@@ -7,13 +7,13 @@ use crate::spatial::{
 
 pub(crate) struct NodeStackItem {
     pub(crate) bounds: Cube,
-    pub(crate) node: usize,
-    pub(crate) target_octant: usize,
+    pub(crate) node: u32,
+    pub(crate) target_octant: u32,
     pub(crate) child_center: V3c<f32>,
 }
 
 impl NodeStackItem {
-    pub(crate) fn new(bounds: Cube, node: usize, target_octant: usize) -> Self {
+    pub(crate) fn new(bounds: Cube, node: u32, target_octant: u32) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
             + V3c::unit(bounds.size as f32 / 4.)
             + Into::<V3c<f32>>::into(offset_region(target_octant)) * (bounds.size as f32 / 2.);
@@ -111,6 +111,7 @@ where
         let root_bounds = Cube::root_bounds(self.root_size);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
+
         if let Some(root_hit) = root_bounds.intersect_ray(&ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
             if self.nodes.get(self.root_node as usize).is_leaf() {
@@ -130,6 +131,7 @@ where
                 target_octant,
             ));
         }
+
         while !node_stack.is_empty() {
             let current_bounds = node_stack.last().unwrap().bounds;
             let current_bounds_ray_intersection = current_bounds.intersect_ray(&ray);
@@ -147,8 +149,8 @@ where
                 continue;
             }
 
-            let current_node = node_stack.last().unwrap().node;
-            assert!(key_might_be_valid(current_node));
+            let current_node = node_stack.last().unwrap().node as usize;
+            assert!(key_might_be_valid(current_node as u32));
             if self.nodes.get(current_node).is_leaf() && current_bounds_ray_intersection.is_some() {
                 return Some((
                     self.nodes.get(current_node).leaf_data(),
@@ -161,12 +163,14 @@ where
                     current_bounds_ray_intersection.unwrap().impact_normal,
                 ));
             }
+
             if let Some(hit) = current_bounds_ray_intersection {
                 current_d = hit.impact_distance.unwrap_or(current_d);
             }
 
             let current_target_octant = node_stack.last().unwrap().target_octant;
-            if key_might_be_valid(self.node_children[current_node][current_target_octant]) {
+            let target_child = self.node_children[current_node][current_target_octant];
+            if key_might_be_valid(target_child) {
                 let child_bounds = current_bounds.child_bounds_for(current_target_octant);
                 let child_target_octant = hash_region(
                     &(ray.point_at(current_d) - child_bounds.min_position.into()),
@@ -174,7 +178,7 @@ where
                 );
                 node_stack.push(NodeStackItem::new(
                     child_bounds,
-                    self.node_children[current_node][current_target_octant],
+                    target_child,
                     child_target_octant,
                 ));
             } else {
