@@ -3,6 +3,10 @@ name = "shocovox-rs"
 version = "0.1.0"
 edition = "2021"
 
+# debugging
+#linker = "/usr/bin/clang"
+#rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+
 [features]
 default = ["bevy_wgpu"]
 raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!

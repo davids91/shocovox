@@ -17,7 +17,7 @@ struct Cube {
     size: f32,
 }
 
-const FLOAT_ERROR_TOLERANCE = 0.001;
+const FLOAT_ERROR_TOLERANCE = 0.00001;
 //crate::spatial::raytracing::Cube::contains_point
 fn cube_contains_point(cube: Cube, p: vec3f) -> bool{
     let min_cn = p >= cube.min_position - FLOAT_ERROR_TOLERANCE;
@@ -25,6 +25,36 @@ fn cube_contains_point(cube: Cube, p: vec3f) -> bool{
     return (
         min_cn.x && min_cn.y && min_cn.z && max_cn.x && max_cn.y && max_cn.z
     );
+}
+
+//Rust::unwrap_or
+fn impact_or(impact: CubeRayIntersection, or: f32) -> f32{
+    if(impact.hit && impact.impact_hit){
+        return impact.impact_distance;
+    }
+    return or;
+}
+
+//crate::spatial::math::hash_region
+fn hash_region(offset: vec3f, size: f32) -> u32 {
+    let midpoint = vec3f(size / 2., size / 2., size / 2.);
+    return u32(offset.x >= midpoint.x)
+        + u32(offset.z >= midpoint.z) * 2u
+        + u32(offset.y >= midpoint.y) * 4u;
+}
+
+//crate::spatial::math::offset_region
+fn offset_region(octant: u32) -> vec3f {
+    switch(octant){
+        case 0u { return vec3f(0., 0., 0.); }
+        case 1u { return vec3f(1., 0., 0.); }
+        case 2u { return vec3f(0., 0., 1.); }
+        case 3u { return vec3f(1., 0., 1.); }
+        case 4u { return vec3f(0., 1., 0.); }
+        case 5u { return vec3f(1., 1., 0.); }
+        case 6u { return vec3f(0., 1., 1.); }
+        case 7u, default { return vec3f(1.,1.,1.); }
+    }
 }
 
 //crate::spatial::mod::Cube::child_bounds_for
@@ -97,12 +127,14 @@ fn ray_at_point(ray: Line, d: f32) -> vec3f{
 //crate::spatial::raytracing::Cube::intersect_ray
 fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
     var result: CubeRayIntersection;
-    var distances: array<f32, 2 >; // An exit point and a potential impact point is needed to be stored
+    var distances: array<f32, 2>; // An exit point and a potential impact point is needed to be stored
     var distances_i = 0;
+
     if cube_contains_point(cube, ray.origin) {
         distances[0] = 0.;
         distances_i = 1;
     }
+
     for(var cube_face_index: u32 = 0u; cube_face_index <= 6u; cube_face_index = cube_face_index + 1u){
         let face = get_cube_face(cube, cube_face_index);
         let intersection = plane_line_intersection_distance(face, ray);
@@ -141,36 +173,6 @@ fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
     return result;
 }
 
-//Rust::unwrap_or
-fn impact_or(impact: CubeRayIntersection, or: f32) -> f32{
-    if(impact.hit && impact.impact_hit){
-        return impact.impact_distance;
-    }
-    return or;
-}
-
-//crate::spatial::math::hash_region
-fn hash_region(offset: vec3f, size: f32) -> u32 {
-    let midpoint = vec3f(size / 2., size / 2., size / 2.);
-    return u32(offset.x >= midpoint.x)
-        + u32(offset.z >= midpoint.z) * 2u
-        + u32(offset.y >= midpoint.y) * 4u;
-}
-
-//crate::spatial::math::offset_region
-fn offset_region(octant: u32) -> vec3f {
-    switch(octant){
-        case 0u { return vec3f(0., 0., 0.); }
-        case 1u { return vec3f(1., 0., 0.); }
-        case 2u { return vec3f(0., 0., 1.); }
-        case 3u { return vec3f(1., 0., 1.); }
-        case 4u { return vec3f(0., 1., 0.); }
-        case 5u { return vec3f(1., 1., 0.); }
-        case 6u { return vec3f(0., 1., 1.); }
-        case 7u, default { return vec3f(1.,1.,1.); }
-    }
-}
-
 struct NodeStackItem {
     bounds: Cube,
     node: u32,
@@ -186,7 +188,7 @@ fn new_node_stack_item(bounds: Cube, node: u32, target_octant: u32) -> NodeStack
     result.target_octant = target_octant;
     result.child_center = (
         bounds.min_position + (bounds.size / 4.)
-        + (offset_region(target_octant) * (bounds.size / 2.))
+        + (offset_region(target_octant) * (result.bounds.size / 2.))
     );
     return result;
 }
@@ -208,12 +210,11 @@ fn add_point_to(item: NodeStackItem, point: vec3f) -> NodeStackItem {
 //crate::spatial::Cube::child_bounds_for
 fn target_bounds(item: NodeStackItem) -> Cube {
     var result: Cube;
-    let child_size = item.bounds.size / 2.;
+    result.size = item.bounds.size / 2.;
     result.min_position = (
         item.bounds.min_position 
-        + ( offset_region(item.target_octant) * child_size )
+        + ( offset_region(item.target_octant) * result.size )
     );
-    result.size = child_size;
     return result;
 }
 
@@ -221,7 +222,11 @@ fn target_bounds(item: NodeStackItem) -> Cube {
 fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
     let half_size = current.size / 2.;
     let midpoint = current.min_position + half_size;
-    var ref_point = midpoint + sign(ray.direction) * half_size;
+    var sign_vec = sign(ray.direction);
+    if(0. == sign_vec.x){ sign_vec.x = 1.; }
+    if(0. == sign_vec.y){ sign_vec.y = 1.; }
+    if(0. == sign_vec.z){ sign_vec.z = 1.; }
+    var ref_point = midpoint + sign_vec * half_size;
 
     // Find the min of the 3 plane intersections
     let x_plane_distance = plane_line_intersection_distance(
@@ -238,13 +243,13 @@ fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
     // Step along the axes with the minimum distances
     var result = vec3f(0., 0., 0.);
     if( abs(min_d - x_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.x = sign(ray.direction.x) * current.size;
+        result.x = sign_vec.x * current.size;
     }
     if( abs(min_d - y_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.y = sign(ray.direction.y) * current.size;
+        result.y = sign_vec.y * current.size;
     }
     if( abs(min_d - z_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.z = sign(ray.direction.z) * current.size;
+        result.z = sign_vec.z * current.size;
     }
     return result;
 }
@@ -292,28 +297,22 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             root_bounds, octreeMetaData.root_node, target_octant
         );
         node_stack_i = 1;
-
-        /*//DEBUG
-        if(root_intersection.impact_hit){
-            result.albedo = vec4f(0.5,0.5,0.5,1.); 
-        }//else black
-        result.hit = true;
-        return result;
-        //DEBUG*/
     }
 
     var i = 0;
     while(0 < node_stack_i && node_stack_i < max_depth) { // until there are items on the stack
+
+        // POP
         let current_bounds = node_stack[node_stack_i - 1].bounds;
         let current_bounds_ray_intersection = cube_intersect_ray(current_bounds, ray);
-        if( !cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center)
-            || !current_bounds_ray_intersection.hit
+        if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
+            || (!current_bounds_ray_intersection.hit)
         ){
-            let popped_target = node_stack[node_stack_i];
+            let popped_target = node_stack[node_stack_i - 1];
             node_stack_i -= 1;
             if(0 < node_stack_i){
                 let step_vec = get_step_to_next_sibling(popped_target.bounds, ray);
-                node_stack[node_stack_i] = add_point_to(node_stack[node_stack_i], step_vec);
+                node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
             }
             if(current_bounds_ray_intersection.hit){
                 current_d = current_bounds_ray_intersection.exit_distance;
@@ -338,6 +337,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         let current_target_octant = node_stack[node_stack_i - 1].target_octant;
         let target_child = nodes[current_node].children[current_target_octant];
         if(key_might_be_valid(target_child)) {
+            // PUSH
             let child_bounds = child_bounds_for(current_bounds, current_target_octant);
             let child_target_octant = hash_region(
                 (ray_at_point(ray, current_d) - child_bounds.min_position),
@@ -348,27 +348,16 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             );
             node_stack_i += 1;
         } else {
+            // ADVANCE
             // target child is invalid, or it does not intersect with the ray
             // Advance iteration to the next sibling
+            let dbg_octant = node_stack[node_stack_i - 1].target_octant;
             let current_target_bounds = target_bounds(node_stack[node_stack_i - 1]);
             let step_vec = get_step_to_next_sibling(current_target_bounds, ray);
             node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
         }
-        i++; //TODO: loop bounded guard + handle if max depth reached
-        if(i == 64) {
-            result.albedo = vec4f(0.,0.,1.,1.); //DEBUG
-            break;
-        }
     }
     result.hit = false;
-    //DEBUG
-    result.albedo = vec4f(
-        1.,
-        0.,
-        0.,
-        1.
-    ); 
-    //DEBUG*/
     return result;
 }
 
@@ -418,20 +407,15 @@ fn fragment(mesh: MeshVertexOutput) -> @location(0) vec4<f32> {
         - (viewport_up_direction * (viewport.size.y / 2.))
         ;
     let glass_point = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * mesh.uv.x //(mesh.uv.x + pixel_size.x / 2.)
-        + viewport_up_direction * viewport.size.y * (1. - mesh.uv.y) //(mesh.uv.y + pixel_size.y / 2.)
+        + viewport_right_direction * viewport.size.x * (mesh.uv.x + pixel_size.x / 2.)
+        + viewport_up_direction * viewport.size.y * ((1. - mesh.uv.y) + pixel_size.y / 2.)
         ;
     var ray = Line(glass_point, normalize(glass_point - viewport.origin));
 
-    //TODO: Ambient lighting
-    //TODO: Re-introduce resolution
     let ray_result = get_by_ray(ray);
-    let diffuse_light_strength = 
-    1.; /*(
-        1. - (
-            dot(ray_result.impact_normal, vec3f(1.,1.,1.)) / 2. + 0.5
-        )
-    );*/
+    let diffuse_light_strength = (
+        dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
+    );
     let result = ray_result.albedo.rgb * diffuse_light_strength;
     return vec4<f32>(result.rgb, 1.0);
 }

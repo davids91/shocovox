@@ -12,6 +12,7 @@
 // - FOV is actually inverseFOV.. the bigger the value of that, the more focused the viewport is
 // - Octree::get_by_ray could return a distance value instead of the impact point
 // - Current Octree size limiatation because of the shader is 32768; Evaluate/increase size  and document limiations!
+// - Introduce resolution to viewport_render.wgsl
 
 pub mod spatial;
 pub mod octree;

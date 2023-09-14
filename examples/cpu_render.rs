@@ -67,47 +67,6 @@ fn main() {
         }
     }
 
-    // for y in 0..tree_size {
-    //     for x in 0..(tree_size / 4) {
-    //         tree.insert(
-    //             &V3c::new(x, y, y),
-    //             RGB {
-    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //             },
-    //         )
-    //         .ok();
-    //         tree.insert(
-    //             &V3c::new(x + 1, y, y),
-    //             RGB {
-    //                 r: 255,
-    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //             },
-    //         )
-    //         .ok();
-    //         tree.insert(
-    //             &V3c::new(x + 2, y, y),
-    //             RGB {
-    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 g: 255,
-    //                 b: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //             },
-    //         )
-    //         .ok();
-    //         tree.insert(
-    //             &V3c::new(x + 3, y, y),
-    //             RGB {
-    //                 r: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 g: (255 as f32 * y as f32 / tree_size as f32) as u8,
-    //                 b: 255,
-    //             },
-    //         )
-    //         .ok();
-    //     }
-    // }
-
     use show_image::create_window;
     let window = create_window("image", Default::default()).ok().unwrap();
 
@@ -115,6 +74,17 @@ fn main() {
     let mut rng = rand::thread_rng();
     let mut angle = 40.;
     let mut velos = V3c::new(-0.05, 0., 0.);
+
+    // Close app on window exit
+    window.add_event_handler(|_, event, _|{
+        match event{
+            show_image::event::WindowEvent::Destroyed(_) =>{
+                std::process::exit(0);
+            }
+            _ => {}
+        };
+
+    }).ok().unwrap();
 
     loop {
         //generate a random number to add to velos
@@ -129,17 +99,13 @@ fn main() {
         // Set the viewport
         let origin = V3c::new(
             angle.sin() * radius,
-            radius, //angles.y.sin() * radius,
+            radius,
             angle.cos() * radius,
         );
         let viewport = Ray {
             direction: (V3c::unit(0.) - origin).normalized(),
             origin,
         };
-        // let viewport = Ray {
-        //     direction: V3c::new(0.,0.,1.),
-        //     origin: V3c::new(2., 2., -8.),
-        // };
 
         let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction.cross(viewport.direction).normalized();
@@ -160,10 +126,6 @@ fn main() {
         let mut img = ImageBuffer::new(viewport_resolution_width, viewport_resolution_height);
 
         // cast each ray for a hit
-        //TODO: Do it in parallel
-        // use rayon::iter::ParallelIterator;
-        // use rayon::iter::IntoParallelIterator;
-        // (0..viewport_resolution_width).into_par_iter().for_each(|y|
         for y in 0..viewport_resolution_width {
             for x in 0..viewport_resolution_height {
                 let actual_y_in_image = viewport_resolution_height - y - 1;
@@ -175,23 +137,12 @@ fn main() {
                     origin: viewport.origin,
                     direction: (
                         glass_point - viewport.origin
-                        // + V3c::new( // random offset
-                        //     rng.gen_range(-10..10) as f32 / 1000.,
-                        //     rng.gen_range(-10..10) as f32 / 1000.,
-                        //     rng.gen_range(-10..10) as f32 / 1000.,
-                        // )
                     )
                         .normalized(),
                 };
-                // print!("   {ray:?}   ");
 
                 use std::io::Write;
                 std::io::stdout().flush().ok().unwrap();
-                // if x == 362 && y == 142 {
-                //     img.put_pixel(x, actual_y_in_image, Rgb([0, 255, 255]));
-                //     println!("{ray:?}");
-                //     break 'outer;
-                // }
 
                 if let Some(hit) = tree.get_by_ray(&ray) {
                     let (data, _, normal) = hit;
@@ -220,7 +171,6 @@ fn main() {
         }
 
         use show_image::{ImageInfo, ImageView};
-        // Display results //TODO: do it in a more sophisticated way
         println!("Done!");
         let binding = img.into_raw();
         let image = ImageView::new(
@@ -230,7 +180,6 @@ fn main() {
 
         // Create a window with default options and display the image.
         window.set_image("image-001", image).ok();
-        // TODO if window is closed, exit!
     }
 }
 

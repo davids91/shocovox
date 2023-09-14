@@ -41,10 +41,7 @@ fn setup(
     });
 
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(5.0, 5.0, 10.0).looking_at(
-            Vec3::new(2., 2., 0.0),
-            Vec3::Y,
-        ),
+        transform: Transform::from_xyz(5.0, 5.0, 7.0).looking_at(Vec3::new(4., 1., 0.0), Vec3::Y),
         ..Default::default()
     });
 
@@ -65,34 +62,38 @@ fn setup(
                     || z < (tree_size / 4)
                     || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                 {
-                    tree.insert(&V3c::new(x, y, z), ((x + y + z) / (x * y * z).max(1)) * 10000).ok();
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        50000 + ((x + y + z) / (x * y * z).max(1)) * 100,
+                    )
+                    .ok();
                 }
             }
         }
     }
-    let cube_count = 1;
-    let cube_size = 10. / cube_count as f32;
-    //    let mesh_handle = meshes.add(Mesh::from(shape::Cube { size: cube_size }));
+    let quad_count = 2;
+    let quad_size = 10. / quad_count as f32;
     let mesh_handle = meshes.add(Mesh::from(shape::Quad {
-        size: Vec2::new(cube_size, cube_size),
+        size: Vec2::new(quad_size, quad_size),
         flip: false,
     }));
+    let origin = Vec3::new(
+        tree_size as f32 * 2.,
+        tree_size as f32 / 2.,
+        tree_size as f32 * -2.,
+    );
     let material_handle = materials.add(tree.create_bevy_material_view(&Viewport {
-        origin: Vec3::new(
-            tree_size as f32 * 2.,
-            tree_size as f32 / 2.,
-            tree_size as f32 * -2.,
-        ),
-        direction: Vec3::new(-1., 0., 1.).normalize(),
+        direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
+        origin,
         size: Vec2::new(tree_size as f32, tree_size as f32),
-        resolution: Vec2::new(1024., 1024.),
+        resolution: Vec2::new(64., 64.),
         fov: 3.,
     }));
-    for x in 0..cube_count {
+    for x in 0..quad_count {
         commands.spawn(MaterialMeshBundle {
             mesh: mesh_handle.clone(),
             material: material_handle.clone(),
-            transform: Transform::from_xyz((x as f32 * cube_size) + 0.5, x as f32 / 5., 0.0),
+            transform: Transform::from_xyz((x as f32 * quad_size) + 0.5, x as f32 / 5., 0.0),
             ..Default::default()
         });
     }
@@ -109,7 +110,8 @@ fn rotate_camera(
     mut mats: ResMut<Assets<OctreeViewMaterial>>,
 ) {
     let angle = {
-        let angle = angles_query.single().yaw + 0.005;
+        let addition = 0.007; 
+        let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle
         } else {
@@ -121,7 +123,7 @@ fn rotate_camera(
     for (_mat_handle, mat) in mats.as_mut().iter_mut() {
         let radius = 8.;
         mat.viewport.origin = Vec3::new(angle.sin() * radius, radius, angle.cos() * radius);
-        mat.viewport.direction = (Vec3::new(5., 1., 0.) - mat.viewport.origin).normalize();
+        mat.viewport.direction = (Vec3::new(0., 0., 0.) - mat.viewport.origin).normalize();
     }
 }
 

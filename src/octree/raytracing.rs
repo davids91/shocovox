@@ -133,6 +133,8 @@ where
         }
 
         while !node_stack.is_empty() {
+
+            // POP
             let current_bounds = node_stack.last().unwrap().bounds;
             let current_bounds_ray_intersection = current_bounds.intersect_ray(&ray);
             if !node_stack.last().unwrap().contains_target_center()
@@ -171,6 +173,7 @@ where
             let current_target_octant = node_stack.last().unwrap().target_octant;
             let target_child = self.node_children[current_node][current_target_octant];
             if key_might_be_valid(target_child) {
+                // PUSH
                 let child_bounds = current_bounds.child_bounds_for(current_target_octant);
                 let child_target_octant = hash_region(
                     &(ray.point_at(current_d) - child_bounds.min_position.into()),
@@ -182,6 +185,7 @@ where
                     child_target_octant,
                 ));
             } else {
+                // ADVANCE
                 // target child is invalid, or it does not intersect with the ray
                 // Advance iteration to the next sibling
                 let current_target_bounds = node_stack.last().unwrap().target_bounds();
