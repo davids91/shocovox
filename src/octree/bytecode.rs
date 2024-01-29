@@ -1,6 +1,6 @@
 use crate::object_pool::ObjectPool;
-use crate::octree::{detail::NodeChildrenArray, NodeChildren, NodeContent, Octree, VoxelData};
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
 
 impl<T> ToBencode for NodeContent<T>
 where

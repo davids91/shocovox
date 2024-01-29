@@ -1,42 +1,20 @@
-pub mod bytecode;
+pub mod tests;
+pub mod types;
 pub mod detail;
+pub mod bytecode;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
 
-pub mod tests;
+pub use types::{Octree, VoxelData};
 
 use crate::object_pool::key_none_value;
-use crate::octree::detail::{bound_contains, child_octant_for, NodeChildren, NodeContent};
+use crate::octree::detail::{bound_contains, child_octant_for};
 use crate::spatial::math::{hash_region, offset_region, V3c};
 use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
-
-/// error types during usage or creation of the octree
-#[derive(Debug)]
-pub enum OctreeError {
-    InvalidNodeSize(u32),
-    InvalidPosition { x: u32, y: u32, z: u32 },
-}
-
-pub trait VoxelData {
-    fn new(r: u8, g: u8, b: u8, user_data: Option<u32>) -> Self;
-    fn albedo(&self) -> [u8; 3];
-    fn user_data(&self) -> Option<u32>;
-}
-
 use crate::object_pool::ObjectPool;
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct Octree<T>
-where
-    T: Default + Clone + VoxelData,
-{
-    pub auto_simplify: bool,
-    root_node: u32,
-    root_size: u32,
-    nodes: ObjectPool<NodeContent<T>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
-    node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
-}
+use crate::octree::types::{OctreeError, NodeChildren, NodeContent};
 
 impl<
         #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,

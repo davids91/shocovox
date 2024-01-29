@@ -1,6 +1,7 @@
 #[cfg(feature = "raytracing")]
 use crate::object_pool::key_none_value;
-use crate::octree::{hash_region, Cube, Octree, V3c, VoxelData};
+use crate::octree::{hash_region, Cube, V3c};
+use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
 
 ///####################################################################################
 /// Utility functions
@@ -28,19 +29,6 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
 ///####################################################################################
 /// NodeChildrenArray + NodeChildren
 ///####################################################################################
-#[derive(Debug, Default, Copy, Clone)]
-pub(in crate::octree) enum NodeChildrenArray<T: Default> {
-    #[default]
-    NoChildren,
-    Children([T; 8]),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub(in crate::octree) struct NodeChildren<T: Default> {
-    default_key: T,
-    pub(in crate::octree) content: NodeChildrenArray<T>,
-}
-
 impl<T> NodeChildren<T>
 where
     T: Default + Clone,
@@ -126,18 +114,6 @@ where
 ///####################################################################################
 /// NodeContent
 ///####################################################################################
-#[derive(Default)]
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-#[derive(Clone)]
-pub(crate) enum NodeContent<T>
-where
-    T: Clone,
-{
-    #[default]
-    Nothing,
-    Leaf(T),
-}
-
 impl<T> NodeContent<T>
 where
     T: Clone + Default,
