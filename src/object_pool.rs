@@ -87,7 +87,7 @@ where
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
-            e.emit_int(self.first_available as usize)?;
+            e.emit_int(self.first_available)?;
             e.emit(&self.buffer)
         })
     }

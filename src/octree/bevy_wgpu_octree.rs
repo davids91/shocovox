@@ -1,4 +1,3 @@
-
 use bevy::ecs::system::Resource;
 use bevy::math::{Vec2, Vec3};
 use bevy::pbr::Material;
@@ -57,7 +56,7 @@ use super::{Octree, VoxelData};
 impl<T: Default + Clone + VoxelData> Octree<T> {
     pub fn create_bevy_material_view(&self, viewport: &Viewport) -> OctreeViewMaterial {
         let meta = OctreeMetaData {
-            root_node: self.root_node as u32,
+            root_node: self.root_node,
             root_size: self.root_size,
             ambient_light_color: Color::rgba(1., 1., 1., 1.),
             ambient_light_position: Vec3::new(

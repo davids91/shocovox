@@ -45,6 +45,10 @@ impl<T> NodeChildren<T>
 where
     T: Default + Clone,
 {
+    pub(in crate::octree) fn is_empty(&self) -> bool {
+        matches!(&self.content, NodeChildrenArray::NoChildren)
+    }
+
     pub(in crate::octree) fn new(default_key: T) -> Self {
         Self {
             default_key,
@@ -87,7 +91,10 @@ where
     }
 }
 
-use std::ops::{Index, IndexMut};
+use std::{
+    matches,
+    ops::{Index, IndexMut},
+};
 impl<T> Index<u32> for NodeChildren<T>
 where
     T: Default + Copy + Clone,
@@ -136,10 +143,7 @@ where
     T: Clone + Default,
 {
     pub fn is_leaf(&self) -> bool {
-        match self {
-            NodeContent::Leaf(_) => true,
-            _ => false,
-        }
+        matches!(self, NodeContent::Leaf(_))
     }
 
     pub fn data(&self) -> T {
@@ -151,14 +155,14 @@ where
 
     pub fn leaf_data(&self) -> &T {
         match self {
-            NodeContent::Leaf(t) => &t,
+            NodeContent::Leaf(t) => t,
             _ => panic!("leaf_data was called for NodeContent<T> where there is no content!"),
         }
     }
 
     pub fn as_leaf_ref(&self) -> Option<&T> {
         match self {
-            NodeContent::Leaf(t) => Some(&t),
+            NodeContent::Leaf(t) => Some(t),
             _ => None,
         }
     }

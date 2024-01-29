@@ -138,8 +138,8 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.root_node as u32)?;
-            e.emit_int(self.root_size as u32)?;
+            e.emit_int(self.root_node)?;
+            e.emit_int(self.root_size)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
         })
