@@ -1,7 +1,7 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::prelude::*;
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::{octree::bevy_wgpu_octree::OctreeViewMaterial, spatial::math::V3c};
+use shocovox_rs::{octree::raytracing::classic_raytracing_on_bevy_wgpu::OctreeViewMaterial, spatial::math::V3c};
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -21,7 +21,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OctreeViewMaterial>>,
 ) {
-    use shocovox_rs::octree::bevy_wgpu_octree::Viewport;
+    use shocovox_rs::octree::raytracing::classic_raytracing_on_bevy_wgpu::Viewport;
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {

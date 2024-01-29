@@ -1,8 +1,8 @@
  ☐ store the number of non-empty voxels contained in each node as optimization
- ☐ add Vulkan API wrapper/bevy wrapper for raycasting( or both? )
+ ✔ add Vulkan API wrapper/bevy wrapper for raycasting( or both? ) @done (24-01-29 09:35)
  ☐ Implement internal representations: best approximation of leaf nodes in intermediate Nodes
- ☐ Not all intermediate nodes might have a simplified representation!
- ☐ -> set a threshold for the percentage/count of cubes need be identical to be able to build a simplified parent representation
+   Not all intermediate nodes might have a simplified representation!
+   --> set a threshold for the percentage/count of cubes need be identical to be able to build a simplified parent representation
  ☐ Implement lazy-loading
  ☐ make ObjectPool threadSafe independenct of octree
  ☐ make Octree Thread-safe with an RwLock implementation

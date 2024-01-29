@@ -1,5 +1,6 @@
 pub mod math;
 pub mod raytracing;
+pub mod tests;
 
 use crate::spatial::math::offset_region;
 use crate::spatial::math::V3c;

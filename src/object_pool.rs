@@ -218,7 +218,7 @@ impl<
 }
 
 #[cfg(test)]
-mod tests {
+mod object_pool_tests {
     use super::ObjectPool;
 
     #[test]

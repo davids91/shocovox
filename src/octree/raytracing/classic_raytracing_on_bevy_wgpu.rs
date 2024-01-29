@@ -52,7 +52,7 @@ impl Material for OctreeViewMaterial {
     }
 }
 
-use super::{Octree, VoxelData};
+use crate::octree::{Octree, VoxelData};
 impl<T: Default + Clone + VoxelData> Octree<T> {
     pub fn create_bevy_material_view(&self, viewport: &Viewport) -> OctreeViewMaterial {
         let meta = OctreeMetaData {
@@ -93,14 +93,5 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
             meta,
             content,
         }
-    }
-}
-
-#[cfg(test)]
-mod wgpu_tests {
-    #[test]
-    fn test_special_key_values() {
-        // assumptions in shader needs to be compared to factual values
-        assert!(crate::object_pool::key_none_value() == 4294967295u32);
     }
 }
