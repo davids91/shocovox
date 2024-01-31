@@ -180,7 +180,6 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.root_node)?;
             e.emit_int(self.root_size)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
@@ -208,13 +207,6 @@ where
                     )),
                 }?;
 
-                let root_node = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
-                    _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field root_node_key",
-                        "Something else",
-                    )),
-                }?;
                 let root_size = match list.next_object()?.unwrap() {
                     Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
                     _ => Err(bendy::decoding::Error::unexpected_token(
@@ -228,7 +220,6 @@ where
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
                 Ok(Self {
                     auto_simplify,
-                    root_node,
                     root_size,
                     nodes,
                     node_children,

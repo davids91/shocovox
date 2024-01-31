@@ -6,7 +6,6 @@ where
     T: Default + Clone + VoxelData,
 {
     pub auto_simplify: bool,
-    pub(in crate::octree) root_node: u32,
     pub(in crate::octree) root_size: u32,
     pub(in crate::octree) nodes: ObjectPool<NodeContent<T>>, //None means the Node is an internal node, Some(...) means the Node is a leaf
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node

@@ -172,6 +172,14 @@ impl VoxelData for u32 {
 
 impl<T> Octree<T>
 where
+    T: Default + Clone + VoxelData,
+{
+    /// The root node is always the first item
+    pub(crate) const ROOT_NODE_KEY: u32 = 0;
+}
+
+impl<T> Octree<T>
+where
     T: Default + PartialEq + Clone + VoxelData,
 {
     pub(in crate::octree) fn make_uniform_children(&mut self, content: T) -> [u32; 8] {
@@ -235,7 +243,7 @@ where
     }
 
     /// Count the number of children a Node has according to the stored cache of the children
-    pub(in crate::octree) fn count_cached_children(&self, node: u32) -> u32{
+    pub(in crate::octree) fn count_cached_children(&self, node: u32) -> u32 {
         let mut actual_count = 0;
         for i in 0..8 {
             let child_key = self.node_children[node as usize][i];

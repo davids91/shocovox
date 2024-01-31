@@ -20,7 +20,6 @@ struct SizedNode {
 
 #[derive(Clone, ShaderType)]
 struct OctreeMetaData {
-    root_node: u32,
     root_size: u32,
     ambient_light_color: Color,
     ambient_light_position: Vec3,
@@ -58,7 +57,6 @@ use crate::octree::{Octree, VoxelData};
 impl<T: Default + Clone + VoxelData> Octree<T> {
     pub fn create_bevy_material_view(&self, viewport: &Viewport) -> OctreeViewMaterial {
         let meta = OctreeMetaData {
-            root_node: self.root_node,
             root_size: self.root_size,
             ambient_light_color: Color::rgba(1., 1., 1., 1.),
             ambient_light_position: Vec3::new(

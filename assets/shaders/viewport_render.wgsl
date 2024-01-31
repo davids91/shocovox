@@ -314,10 +314,10 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
         current_d = impact_or(root_intersection, 0.);
-        if(is_leaf(nodes[octreeMetaData.root_node])){
+        if(is_leaf(nodes[OCTREE_ROOT_NODE_KEY])){
             result.hit = true;
-            result.albedo = nodes[octreeMetaData.root_node].albedo;
-            result.content = nodes[octreeMetaData.root_node].content;
+            result.albedo = nodes[OCTREE_ROOT_NODE_KEY].albedo;
+            result.content = nodes[OCTREE_ROOT_NODE_KEY].content;
             result.collision_point = ray_at_point(ray, current_d);
             result.impact_normal = root_intersection.impact_normal;
             return result;
@@ -327,7 +327,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             f32(octreeMetaData.root_size),
         );
         node_stack[0] = new_node_stack_item(
-            root_bounds, octreeMetaData.root_node, target_octant
+            root_bounds, OCTREE_ROOT_NODE_KEY, target_octant
         );
         node_stack_i = 1;
     }
@@ -402,8 +402,8 @@ struct SizedNode {
     children: array<u32, 8>
 }
 
+const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
-    root_node: u32,
     root_size: u32
 }
 

@@ -61,9 +61,10 @@ where
         let mut nodes = ObjectPool::<NodeContent<T>>::with_capacity(size.pow(3) as usize);
         let mut node_children = Vec::with_capacity(size.pow(3) as usize);
         node_children.push(NodeChildren::new(key_none_value()));
+        let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
+        assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
-            root_node: nodes.push(NodeContent::Nothing) as u32,
             root_size: size,
             nodes,
             node_children,
@@ -97,7 +98,7 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(self.root_node, root_bounds)];
+        let mut node_stack = vec![(Octree::<T>::ROOT_NODE_KEY, root_bounds)];
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
@@ -195,7 +196,7 @@ where
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
         let mut current_bounds = Cube::root_bounds(self.root_size);
-        let mut current_node_key = self.root_node as usize;
+        let mut current_node_key = Octree::<T>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
@@ -227,7 +228,7 @@ where
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
         let mut current_bounds = Cube::root_bounds(self.root_size);
-        let mut current_node_key = self.root_node as usize;
+        let mut current_node_key = Octree::<T>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
@@ -281,7 +282,7 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(self.root_node, root_bounds)];
+        let mut node_stack = vec![(Octree::<T>::ROOT_NODE_KEY, root_bounds)];
         let mut target_child_octant = 9; //This init value should not be used. In case there is only one node, there is parent of it;
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();

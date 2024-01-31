@@ -115,9 +115,9 @@ where
 
         if let Some(root_hit) = root_bounds.intersect_ray(ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
-            if self.nodes.get(self.root_node as usize).is_leaf() {
+            if self.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize).is_leaf() {
                 return Some((
-                    self.nodes.get(self.root_node as usize).leaf_data(),
+                    self.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize).leaf_data(),
                     ray.point_at(current_d),
                     root_hit.impact_normal,
                 ));
@@ -128,7 +128,7 @@ where
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
-                self.root_node,
+                Octree::<T>::ROOT_NODE_KEY,
                 target_octant,
             ));
         }
