@@ -1,7 +1,7 @@
+pub mod bytecode;
+pub mod detail;
 pub mod tests;
 pub mod types;
-pub mod detail;
-pub mod bytecode;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
@@ -9,12 +9,12 @@ pub mod raytracing;
 pub use types::{Octree, VoxelData};
 
 use crate::object_pool::key_none_value;
+use crate::object_pool::ObjectPool;
 use crate::octree::detail::{bound_contains, child_octant_for};
+use crate::octree::types::{NodeChildren, NodeContent, OctreeError};
 use crate::spatial::math::{hash_region, offset_region, V3c};
 use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
-use crate::object_pool::ObjectPool;
-use crate::octree::types::{OctreeError, NodeChildren, NodeContent};
 
 impl<
         #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
@@ -132,7 +132,10 @@ where
                         // as separate Nodes with the same data as their parent to keep integrity
                         let content = self.nodes.get(current_node_key).clone();
                         let new_children = self.make_uniform_children(content.leaf_data().clone());
-                        *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
+
+                        // Set type of internal Node as an internal containing 7 nodes, exclude the newly inserted node
+                        // After the insertion the count will be updated for the whole structure
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Internal(7);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
                             self.node_children[current_node_key][target_child_octant],
@@ -144,7 +147,8 @@ where
                         ));
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
-                        let child_key = self.nodes.push(NodeContent::Nothing) as u32;
+                        // The Node becomes non-empty, but its count remains 0; After the insertion the count will be updated for the whole structure
+                        let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
                         self.node_children
                             .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
 
@@ -168,11 +172,21 @@ where
             }
         }
 
-        if self.auto_simplify {
-            for (node_key, _node_bounds) in node_stack.into_iter().rev() {
-                if !self.simplify(node_key) {
-                    break; // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
+        // post-processing operations
+        let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
+        for (node_key, _node_bounds) in node_stack.into_iter().rev() {
+            if simplifyable {
+                simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
+            }
+            *self.nodes.get_mut(node_key as usize) = match self.nodes.get(node_key as usize) {
+                NodeContent::Nothing => {
+                    // This is incorrect information which needs to be corrected
+                    // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
+                    // To correct this, the children will determine the count
+                    NodeContent::Internal(self.count_cached_children(node_key))
                 }
+                NodeContent::Internal(contains_count) => NodeContent::Internal(contains_count + 1),
+                anything_else => anything_else.clone(), // cloning has an acceptable performance impact because of the expected stack depth
             }
         }
         Ok(())
@@ -181,22 +195,31 @@ where
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
         let mut current_bounds = Cube::root_bounds(self.root_size);
+        let mut current_node_key = self.root_node as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
 
-        let mut current_node_key = self.root_node as usize;
         loop {
-            if self.nodes.get(current_node_key).is_leaf() {
-                return self.nodes.get(current_node_key).as_leaf_ref();
-            }
-            let child_octant_at_position = child_octant_for(&current_bounds, position);
-            let child_at_position = self.node_children[current_node_key][child_octant_at_position];
-            if crate::object_pool::key_might_be_valid(child_at_position) {
-                current_node_key = child_at_position as usize;
-                current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
-            } else {
-                return None;
+            match self.nodes.get(current_node_key) {
+                NodeContent::Nothing => {
+                    return None;
+                }
+                NodeContent::Leaf(c) => {
+                    return Some(c);
+                }
+                _ => {
+                    let child_octant_at_position = child_octant_for(&current_bounds, position);
+                    let child_at_position =
+                        self.node_children[current_node_key][child_octant_at_position];
+                    if crate::object_pool::key_might_be_valid(child_at_position) {
+                        current_node_key = child_at_position as usize;
+                        current_bounds =
+                            Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                    } else {
+                        return None;
+                    }
+                }
             }
         }
     }
@@ -204,22 +227,31 @@ where
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
         let mut current_bounds = Cube::root_bounds(self.root_size);
+        let mut current_node_key = self.root_node as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
 
-        let mut current_node_key = self.root_node as usize;
         loop {
-            if self.nodes.get(current_node_key).is_leaf() {
-                return self.nodes.get_mut(current_node_key).as_mut_leaf_ref();
-            }
-            let child_octant_at_position = child_octant_for(&current_bounds, position);
-            let child_at_position = self.node_children[current_node_key][child_octant_at_position];
-            if crate::object_pool::key_might_be_valid(child_at_position) {
-                current_node_key = child_at_position as usize;
-                current_bounds = Cube::child_bounds_for(&current_bounds, child_octant_at_position);
-            } else {
-                return None;
+            match self.nodes.get(current_node_key) {
+                NodeContent::Nothing => {
+                    return None;
+                }
+                NodeContent::Leaf(_) => {
+                    return self.nodes.get_mut(current_node_key).as_mut_leaf_ref()
+                }
+                _ => {
+                    let child_octant_at_position = child_octant_for(&current_bounds, position);
+                    let child_at_position =
+                        self.node_children[current_node_key][child_octant_at_position];
+                    if crate::object_pool::key_might_be_valid(child_at_position) {
+                        current_node_key = child_at_position as usize;
+                        current_bounds =
+                            Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                    } else {
+                        return None;
+                    }
+                }
             }
         }
     }
@@ -297,17 +329,44 @@ where
             } else {
                 // current_bounds.size == min_node_size, which is the desired depth, so unset the current node and its children
                 self.deallocate_children_of(current_node_key as u32);
-                self.nodes.free(current_node_key);
 
                 // Set the parents child to None
                 if node_stack.len() >= 2 && target_child_octant < 9 {
+                    self.nodes.free(current_node_key);
                     let parent_key = node_stack[node_stack.len() - 2].0 as usize;
                     self.node_children[parent_key][target_child_octant] = key_none_value();
+                } else {
+                    // If the node doesn't have parents, then it's a root node and should not be deleted
+                    *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
                 }
                 break;
             }
         }
 
+        // post-processing operations
+        node_stack.pop(); // Except for the last removed element
+        for (node_key, _node_bounds) in node_stack.into_iter().rev() {
+            *self.nodes.get_mut(node_key as usize) = match self.nodes.get(node_key as usize) {
+                NodeContent::Nothing => {
+                    if !self.node_children[node_key as usize].is_empty() {
+                        // This is incorrect information which needs to be corrected
+                        // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
+                        // To correct this, the children will determine the count
+                        NodeContent::Internal(self.count_cached_children(node_key))
+                    } else {
+                        NodeContent::Nothing
+                    }
+                }
+                NodeContent::Internal(contains_count) => {
+                    if 1 < *contains_count {
+                        NodeContent::Internal(contains_count - 1)
+                    } else {
+                        NodeContent::Nothing
+                    }
+                }
+                anything_else => anything_else.clone(), // cloning has an acceptable performance impact because of the expected stack depth
+            }
+        }
         Ok(())
     }
 }

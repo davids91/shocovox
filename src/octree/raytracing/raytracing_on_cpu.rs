@@ -1,3 +1,4 @@
+use crate::octree::NodeContent;
 use crate::octree::{Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
@@ -138,6 +139,12 @@ where
             let current_bounds_ray_intersection = current_bounds.intersect_ray(ray);
             if !node_stack.last().unwrap().contains_target_center()
                 || current_bounds_ray_intersection.is_none()
+                // No need to go into the Node if it's empty
+                || match self.nodes.get(node_stack.last().unwrap().node as usize) {
+                    NodeContent::Nothing => true, 
+                    NodeContent::Internal(count) => 0 == *count,
+                    _ => false,
+                }
             {
                 let popped_target = node_stack.pop().unwrap();
                 if let Some(parent) = node_stack.last_mut() {

@@ -1,3 +1,5 @@
+use crate::octree::NodeContent;
+
 use bevy::ecs::system::Resource;
 use bevy::math::{Vec2, Vec3};
 use bevy::pbr::Material;
@@ -10,7 +12,7 @@ use bevy::{
 
 #[derive(Clone, ShaderType)]
 struct SizedNode {
-    is_leaf: u32,
+    contains_nodes: u32, // it is a leaf if it contains 1 node and has no children
     albedo: Color,
     content: u32,
     children: [u32; 8],
@@ -67,25 +69,36 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
         };
         let mut content = Vec::new();
         for i in 0..self.nodes.len() {
-            if let Some(leaf_data) = self.nodes.get(i).as_leaf_ref() {
-                let albedo = leaf_data.albedo();
-                content.push(SizedNode {
-                    is_leaf: 1,
-                    albedo: Color::rgb(
-                        albedo[0] as f32 / 255.,
-                        albedo[1] as f32 / 255.,
-                        albedo[2] as f32 / 255.,
-                    ),
-                    content: leaf_data.user_data().unwrap_or(0),
-                    children: self.node_children[i].get_full(),
-                });
-            } else {
-                content.push(SizedNode {
-                    is_leaf: 0,
-                    albedo: Color::rgba(0., 0., 0., 0.),
-                    content: 0,
-                    children: self.node_children[i].get_full(),
-                });
+            match self.nodes.get(i) {
+                NodeContent::Leaf(data) => {
+                    let albedo = data.albedo();
+                    content.push(SizedNode {
+                        contains_nodes: 1,
+                        albedo: Color::rgb(
+                            albedo[0] as f32 / 255.,
+                            albedo[1] as f32 / 255.,
+                            albedo[2] as f32 / 255.,
+                        ),
+                        content: data.user_data().unwrap_or(0),
+                        children: self.node_children[i].get_full(),
+                    });
+                }
+                NodeContent::Internal(count) => {
+                    content.push(SizedNode {
+                        contains_nodes: *count,
+                        albedo: Color::rgba(0., 0., 0., 0.),
+                        content: 0,
+                        children: self.node_children[i].get_full(),
+                    });
+                }
+                NodeContent::Nothing => {
+                    content.push(SizedNode {
+                        contains_nodes: 0,
+                        albedo: Color::rgba(0., 0., 0., 0.),
+                        content: 0,
+                        children: self.node_children[i].get_full(),
+                    });
+                }
             }
         }
         OctreeViewMaterial {

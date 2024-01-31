@@ -1,6 +1,6 @@
 use crate::object_pool::ObjectPool;
-use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
+use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
 where
@@ -8,21 +8,24 @@ where
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
-        if self.is_leaf() {
-            encoder.emit_list(|e| {
+        match self {
+            NodeContent::Nothing => encoder.emit_str("#"),
+            NodeContent::Internal(count) => encoder.emit_list(|e| {
+                e.emit_str("##")?;
+                e.emit_int(*count)
+            }),
+            NodeContent::Leaf(data) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                let color = self.leaf_data().albedo();
+                let color = data.albedo();
                 e.emit(color[0])?;
                 e.emit(color[1])?;
                 e.emit(color[2])?;
-                if let Some(d) = self.leaf_data().user_data() {
+                if let Some(d) = data.user_data() {
                     e.emit(d)
                 } else {
-                    e.emit_str("##x##")
+                    e.emit_str("#")
                 }
-            })
-        } else {
-            encoder.emit_str("##x##")
+            }),
         }
     }
 }
@@ -35,35 +38,74 @@ where
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
             Object::List(mut list) => {
-                list.next_object()?; // Should be "###"
-                let r = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                let is_leaf = match list.next_object()?.unwrap() {
+                    Object::Bytes(b) => {
+                        match String::from_utf8(b.to_vec())
+                            .unwrap_or("".to_string())
+                            .as_str()
+                        {
+                            "##" => {
+                                // The content is an internal Node
+                                Ok(false)
+                            }
+                            "###" => {
+                                // The content is a leaf
+                                Ok(true)
+                            }
+                            misc => Err(bendy::decoding::Error::unexpected_token(
+                                "A NodeContent Identifier string, which is either # or ##",
+                                "The string ".to_owned() + misc,
+                            )),
+                        }
+                    }
                     _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field red color component",
+                        "A NodeContent Identifier, which is a string",
                         "Something else",
                     )),
                 }?;
-                let g = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-                    _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field red color component",
-                        "Something else",
-                    )),
-                }?;
-                let b = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-                    _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field red color component",
-                        "Something else",
-                    )),
-                }?;
-                let user_data = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
-                    _ => None,
-                };
-                Ok(NodeContent::Leaf(T::new(r, g, b, user_data)))
+                if !is_leaf {
+                    let count;
+                    match list.next_object()?.unwrap() {
+                        Object::Integer(i) => count = i.parse::<u32>().ok().unwrap(),
+                        _ => {
+                            return Err(bendy::decoding::Error::unexpected_token(
+                                "int field for Internal Node count",
+                                "Something else",
+                            ))
+                        }
+                    };
+                    Ok(NodeContent::Internal(count))
+                } else {
+                    let r = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field red color component",
+                            "Something else",
+                        )),
+                    }?;
+                    let g = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field red color component",
+                            "Something else",
+                        )),
+                    }?;
+                    let b = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field red color component",
+                            "Something else",
+                        )),
+                    }?;
+                    let user_data = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
+                        _ => None,
+                    };
+                    Ok(NodeContent::Leaf(T::new(r, g, b, user_data)))
+                }
             }
-            Object::Bytes(_b) => { // should be "##x##"
+            Object::Bytes(b) => {
+                assert!(String::from_utf8(b.to_vec()).unwrap_or("".to_string()) == "#");
                 Ok(NodeContent::Nothing)
             }
             _ => Err(bendy::decoding::Error::unexpected_token(

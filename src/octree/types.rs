@@ -21,6 +21,7 @@ where
 {
     #[default]
     Nothing,
+    Internal(u32), // cache data to store the enclosed nodes
     Leaf(T),
 }
 

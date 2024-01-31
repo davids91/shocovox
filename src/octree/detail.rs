@@ -1,7 +1,7 @@
 #[cfg(feature = "raytracing")]
 use crate::object_pool::key_none_value;
-use crate::octree::{hash_region, Cube, V3c};
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
+use crate::octree::{hash_region, Cube, V3c};
 
 ///####################################################################################
 /// Utility functions
@@ -206,6 +206,7 @@ where
         self.node_children[node as usize].content = NodeChildrenArray::NoChildren;
     }
 
+    /// Updates the given node recursively to collapse nodes with uniform children into a leaf
     pub(in crate::octree) fn simplify(&mut self, node: u32) -> bool {
         let mut data = NodeContent::Nothing;
         if crate::object_pool::key_might_be_valid(node) {
@@ -231,5 +232,25 @@ where
         } else {
             false
         }
+    }
+
+    /// Count the number of children a Node has according to the stored cache of the children
+    pub(in crate::octree) fn count_cached_children(&self, node: u32) -> u32{
+        let mut actual_count = 0;
+        for i in 0..8 {
+            let child_key = self.node_children[node as usize][i];
+            if crate::object_pool::key_might_be_valid(child_key) {
+                match self.nodes.get(child_key as usize) {
+                    NodeContent::Leaf(_) => {
+                        actual_count += 1;
+                    }
+                    NodeContent::Internal(c) => {
+                        actual_count += c;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        actual_count
     }
 }

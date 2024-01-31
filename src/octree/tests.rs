@@ -183,7 +183,7 @@ mod octree_tests {
         tree.insert(&V3c::new(1, 1, 0), 5).ok();
         tree.insert(&V3c::new(1, 1, 1), 5).ok();
 
-        // The below should brake the simplified node back to its party
+        // The below should brake the simplified node back to its parts
         tree.insert(&V3c::new(0, 0, 0), 4).ok();
 
         // Integrity should be kept
@@ -238,6 +238,35 @@ mod octree_tests {
         assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
         assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
         assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
+    }
+
+
+    #[test]
+    fn test_clear_to_nothing() {
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
+
+        // The below set of values should be simplified to a single node
+        tree.insert(&V3c::new(0, 0, 0), 5).ok();
+        tree.insert(&V3c::new(0, 0, 1), 5).ok();
+        tree.insert(&V3c::new(0, 1, 0), 5).ok();
+        tree.insert(&V3c::new(0, 1, 1), 5).ok();
+        tree.insert(&V3c::new(1, 0, 0), 5).ok();
+        tree.insert(&V3c::new(1, 0, 1), 5).ok();
+        tree.insert(&V3c::new(1, 1, 0), 5).ok();
+        tree.insert(&V3c::new(1, 1, 1), 5).ok();
+
+        // The below should brake the simplified node back to its party
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok();
+
+        // Nothing should remain in the tree
+        assert!(tree.get(&V3c::new(0, 0, 0)).is_none());
+        assert!(tree.get(&V3c::new(0, 0, 1)).is_none());
+        assert!(tree.get(&V3c::new(0, 1, 0)).is_none());
+        assert!(tree.get(&V3c::new(0, 1, 1)).is_none());
+        assert!(tree.get(&V3c::new(1, 0, 0)).is_none());
+        assert!(tree.get(&V3c::new(1, 0, 1)).is_none());
+        assert!(tree.get(&V3c::new(1, 1, 0)).is_none());
+        assert!(tree.get(&V3c::new(1, 1, 1)).is_none());
     }
 
     #[test]

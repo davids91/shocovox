@@ -254,9 +254,42 @@ fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
     return result;
 }
 
+const key_none_value : u32 = 4294967295u;
+
 //crate::object_pool::key_might_be_valid
 fn key_might_be_valid(key: u32) -> bool{
-    return key < 4294967295u;
+    return key < key_none_value;
+}
+
+//Unique to this implementation, not adapted from rust code
+fn is_leaf(node: SizedNode) -> bool{
+    var children_count = 8;
+    if node.children[0] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[1] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[2] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[3] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[4] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[5] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[6] == key_none_value{
+        children_count -= 1;
+    }
+    if node.children[7] == key_none_value{
+        children_count -= 1;
+    }
+
+    return (node.contains_nodes == 1u && 0 == children_count);
 }
 
 struct OctreeRayIntersection {
@@ -281,7 +314,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
         current_d = impact_or(root_intersection, 0.);
-        if(nodes[octreeMetaData.root_node].is_leaf == 1u){
+        if(is_leaf(nodes[octreeMetaData.root_node])){
             result.hit = true;
             result.albedo = nodes[octreeMetaData.root_node].albedo;
             result.content = nodes[octreeMetaData.root_node].content;
@@ -307,6 +340,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         let current_bounds_ray_intersection = cube_intersect_ray(current_bounds, ray);
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
             || (!current_bounds_ray_intersection.hit)
+            || nodes[node_stack[node_stack_i - 1].node].contains_nodes == 0u
         ){
             let popped_target = node_stack[node_stack_i - 1];
             node_stack_i -= 1;
@@ -321,7 +355,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         }
 
         let current_node = node_stack[node_stack_i - 1].node;
-        if(nodes[current_node].is_leaf == 1u && current_bounds_ray_intersection.hit){
+        if(is_leaf(nodes[current_node]) && current_bounds_ray_intersection.hit){
             result.hit = true;
             result.albedo = nodes[current_node].albedo;
             result.content = nodes[current_node].content;
@@ -362,7 +396,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
 }
 
 struct SizedNode {
-    is_leaf: u32,
+    contains_nodes: u32,
     albedo : vec4<f32>,
     content: u32,
     children: array<u32, 8>
