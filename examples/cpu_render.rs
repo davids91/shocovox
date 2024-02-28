@@ -37,8 +37,8 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 fn main() {
     // fill octree with data
     let tree_size = 4;
-    let viewport_resolution_width = 128;
-    let viewport_resolution_height = 128;
+    let viewport_size_width = 128;
+    let viewport_size_height = 128;
     let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
         .ok()
         .unwrap();
@@ -112,8 +112,8 @@ fn main() {
         let viewport_width = 4.;
         let viewport_height = 4.;
         let viewport_fov = 3.;
-        let pixel_width = viewport_width as f32 / viewport_resolution_width as f32;
-        let pixel_height = viewport_height as f32 / viewport_resolution_height as f32;
+        let pixel_width = viewport_width as f32 / viewport_size_width as f32;
+        let pixel_height = viewport_height as f32 / viewport_size_height as f32;
         let viewport_bottom_left = viewport.origin + (viewport.direction * viewport_fov)
             - (viewport_up_direction * (viewport_height / 2.))
             - (viewport_right_direction * (viewport_width / 2.));
@@ -123,12 +123,12 @@ fn main() {
 
         use image::ImageBuffer;
         use image::Rgb;
-        let mut img = ImageBuffer::new(viewport_resolution_width, viewport_resolution_height);
+        let mut img = ImageBuffer::new(viewport_size_width, viewport_size_height);
 
         // cast each ray for a hit
-        for y in 0..viewport_resolution_width {
-            for x in 0..viewport_resolution_height {
-                let actual_y_in_image = viewport_resolution_height - y - 1;
+        for y in 0..viewport_size_width {
+            for x in 0..viewport_size_height {
+                let actual_y_in_image = viewport_size_height - y - 1;
                 //from the origin of the camera to the current point of the viewport
                 let glass_point = viewport_bottom_left
                     + viewport_right_direction * x as f32 * pixel_width
@@ -164,8 +164,8 @@ fn main() {
                 }
                 print!(
                     "\r   progress: {}   ",
-                    (x + y * viewport_resolution_height) as f32
-                        / (viewport_resolution_height * viewport_resolution_width) as f32
+                    (x + y * viewport_size_height) as f32
+                        / (viewport_size_height * viewport_size_width) as f32
                 );
             }
         }
@@ -174,7 +174,7 @@ fn main() {
         println!("Done!");
         let binding = img.into_raw();
         let image = ImageView::new(
-            ImageInfo::rgb8(viewport_resolution_width, viewport_resolution_height),
+            ImageInfo::rgb8(viewport_size_width, viewport_size_height),
             &binding,
         );
 

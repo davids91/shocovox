@@ -30,7 +30,6 @@ pub struct Viewport {
     pub origin: Vec3,
     pub direction: Vec3,
     pub size: Vec2,
-    pub resolution: Vec2,
     pub fov: f32,
 }
 

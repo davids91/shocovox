@@ -14,6 +14,7 @@ fn main() {
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
+        .add_systems(Update, handle_zoom)
         .run();
 }
 
@@ -104,7 +105,6 @@ fn setup(
         direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
         origin,
         size: Vec2::new(10., 10.),
-        resolution: Vec2::new(64., 64.),
         fov: 3.,
     }));
     for x in 0..quad_count {
@@ -151,6 +151,17 @@ fn rotate_camera(
             ARRAY_DIMENSION as f32 / 2.,
         ) - mat.viewport.origin)
             .normalize();
+    }
+}
+
+fn handle_zoom(keys: Res<Input<KeyCode>>, mut mats: ResMut<Assets<OctreeViewMaterial>>) {
+    for (_mat_handle, mat) in mats.as_mut().iter_mut() {
+        if keys.pressed(KeyCode::Up) {
+            mat.viewport.size *= 1.1;
+        }
+        if keys.pressed(KeyCode::Down) {
+            mat.viewport.size *= 0.9;
+        }
     }
 }
 

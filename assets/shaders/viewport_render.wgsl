@@ -414,7 +414,6 @@ struct Viewport {
     origin: vec3f,
     direction: vec3f,
     size: vec2f,
-    resolution: vec2f,
     fov: f32,
 }
 
@@ -433,21 +432,17 @@ fn fragment(mesh: MeshVertexOutput) -> @location(0) vec4<f32> {
     let viewport_right_direction = normalize(cross(
         viewport_up_direction, viewport.direction
     ));
-    let pixel_size = vec2f(
-        viewport.size.x / viewport.resolution.x,
-        viewport.size.y / viewport.resolution.y
-    );
     let 
     viewport_bottom_left = viewport.origin 
         + (viewport.direction * viewport.fov)
         - (viewport_right_direction * (viewport.size.x / 2.))
         - (viewport_up_direction * (viewport.size.y / 2.))
         ;
-    let glass_point = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * (mesh.uv.x + pixel_size.x / 2.)
-        + viewport_up_direction * viewport.size.y * ((1. - mesh.uv.y) + pixel_size.y / 2.)
+    let ray_endpoint = viewport_bottom_left
+        + viewport_right_direction * viewport.size.x * mesh.uv.x
+        + viewport_up_direction * viewport.size.y * (1. - mesh.uv.y)
         ;
-    var ray = Line(glass_point, normalize(glass_point - viewport.origin));
+    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
     var ray_result = get_by_ray(ray);
     var diffuse_light_strength = (
