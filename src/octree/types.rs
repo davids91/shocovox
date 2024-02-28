@@ -40,12 +40,28 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 
 #[derive(Debug, Copy, Clone)]
 pub(in crate::octree) struct NodeChildren<T: Default> {
-    pub(in crate::octree)  default_key: T,
+    pub(in crate::octree) default_key: T,
     pub(in crate::octree) content: NodeChildrenArray<T>,
 }
 
 pub trait VoxelData {
     fn new(r: u8, g: u8, b: u8, user_data: Option<u32>) -> Self;
-    fn albedo(&self) -> [u8; 3];
+    fn albedo(&self) -> [u8; 3]; // 0-255 RGB
     fn user_data(&self) -> Option<u32>;
+}
+
+impl VoxelData for u32 {
+    fn new(r: u8, g: u8, b: u8, _user_data: Option<u32>) -> Self {
+        r as u32 & 0x000000FF | ((g as u32 & 0x000000FF) << 8) | ((b as u32 & 0x000000FF) << 16)
+    }
+    fn albedo(&self) -> [u8; 3] {
+        [
+            (self & 0x000000FF) as u8,
+            ((self & 0x0000FF00) >> 8) as u8,
+            ((self & 0x00FF0000) >> 16) as u8,
+        ]
+    }
+    fn user_data(&self) -> Option<u32> {
+        None
+    }
 }

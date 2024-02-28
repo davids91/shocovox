@@ -1,6 +1,6 @@
 #[cfg(feature = "raytracing")]
 use crate::spatial::{
-    math::{plane_line_intersection_distance, V3c},
+    math::{plane_line_intersection, V3c},
     Cube,
 };
 
@@ -91,7 +91,7 @@ impl Cube {
 
         for f in CubeFaces::into_iter() {
             let face = &self.face(f);
-            if let Some(d) = plane_line_intersection_distance(
+            if let Some(d) = plane_line_intersection(
                 &face.origin,
                 &face.direction,
                 &ray.origin,
@@ -138,7 +138,7 @@ impl Cube {
 #[cfg(test)]
 mod raytracing_tests {
     #[cfg(feature = "raytracing")]
-    use crate::spatial::math::plane_line_intersection_distance;
+    use crate::spatial::math::plane_line_intersection;
 
     use super::Cube;
     #[cfg(feature = "raytracing")]
@@ -149,7 +149,7 @@ mod raytracing_tests {
     #[test]
     fn test_plane_line_intersection() {
         assert!(
-            plane_line_intersection_distance(
+            plane_line_intersection(
                 // plane
                 &V3c::new(0., 0., 0.),
                 &V3c::new(0., 1., 0.),
@@ -160,7 +160,7 @@ mod raytracing_tests {
         );
 
         assert!(
-            plane_line_intersection_distance(
+            plane_line_intersection(
                 // plane
                 &V3c::new(0., 0., 0.),
                 &V3c::new(0., 1., 0.),
@@ -171,7 +171,7 @@ mod raytracing_tests {
         );
 
         assert!(
-            plane_line_intersection_distance(
+            plane_line_intersection(
                 // plane
                 &V3c::new(0., 0., 0.),
                 &V3c::new(0., 1., 0.),

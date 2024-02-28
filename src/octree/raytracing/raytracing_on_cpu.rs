@@ -2,7 +2,7 @@ use crate::octree::NodeContent;
 use crate::octree::{Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
-    math::{hash_region, offset_region, plane_line_intersection_distance},
+    math::{hash_region, offset_region, plane_line_intersection},
     raytracing::Ray,
 };
 
@@ -62,21 +62,21 @@ where
             );
 
         // Find the min of the 3 plane intersections
-        let x_plane_distance = plane_line_intersection_distance(
+        let x_plane_distance = plane_line_intersection(
             &ref_point,
             &V3c::new(1., 0., 0.),
             &ray.origin,
             &ray.direction,
         )
         .unwrap();
-        let y_plane_distance = plane_line_intersection_distance(
+        let y_plane_distance = plane_line_intersection(
             &ref_point,
             &V3c::new(0., 1., 0.),
             &ray.origin,
             &ray.direction,
         )
         .unwrap();
-        let z_plane_distance = plane_line_intersection_distance(
+        let z_plane_distance = plane_line_intersection(
             &ref_point,
             &V3c::new(0., 0., 1.),
             &ray.origin,

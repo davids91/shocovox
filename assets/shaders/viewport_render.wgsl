@@ -71,8 +71,8 @@ struct PlaneLineIntersection {
     d: f32,
 }
 
-//crate::spatial::math::plane_line_intersection_distance
-fn plane_line_intersection_distance(plane: Plane, line: Line) -> PlaneLineIntersection {
+//crate::spatial::math::plane_line_intersection
+fn plane_line_intersection(plane: Plane, line: Line) -> PlaneLineIntersection {
     var result: PlaneLineIntersection;
     let origins_diff = plane.point - line.origin;
     let plane_line_dot_to_plane = dot(origins_diff, plane.normal);
@@ -120,7 +120,7 @@ struct CubeRayIntersection {
 }
 
 //crate::spatial::raytracing::Ray::point_at
-fn ray_at_point(ray: Line, d: f32) -> vec3f{
+fn point_in_ray_at_distance(ray: Line, d: f32) -> vec3f{
     return ray.origin + ray.direction * d;
 }
 
@@ -137,9 +137,9 @@ fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
 
     for(var cube_face_index: u32 = 0u; cube_face_index <= 6u; cube_face_index = cube_face_index + 1u){
         let face = get_cube_face(cube, cube_face_index);
-        let intersection = plane_line_intersection_distance(face, ray);
+        let intersection = plane_line_intersection(face, ray);
         if(intersection.hit){
-            if(0. <= intersection.d && cube_contains_point(cube, ray_at_point(ray, intersection.d))){
+            if(0. <= intersection.d && cube_contains_point(cube, point_in_ray_at_distance(ray, intersection.d))){
                 // ray hits the plane only when the resulting distance is at least positive,
                 // and the point is contained inside the cube
                 if(1 < distances_i && abs(distances[0] - distances[1]) < FLOAT_ERROR_TOLERANCE){
@@ -165,10 +165,13 @@ fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
     } else if 0 < distances_i {
         result.hit = true;
         result.impact_hit = false;
+        result.impact_distance = 0.;
         result.exit_distance = distances[0];
     } else {
         result.hit = false;
         result.impact_hit = false;
+        result.impact_distance = 0.;
+        result.exit_distance = 0.;
     }
     return result;
 }
@@ -222,20 +225,20 @@ fn target_bounds(item: NodeStackItem) -> Cube {
 fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
     let half_size = current.size / 2.;
     let midpoint = current.min_position + half_size;
-    var sign_vec = sign(ray.direction);
-    if(0. == sign_vec.x){ sign_vec.x = 1.; }
-    if(0. == sign_vec.y){ sign_vec.y = 1.; }
-    if(0. == sign_vec.z){ sign_vec.z = 1.; }
-    var ref_point = midpoint + sign_vec * half_size;
+    var signum_vec = sign(ray.direction);
+    if(0. == signum_vec.x){ signum_vec.x = 1.; }
+    if(0. == signum_vec.y){ signum_vec.y = 1.; }
+    if(0. == signum_vec.z){ signum_vec.z = 1.; }
+    var ref_point = midpoint + signum_vec * half_size;
 
     // Find the min of the 3 plane intersections
-    let x_plane_distance = plane_line_intersection_distance(
+    let x_plane_distance = plane_line_intersection(
         Plane(ref_point, vec3f(1., 0., 0.)), ray
     ).d;
-    let y_plane_distance = plane_line_intersection_distance(
+    let y_plane_distance = plane_line_intersection(
         Plane(ref_point, vec3f(0., 1., 0.)), ray
     ).d;
-    let z_plane_distance = plane_line_intersection_distance(
+    let z_plane_distance = plane_line_intersection(
         Plane(ref_point, vec3f(0., 0., 1.)), ray
     ).d;
     let min_d = min(x_plane_distance, min(y_plane_distance, z_plane_distance));
@@ -243,13 +246,13 @@ fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
     // Step along the axes with the minimum distances
     var result = vec3f(0., 0., 0.);
     if( abs(min_d - x_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.x = sign_vec.x * current.size;
+        result.x = signum_vec.x * current.size;
     }
     if( abs(min_d - y_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.y = sign_vec.y * current.size;
+        result.y = signum_vec.y * current.size;
     }
     if( abs(min_d - z_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.z = sign_vec.z * current.size;
+        result.z = signum_vec.z * current.size;
     }
     return result;
 }
@@ -318,12 +321,12 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             result.hit = true;
             result.albedo = nodes[OCTREE_ROOT_NODE_KEY].albedo;
             result.content = nodes[OCTREE_ROOT_NODE_KEY].content;
-            result.collision_point = ray_at_point(ray, current_d);
+            result.collision_point = point_in_ray_at_distance(ray, current_d);
             result.impact_normal = root_intersection.impact_normal;
             return result;
         }
         let target_octant = hash_region(
-            ray_at_point(ray, current_d) - root_bounds.min_position,
+            point_in_ray_at_distance(ray, current_d) - root_bounds.min_position,
             f32(octreeMetaData.root_size),
         );
         node_stack[0] = new_node_stack_item(
@@ -359,7 +362,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             result.hit = true;
             result.albedo = nodes[current_node].albedo;
             result.content = nodes[current_node].content;
-            result.collision_point = ray_at_point(ray, impact_or(current_bounds_ray_intersection, 0.));
+            result.collision_point = point_in_ray_at_distance(ray, impact_or(current_bounds_ray_intersection, 0.));
             result.impact_normal = current_bounds_ray_intersection.impact_normal;
             return result;
         }
@@ -374,7 +377,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             // PUSH
             let child_bounds = child_bounds_for(current_bounds, current_target_octant);
             let child_target_octant = hash_region(
-                (ray_at_point(ray, current_d) - child_bounds.min_position),
+                (point_in_ray_at_distance(ray, current_d) - child_bounds.min_position),
                 child_bounds.size
             );
             node_stack[node_stack_i] = new_node_stack_item(
@@ -446,8 +449,8 @@ fn fragment(mesh: MeshVertexOutput) -> @location(0) vec4<f32> {
         ;
     var ray = Line(glass_point, normalize(glass_point - viewport.origin));
 
-    let ray_result = get_by_ray(ray);
-    let diffuse_light_strength = (
+    var ray_result = get_by_ray(ray);
+    var diffuse_light_strength = (
         dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
     );
     let result = ray_result.albedo.rgb * diffuse_light_strength;

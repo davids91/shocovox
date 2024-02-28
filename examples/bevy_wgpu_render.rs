@@ -1,7 +1,9 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::prelude::*;
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::{octree::raytracing::classic_raytracing_on_bevy_wgpu::OctreeViewMaterial, spatial::math::V3c};
+use shocovox_rs::{
+    octree::raytracing::classic_raytracing_on_bevy_wgpu::OctreeViewMaterial, spatial::math::V3c,
+};
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -14,6 +16,9 @@ fn main() {
         .add_systems(Update, rotate_camera)
         .run();
 }
+
+#[cfg(feature = "bevy_wgpu")]
+const ARRAY_DIMENSION: u32 = 32;
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(
@@ -48,25 +53,38 @@ fn setup(
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let tree_size = 4;
-    let mut tree = shocovox_rs::octree::Octree::<u32>::new(tree_size)
+    let mut tree = shocovox_rs::octree::Octree::<u32>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
     tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok();
-    for x in 0..tree_size {
-        for y in 0..tree_size {
-            for z in 0..tree_size {
-                if x < (tree_size / 4)
-                    || y < (tree_size / 4)
-                    || z < (tree_size / 4)
-                    || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
+    for x in 0..ARRAY_DIMENSION {
+        for y in 0..ARRAY_DIMENSION {
+            for z in 0..ARRAY_DIMENSION {
+                if x < (ARRAY_DIMENSION / 4)
+                    || y < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4)
+                    || ((ARRAY_DIMENSION / 2) <= x
+                        && (ARRAY_DIMENSION / 2) <= y
+                        && (ARRAY_DIMENSION / 2) <= z)
                 {
-                    tree.insert(
-                        &V3c::new(x, y, z),
-                        50000 + ((x + y + z) / (x * y * z).max(1)) * 100,
-                    )
-                    .ok();
+                    let r = if 0 == x % 2 {
+                        (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    let g = if 0 == y % 2 {
+                        (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    let b = if 0 == z % 2 {
+                        (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    tree.insert(&V3c::new(x, y, z), r | (g << 8) | (b << 16) | 0xFF000000)
+                        .ok();
                 }
             }
         }
@@ -78,14 +96,14 @@ fn setup(
         flip: false,
     }));
     let origin = Vec3::new(
-        tree_size as f32 * 2.,
-        tree_size as f32 / 2.,
-        tree_size as f32 * -2.,
+        ARRAY_DIMENSION as f32 * 2.,
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 * -2.,
     );
     let material_handle = materials.add(tree.create_bevy_material_view(&Viewport {
         direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
         origin,
-        size: Vec2::new(tree_size as f32, tree_size as f32),
+        size: Vec2::new(10., 10.),
         resolution: Vec2::new(64., 64.),
         fov: 3.,
     }));
@@ -110,7 +128,7 @@ fn rotate_camera(
     mut mats: ResMut<Assets<OctreeViewMaterial>>,
 ) {
     let angle = {
-        let addition = 0.007; 
+        let addition = ARRAY_DIMENSION as f32 / 1024.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle
@@ -121,9 +139,18 @@ fn rotate_camera(
     angles_query.single_mut().yaw = angle;
 
     for (_mat_handle, mat) in mats.as_mut().iter_mut() {
-        let radius = 8.;
-        mat.viewport.origin = Vec3::new(angle.sin() * radius, radius, angle.cos() * radius);
-        mat.viewport.direction = (Vec3::new(0., 0., 0.) - mat.viewport.origin).normalize();
+        let radius = ARRAY_DIMENSION as f32 * 1.3;
+        mat.viewport.origin = Vec3::new(
+            ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
+            ARRAY_DIMENSION as f32 / 2.,
+            ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
+        );
+        mat.viewport.direction = (Vec3::new(
+            ARRAY_DIMENSION as f32 / 2.,
+            ARRAY_DIMENSION as f32 / 2.,
+            ARRAY_DIMENSION as f32 / 2.,
+        ) - mat.viewport.origin)
+            .normalize();
     }
 }
 

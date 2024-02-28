@@ -184,7 +184,7 @@ pub fn hash_region(offset: &V3c<f32>, size: f32) -> u32 {
 /// calculates the distance between the line, and the plane both described by a ray
 /// plane: normal, and a point on plane, line: origin and direction
 /// return the distance from the line origin to the direction of it, if they have an intersection
-pub fn plane_line_intersection_distance(
+pub fn plane_line_intersection(
     plane_point: &V3c<f32>,
     plane_normal: &V3c<f32>,
     line_origin: &V3c<f32>,

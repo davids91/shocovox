@@ -49,7 +49,7 @@ mod octant_tests {
 #[cfg(test)]
 mod intersection_tests {
 
-    use crate::spatial::{math::plane_line_intersection_distance, V3c};
+    use crate::spatial::{math::plane_line_intersection, V3c};
 
     #[test]
     fn test_negative_intersection() {
@@ -57,7 +57,7 @@ mod intersection_tests {
         let plane_normal = V3c::new(0., 1., 0.);
         let line_origin = V3c::new(0., 1., 0.);
         let line_direction = V3c::new(0., 1., 0.);
-        assert!(plane_line_intersection_distance(
+        assert!(plane_line_intersection(
             &plane_point,
             &plane_normal,
             &line_origin,
