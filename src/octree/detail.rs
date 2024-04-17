@@ -1,4 +1,3 @@
-#[cfg(feature = "raytracing")]
 use crate::object_pool::key_none_value;
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
 use crate::octree::{hash_region, Cube, V3c};

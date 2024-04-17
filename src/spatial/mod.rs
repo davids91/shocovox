@@ -5,6 +5,8 @@ pub mod tests;
 use crate::spatial::math::offset_region;
 use crate::spatial::math::V3c;
 
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
+
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
     feature = "serialization",
@@ -39,7 +41,6 @@ impl Cube {
     /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
     /// Edges included
     pub(crate) fn contains_point(&self, point: &V3c<f32>) -> bool {
-        use self::raytracing::FLOAT_ERROR_TOLERANCE;
         (point.x >= self.min_position.x as f32 - FLOAT_ERROR_TOLERANCE)
             && (point.x < (self.min_position.x + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
             && (point.y >= self.min_position.y as f32 - FLOAT_ERROR_TOLERANCE)

@@ -123,6 +123,7 @@ struct DomePosition {
     yaw: f32,
 }
 
+#[cfg(feature = "bevy_wgpu")]
 fn rotate_camera(
     mut angles_query: Query<&mut DomePosition>,
     mut mats: ResMut<Assets<OctreeViewMaterial>>,
@@ -154,6 +155,7 @@ fn rotate_camera(
     }
 }
 
+#[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(keys: Res<Input<KeyCode>>, mut mats: ResMut<Assets<OctreeViewMaterial>>) {
     for (_mat_handle, mat) in mats.as_mut().iter_mut() {
         if keys.pressed(KeyCode::Up) {

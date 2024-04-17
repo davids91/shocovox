@@ -51,7 +51,7 @@ where
     T: Default + PartialEq + Clone + std::fmt::Debug,
 {
     fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
-        use crate::spatial::raytracing::FLOAT_ERROR_TOLERANCE;
+        use crate::spatial::FLOAT_ERROR_TOLERANCE;
         //Find the point furthest from the ray
         let midpoint = current.midpoint();
         let ref_point = midpoint

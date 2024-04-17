@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 
 [features]
-default = ["bevy_wgpu"]
+default = []
 raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!
 serialization = ["dep:serde"]
 bevy_wgpu = ["dep:bevy", "raytracing"]

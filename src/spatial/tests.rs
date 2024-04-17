@@ -46,6 +46,7 @@ mod octant_tests {
     }
 }
 
+#[cfg(feature = "raytracing")]
 #[cfg(test)]
 mod intersection_tests {
 

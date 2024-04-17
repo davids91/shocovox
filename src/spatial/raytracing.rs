@@ -1,11 +1,8 @@
 #[cfg(feature = "raytracing")]
 use crate::spatial::{
     math::{plane_line_intersection, V3c},
-    Cube,
 };
-
-#[cfg(feature = "raytracing")]
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
+use crate::spatial::Cube;
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug)]
@@ -101,7 +98,7 @@ impl Cube {
                     // ray hits the plane only when the resulting distance is at least positive,
                     // and the point is contained inside the cube
                     if 1 < distances.len()
-                        && (distances[0] - distances[1]).abs() < FLOAT_ERROR_TOLERANCE
+                        && (distances[0] - distances[1]).abs() < crate::spatial::FLOAT_ERROR_TOLERANCE
                     {
                         // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
                         distances[1] = d;
@@ -143,7 +140,7 @@ mod raytracing_tests {
     use super::Cube;
     #[cfg(feature = "raytracing")]
     use super::Ray;
-    use super::V3c;
+    use crate::spatial::V3c;
 
     #[cfg(feature = "raytracing")]
     #[test]
