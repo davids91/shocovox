@@ -388,7 +388,6 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             // ADVANCE
             // target child is invalid, or it does not intersect with the ray
             // Advance iteration to the next sibling
-            let dbg_octant = node_stack[node_stack_i - 1].target_octant;
             let current_target_bounds = target_bounds(node_stack[node_stack_i - 1]);
             let step_vec = get_step_to_next_sibling(current_target_bounds, ray);
             node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);

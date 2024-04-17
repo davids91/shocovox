@@ -69,17 +69,17 @@ fn setup(
                         && (ARRAY_DIMENSION / 2) <= y
                         && (ARRAY_DIMENSION / 2) <= z)
                 {
-                    let r = if 0 == x % 2 {
+                    let r = if 0 == x % (ARRAY_DIMENSION / 4) {
                         (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
                         128
                     };
-                    let g = if 0 == y % 2 {
+                    let g = if 0 == y % (ARRAY_DIMENSION / 4) {
                         (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
                         128
                     };
-                    let b = if 0 == z % 2 {
+                    let b = if 0 == z % (ARRAY_DIMENSION / 4) {
                         (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
                         128
