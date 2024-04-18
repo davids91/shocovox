@@ -43,7 +43,7 @@ pub struct OctreeViewMaterial {
     meta: OctreeMetaData,
 
     #[storage(2)]
-    content: Vec<SizedNode>,
+    nodes: Vec<SizedNode>,
 }
 
 impl Material for OctreeViewMaterial {
@@ -64,12 +64,12 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
                 self.root_size as f32,
             ),
         };
-        let mut content = Vec::new();
+        let mut nodes = Vec::new();
         for i in 0..self.nodes.len() {
             match self.nodes.get(i) {
                 NodeContent::Leaf(data) => {
                     let albedo = data.albedo();
-                    content.push(SizedNode {
+                    nodes.push(SizedNode {
                         contains_nodes: 1,
                         albedo: Color::rgb(
                             albedo[0] as f32 / 255.,
@@ -81,7 +81,7 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
                     });
                 }
                 NodeContent::Internal(count) => {
-                    content.push(SizedNode {
+                    nodes.push(SizedNode {
                         contains_nodes: *count,
                         albedo: Color::rgba(0., 0., 0., 0.),
                         content: 0,
@@ -89,7 +89,7 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
                     });
                 }
                 NodeContent::Nothing => {
-                    content.push(SizedNode {
+                    nodes.push(SizedNode {
                         contains_nodes: 0,
                         albedo: Color::rgba(0., 0., 0., 0.),
                         content: 0,
@@ -101,7 +101,7 @@ impl<T: Default + Clone + VoxelData> Octree<T> {
         OctreeViewMaterial {
             viewport: *viewport,
             meta,
-            content,
+            nodes,
         }
     }
 }

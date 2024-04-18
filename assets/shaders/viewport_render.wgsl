@@ -267,33 +267,17 @@ fn key_might_be_valid(key: u32) -> bool{
 
 //Unique to this implementation, not adapted from rust code
 fn is_leaf(node: SizedNode) -> bool{
-    var children_count = 8;
-    if node.children[0] == key_none_value{
-        children_count -= 1;
+    if node.children[0] != key_none_value
+    || node.children[1] != key_none_value
+    || node.children[2] != key_none_value
+    || node.children[3] != key_none_value
+    || node.children[4] != key_none_value
+    || node.children[5] != key_none_value
+    || node.children[6] != key_none_value
+    || node.children[7] != key_none_value {
+        return false;
     }
-    if node.children[1] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[2] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[3] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[4] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[5] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[6] == key_none_value{
-        children_count -= 1;
-    }
-    if node.children[7] == key_none_value{
-        children_count -= 1;
-    }
-
-    return (node.contains_nodes == 1u && 0 == children_count);
+    return node.contains_nodes == 1u;
 }
 
 struct OctreeRayIntersection {
@@ -369,8 +353,16 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         let target_octant = node_stack[node_stack_i - 1].target_octant;
         let target_child = nodes[current_node].children[target_octant];
         let target_bounds = child_bounds_for(current_bounds, target_octant);
-        let target_hit = cube_intersect_ray(target_bounds, ray);
-        if(key_might_be_valid(target_child) && target_hit.hit) {
+        let target_is_empty = (
+            !key_might_be_valid(target_child)
+            || nodes[current_node].contains_nodes == 0u
+        );
+
+        var target_hit = CubeRayIntersection(false, false, 0.,0.,vec3f());
+        if(!target_is_empty){
+            target_hit = cube_intersect_ray(target_bounds, ray);
+        }
+        if(!target_is_empty && target_hit.hit) {
             // PUSH
             let child_target_octant = hash_region(
                 (point_in_ray_at_distance(ray, current_d) - target_bounds.min_position),

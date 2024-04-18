@@ -189,10 +189,18 @@ where
             let target_octant = node_stack.last().unwrap().target_octant;
             let target_child = self.node_children[current_node][target_octant];
             let target_bounds = current_bounds.child_bounds_for(target_octant);
-            if let (true, Some(target_hit)) = (
-                key_might_be_valid(target_child),
-                target_bounds.intersect_ray(ray),
-            ) {
+            let target_is_empty = !key_might_be_valid(target_child)
+                || match self.nodes.get(target_child as usize) {
+                    NodeContent::Internal(count) => 0 == *count,
+                    NodeContent::Leaf(_) => false,
+                    _ => true,
+                };
+            let target_hit = if target_is_empty {
+                None
+            } else {
+                target_bounds.intersect_ray(ray)
+            };
+            if !target_is_empty && target_hit.is_some() {
                 // PUSH
                 let child_target_octant = hash_region(
                     &(ray.point_at(current_d) - target_bounds.min_position.into()),
@@ -200,7 +208,7 @@ where
                 );
                 node_stack.push(NodeStackItem::new(
                     target_bounds,
-                    target_hit,
+                    target_hit.unwrap(),
                     target_child,
                     child_target_octant,
                 ));
