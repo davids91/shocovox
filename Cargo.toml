@@ -5,10 +5,6 @@ edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
-# debugging
-#linker = "/usr/bin/clang"
-#rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
-
 [features]
 default = []
 raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!
@@ -25,7 +21,15 @@ show-image = { version = "0.13.1", optional = true }
 
 # for example bevy_wgpu
 bevy = { version = "0.11.2", features = ["dynamic_linking"], optional = true}
+
+# debugging
+#linker = "/usr/bin/clang"
+#rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 [dev-dependencies]
 lldb = "0.0.11" # debugging
 rand = "0.8.5"
+criterion = { version = "0.4", features = ["html_reports"] }
 
+[[bench]]
+name = "performance"
+harness = false
