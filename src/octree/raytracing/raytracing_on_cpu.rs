@@ -3,10 +3,11 @@ use crate::octree::{Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
     math::{hash_region, offset_region, plane_line_intersection},
-    raytracing::Ray,
+    raytracing::{CubeHit, Ray},
 };
 
 pub(crate) struct NodeStackItem {
+    pub(crate) bounds_intersection: CubeHit,
     pub(crate) bounds: Cube,
     pub(crate) node: u32,
     pub(crate) target_octant: u32,
@@ -14,11 +15,17 @@ pub(crate) struct NodeStackItem {
 }
 
 impl NodeStackItem {
-    pub(crate) fn new(bounds: Cube, node: u32, target_octant: u32) -> Self {
+    pub(crate) fn new(
+        bounds: Cube,
+        bounds_intersection: CubeHit,
+        node: u32,
+        target_octant: u32,
+    ) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
             + V3c::unit(bounds.size as f32 / 4.)
             + Into::<V3c<f32>>::into(offset_region(target_octant)) * (bounds.size as f32 / 2.);
         Self {
+            bounds_intersection,
             bounds,
             node,
             target_octant,
@@ -115,9 +122,15 @@ where
 
         if let Some(root_hit) = root_bounds.intersect_ray(ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
-            if self.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize).is_leaf() {
+            if self
+                .nodes
+                .get(Octree::<T>::ROOT_NODE_KEY as usize)
+                .is_leaf()
+            {
                 return Some((
-                    self.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize).leaf_data(),
+                    self.nodes
+                        .get(Octree::<T>::ROOT_NODE_KEY as usize)
+                        .leaf_data(),
                     ray.point_at(current_d),
                     root_hit.impact_normal,
                 ));
@@ -128,60 +141,66 @@ where
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
+                root_hit,
                 Octree::<T>::ROOT_NODE_KEY,
                 target_octant,
             ));
         }
 
         while !node_stack.is_empty() {
-            // POP
             let current_bounds = node_stack.last().unwrap().bounds;
-            let current_bounds_ray_intersection = current_bounds.intersect_ray(ray);
-            if !node_stack.last().unwrap().contains_target_center()
-                || current_bounds_ray_intersection.is_none()
+            let current_bounds_ray_intersection = node_stack.last().unwrap().bounds_intersection;
+            if !node_stack.last().unwrap().contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
                 || match self.nodes.get(node_stack.last().unwrap().node as usize) {
-                    NodeContent::Nothing => true, 
+                    NodeContent::Nothing => true,
                     NodeContent::Internal(count) => 0 == *count,
                     _ => false,
                 }
             {
+                // POP
                 let popped_target = node_stack.pop().unwrap();
                 if let Some(parent) = node_stack.last_mut() {
                     let step_vec = Self::get_step_to_next_sibling(&popped_target.bounds, ray);
                     parent.add_point(step_vec);
                 }
-                if let Some(hit) = current_bounds_ray_intersection {
-                    current_d = hit.exit_distance;
-                }
+                current_d = current_bounds_ray_intersection.exit_distance;
                 continue;
             }
 
             let current_node = node_stack.last().unwrap().node as usize;
             assert!(key_might_be_valid(current_node as u32));
 
-            if let Some(hit) = current_bounds_ray_intersection {
-                if self.nodes.get(current_node).is_leaf() {
-                    return Some((
-                        self.nodes.get(current_node).leaf_data(),
-                        ray.point_at(hit.impact_distance.unwrap_or(0.)),
-                        hit.impact_normal,
-                    ));
-                }
-                current_d = hit.impact_distance.unwrap_or(current_d);
+            if self.nodes.get(current_node).is_leaf() {
+                return Some((
+                    self.nodes.get(current_node).leaf_data(),
+                    ray.point_at(
+                        current_bounds_ray_intersection
+                            .impact_distance
+                            .unwrap_or(0.),
+                    ),
+                    current_bounds_ray_intersection.impact_normal,
+                ));
             }
+            current_d = current_bounds_ray_intersection
+                .impact_distance
+                .unwrap_or(current_d);
 
-            let current_target_octant = node_stack.last().unwrap().target_octant;
-            let target_child = self.node_children[current_node][current_target_octant];
-            if key_might_be_valid(target_child) {
+            let target_octant = node_stack.last().unwrap().target_octant;
+            let target_child = self.node_children[current_node][target_octant];
+            let target_bounds = current_bounds.child_bounds_for(target_octant);
+            if let (true, Some(target_hit)) = (
+                key_might_be_valid(target_child),
+                target_bounds.intersect_ray(ray),
+            ) {
                 // PUSH
-                let child_bounds = current_bounds.child_bounds_for(current_target_octant);
                 let child_target_octant = hash_region(
-                    &(ray.point_at(current_d) - child_bounds.min_position.into()),
-                    child_bounds.size as f32,
+                    &(ray.point_at(current_d) - target_bounds.min_position.into()),
+                    target_bounds.size as f32,
                 );
                 node_stack.push(NodeStackItem::new(
-                    child_bounds,
+                    target_bounds,
+                    target_hit,
                     target_child,
                     child_target_octant,
                 ));

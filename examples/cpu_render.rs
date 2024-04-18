@@ -76,15 +76,17 @@ fn main() {
     let mut velos = V3c::new(-0.05, 0., 0.);
 
     // Close app on window exit
-    window.add_event_handler(|_, event, _|{
-        match event{
-            show_image::event::WindowEvent::Destroyed(_) =>{
-                std::process::exit(0);
-            }
-            _ => {}
-        };
-
-    }).ok().unwrap();
+    window
+        .add_event_handler(|_, event, _| {
+            match event {
+                show_image::event::WindowEvent::Destroyed(_) => {
+                    std::process::exit(0);
+                }
+                _ => {}
+            };
+        })
+        .ok()
+        .unwrap();
 
     loop {
         //generate a random number to add to velos
@@ -97,11 +99,7 @@ fn main() {
         angle = angle + velos.x;
 
         // Set the viewport
-        let origin = V3c::new(
-            angle.sin() * radius,
-            radius,
-            angle.cos() * radius,
-        );
+        let origin = V3c::new(angle.sin() * radius, radius, angle.cos() * radius);
         let viewport = Ray {
             direction: (V3c::unit(0.) - origin).normalized(),
             origin,
@@ -135,10 +133,7 @@ fn main() {
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
                     origin: viewport.origin,
-                    direction: (
-                        glass_point - viewport.origin
-                    )
-                        .normalized(),
+                    direction: (glass_point - viewport.origin).normalized(),
                 };
 
                 use std::io::Write;

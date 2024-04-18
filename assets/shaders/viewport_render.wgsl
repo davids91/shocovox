@@ -177,6 +177,7 @@ fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
 }
 
 struct NodeStackItem {
+    bounds_intersection: CubeRayIntersection,
     bounds: Cube,
     node: u32,
     target_octant: u32,
@@ -184,7 +185,7 @@ struct NodeStackItem {
 }
 
 //crate::octree:raytracing::NodeStackItem::new
-fn new_node_stack_item(bounds: Cube, node: u32, target_octant: u32) -> NodeStackItem {
+fn new_node_stack_item(bounds: Cube, cude_intersection: CubeRayIntersection, node: u32, target_octant: u32) -> NodeStackItem {
     var result: NodeStackItem;
     result.bounds = bounds;
     result.node = node;
@@ -330,35 +331,32 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             f32(octreeMetaData.root_size),
         );
         node_stack[0] = new_node_stack_item(
-            root_bounds, OCTREE_ROOT_NODE_KEY, target_octant
+            root_bounds, root_intersection,
+            OCTREE_ROOT_NODE_KEY, target_octant
         );
         node_stack_i = 1;
     }
 
     var i = 0;
     while(0 < node_stack_i && node_stack_i < max_depth) { // until there are items on the stack
-
-        // POP
         let current_bounds = node_stack[node_stack_i - 1].bounds;
-        let current_bounds_ray_intersection = cube_intersect_ray(current_bounds, ray);
+        let current_bounds_ray_intersection = node_stack[node_stack_i - 1].bounds_intersection;
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
-            || (!current_bounds_ray_intersection.hit)
             || nodes[node_stack[node_stack_i - 1].node].contains_nodes == 0u
         ){
+            // POP
             let popped_target = node_stack[node_stack_i - 1];
             node_stack_i -= 1;
             if(0 < node_stack_i){
                 let step_vec = get_step_to_next_sibling(popped_target.bounds, ray);
                 node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
             }
-            if(current_bounds_ray_intersection.hit){
-                current_d = current_bounds_ray_intersection.exit_distance;
-            }
+            current_d = current_bounds_ray_intersection.exit_distance;
             continue;
         }
 
         let current_node = node_stack[node_stack_i - 1].node;
-        if(is_leaf(nodes[current_node]) && current_bounds_ray_intersection.hit){
+        if(is_leaf(nodes[current_node])){
             result.hit = true;
             result.albedo = nodes[current_node].albedo;
             result.content = nodes[current_node].content;
@@ -366,28 +364,24 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             result.impact_normal = current_bounds_ray_intersection.impact_normal;
             return result;
         }
+        current_d = impact_or(current_bounds_ray_intersection, current_d);
 
-        if(current_bounds_ray_intersection.hit){
-            current_d = impact_or(current_bounds_ray_intersection, current_d);
-        }
-
-        let current_target_octant = node_stack[node_stack_i - 1].target_octant;
-        let target_child = nodes[current_node].children[current_target_octant];
-        if(key_might_be_valid(target_child)) {
+        let target_octant = node_stack[node_stack_i - 1].target_octant;
+        let target_child = nodes[current_node].children[target_octant];
+        let target_bounds = child_bounds_for(current_bounds, target_octant);
+        let target_hit = cube_intersect_ray(target_bounds, ray);
+        if(key_might_be_valid(target_child) && target_hit.hit) {
             // PUSH
-            let child_bounds = child_bounds_for(current_bounds, current_target_octant);
             let child_target_octant = hash_region(
-                (point_in_ray_at_distance(ray, current_d) - child_bounds.min_position),
-                child_bounds.size
+                (point_in_ray_at_distance(ray, current_d) - target_bounds.min_position),
+                target_bounds.size
             );
             node_stack[node_stack_i] = new_node_stack_item(
-                child_bounds, target_child, child_target_octant
+                target_bounds, target_hit, target_child, child_target_octant
             );
             node_stack_i += 1;
         } else {
             // ADVANCE
-            // target child is invalid, or it does not intersect with the ray
-            // Advance iteration to the next sibling
             let current_target_bounds = target_bounds(node_stack[node_stack_i - 1]);
             let step_vec = get_step_to_next_sibling(current_target_bounds, ray);
             node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
