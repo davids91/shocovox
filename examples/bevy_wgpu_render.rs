@@ -156,12 +156,12 @@ fn rotate_camera(
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn handle_zoom(keys: Res<Input<KeyCode>>, mut mats: ResMut<Assets<OctreeViewMaterial>>) {
+fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut mats: ResMut<Assets<OctreeViewMaterial>>) {
     for (_mat_handle, mat) in mats.as_mut().iter_mut() {
-        if keys.pressed(KeyCode::Up) {
+        if keys.pressed(KeyCode::ArrowUp) {
             mat.viewport.size *= 1.1;
         }
-        if keys.pressed(KeyCode::Down) {
+        if keys.pressed(KeyCode::ArrowDown) {
             mat.viewport.size *= 0.9;
         }
     }

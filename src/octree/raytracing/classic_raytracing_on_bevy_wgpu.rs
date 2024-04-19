@@ -1,14 +1,14 @@
 use crate::octree::NodeContent;
 
+use bevy::asset::Asset;
 use bevy::ecs::system::Resource;
 use bevy::math::{Vec2, Vec3};
 use bevy::pbr::Material;
-use bevy::render::color::Color;
-use bevy::render::render_resource::{ShaderRef, ShaderType};
-use bevy::{
-    reflect::{TypePath, TypeUuid},
-    render::render_resource::AsBindGroup,
+use bevy::render::{
+    color::Color,
+    render_resource::{ShaderRef, ShaderType},
 };
+use bevy::{reflect::TypePath, render::render_resource::AsBindGroup};
 
 #[derive(Clone, ShaderType)]
 struct SizedNode {
@@ -33,8 +33,8 @@ pub struct Viewport {
     pub fov: f32,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypeUuid, TypePath)]
-#[uuid = "9c5a0ddf-1eaf-41b4-9832-ed736fd26af3"]
+#[derive(Asset, Resource, Clone, AsBindGroup, TypePath)]
+#[type_path = "shocovox::gpu::OctreeViewMaterial"]
 pub struct OctreeViewMaterial {
     #[uniform(0)]
     pub viewport: Viewport,

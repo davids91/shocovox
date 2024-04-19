@@ -1,6 +1,8 @@
 // The time since startup data is in the globals binding which is part of the mesh_view_bindings import
-#import bevy_pbr::mesh_view_bindings globals
-#import bevy_pbr::mesh_vertex_output MeshVertexOutput
+#import bevy_pbr::{
+    mesh_view_bindings::globals,
+    forward_io::VertexOutput
+}
 
 struct Line {
     origin: vec3f,
@@ -393,7 +395,9 @@ struct SizedNode {
 
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
-    root_size: u32
+    root_size: u32,
+    ambient_light_color: vec4f,
+    ambient_light_position: vec3f,
 }
 
 struct Viewport {
@@ -403,17 +407,17 @@ struct Viewport {
     fov: f32,
 }
 
-@group(1) @binding(0)
+@group(2) @binding(0)
 var<uniform> viewport: Viewport;
 
-@group(1) @binding(1)
+@group(2) @binding(1)
 var<uniform> octreeMetaData: OctreeMetaData;
 
-@group(1) @binding(2)
+@group(2) @binding(2)
 var<storage, read_write> nodes: array<SizedNode>;
 
 @fragment
-fn fragment(mesh: MeshVertexOutput) -> @location(0) vec4<f32> {
+fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
         viewport_up_direction, viewport.direction
