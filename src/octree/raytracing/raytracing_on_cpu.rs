@@ -1,18 +1,10 @@
-use crate::octree::NodeContent;
+use crate::octree::{raytracing::types::NodeStackItem, NodeContent};
 use crate::octree::{Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
     math::{hash_region, offset_region, plane_line_intersection},
     raytracing::{CubeHit, Ray},
 };
-
-pub(crate) struct NodeStackItem {
-    pub(crate) bounds_intersection: CubeHit,
-    pub(crate) bounds: Cube,
-    pub(crate) node: u32,
-    pub(crate) target_octant: u32,
-    pub(crate) child_center: V3c<f32>,
-}
 
 impl NodeStackItem {
     pub(crate) fn new(
