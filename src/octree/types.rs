@@ -1,23 +1,19 @@
 use crate::object_pool::ObjectPool;
 
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub struct Octree<T>
-where
-    T: Default + Clone + VoxelData,
-{
+#[cfg(feature = "serialization")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "serialization", derive(Serialize))]
+pub struct Octree<T: Default + Clone + VoxelData> {
     pub auto_simplify: bool,
     pub(in crate::octree) root_size: u32,
     pub(in crate::octree) nodes: ObjectPool<NodeContent<T>>,
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-#[derive(Clone)]
-pub(crate) enum NodeContent<T>
-where
-    T: Clone,
-{
+pub(crate) enum NodeContent<T: Clone> {
     #[default]
     Nothing,
     Internal(u32), // cache data to store the enclosed nodes
@@ -32,6 +28,7 @@ pub enum OctreeError {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
@@ -39,6 +36,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     pub(in crate::octree) default_key: T,
     pub(in crate::octree) content: NodeChildrenArray<T>,

@@ -16,12 +16,9 @@ use crate::spatial::math::{hash_region, offset_region, V3c};
 use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
-impl<
-        #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + VoxelData,
-    > Octree<T>
+impl<T> Octree<T>
 where
-    T: Default + PartialEq + Clone,
+    T: Default + PartialEq + Clone + VoxelData,
 {
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {

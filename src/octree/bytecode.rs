@@ -4,7 +4,7 @@ use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 
 impl<T> ToBencode for NodeContent<T>
 where
-    T: Clone + Default + VoxelData,
+    T: Default + Clone + VoxelData,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {

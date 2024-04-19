@@ -1,10 +1,10 @@
 use std::vec::Vec;
 
+#[cfg(feature = "serialization")]
+use serde::{Deserialize, Serialize};
+
 /// One item in a datapool with a used flag
-#[cfg_attr(
-    feature = "serialization",
-    derive(serde::Serialize, serde::Deserialize)
-)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone)]
 struct ReusableItem<T: Clone> {
     reserved: bool,
@@ -71,18 +71,16 @@ where
 /// Stores re-usable objects to eliminate data allocation overhead when inserting and removing Nodes
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
 #[derive(Default, Clone)]
-#[cfg_attr(
-    feature = "serialization",
-    derive(serde::Serialize, serde::Deserialize)
-)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) struct ObjectPool<T: Clone> {
     buffer: Vec<ReusableItem<T>>, // Pool of objects to be reused
     first_available: usize,       // the index of the first available item
 }
 
-impl<T> ToBencode for ObjectPool<T>
-where
-    T: Default + Clone + ToBencode,
+impl<
+        #[cfg(not(feature = "serialization"))] T: Default + Clone + ToBencode,
+        #[cfg(feature = "serialization")] T: Default + Clone + ToBencode,
+    > ToBencode for ObjectPool<T>
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -121,10 +119,9 @@ where
     }
 }
 
-impl<
-        #[cfg(feature = "serialization")] T: Default + Clone + serde::Serialize + serde::de::DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + Clone,
-    > ObjectPool<T>
+impl<T> ObjectPool<T>
+where
+    T: Default + Clone,
 {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         ObjectPool {

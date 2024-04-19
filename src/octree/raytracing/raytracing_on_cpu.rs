@@ -50,12 +50,9 @@ impl NodeStackItem {
     }
 }
 
-impl<
-        #[cfg(feature = "serialization")] T: Default + VoxelData + Serialize + DeserializeOwned,
-        #[cfg(not(feature = "serialization"))] T: Default + VoxelData,
-    > Octree<T>
+impl<T> Octree<T>
 where
-    T: Default + PartialEq + Clone + std::fmt::Debug,
+    T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData,
 {
     fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
         use crate::spatial::FLOAT_ERROR_TOLERANCE;

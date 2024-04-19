@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = []
-raytracing = ["dep:image", "dep:show-image"] # conflicts with serde!
+raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
 bevy_wgpu = ["dep:bevy", "raytracing"]
 
