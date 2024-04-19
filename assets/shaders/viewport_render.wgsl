@@ -288,7 +288,8 @@ struct OctreeRayIntersection {
     impact_normal: vec3f,
 }
 
-const max_depth = 15; // the depth for an octree the size of 32768
+const max_depth = 20; // the depth for an octree the size of 1048576
+                      // which would be approximately 10 km in case 1 voxel is 1 cm
 fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
 
