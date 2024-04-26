@@ -3,21 +3,13 @@ use crate::object_pool::ObjectPool;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "serialization", derive(Serialize))]
-pub struct Octree<T: Default + Clone + VoxelData> {
-    pub auto_simplify: bool,
-    pub(in crate::octree) root_size: u32,
-    pub(in crate::octree) nodes: ObjectPool<NodeContent<T>>,
-    pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
-}
-
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T: Clone> {
+pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
     #[default]
     Nothing,
     Internal(u32), // cache data to store the enclosed nodes
-    Leaf(T),
+    Leaf([[[T; DIM]; DIM]; DIM]),
 }
 
 /// error types during usage or creation of the octree
@@ -62,4 +54,12 @@ impl VoxelData for u32 {
     fn user_data(&self) -> Option<u32> {
         None
     }
+}
+
+#[cfg_attr(feature = "serialization", derive(Serialize))]
+pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
+    pub auto_simplify: bool,
+    pub(in crate::octree) root_node_dimension: u32,
+    pub(in crate::octree) nodes: ObjectPool<NodeContent<T, DIM>>,
+    pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }

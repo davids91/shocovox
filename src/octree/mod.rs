@@ -16,10 +16,7 @@ use crate::spatial::math::{hash_region, offset_region, V3c};
 use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
-impl<T> Octree<T>
-where
-    T: Default + PartialEq + Clone + VoxelData,
-{
+impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {
         self.to_bencode().ok().unwrap()
@@ -49,20 +46,22 @@ where
         Ok(Self::from_bytes(bytes))
     }
 
-    /// creates an octree with the given sie which must be a multiple of 2
-    pub fn new(size: u32) -> Result<Self, OctreeError> {
-        if 0 == size || (size as f32).log(2.0).fract() != 0.0 {
+    /// creates an octree with overall size nodes_dimension * DIM
+    /// * `nodes_dimension` - must be a multiple of 2, determines the number of nodes the octree has
+    pub fn new(nodes_dimension: u32) -> Result<Self, OctreeError> {
+        if 0 == nodes_dimension || (nodes_dimension as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(size));
+            return Err(OctreeError::InvalidNodeSize(nodes_dimension));
         }
-        let mut nodes = ObjectPool::<NodeContent<T>>::with_capacity(size.pow(3) as usize);
-        let mut node_children = Vec::with_capacity(size.pow(3) as usize);
+        let mut nodes =
+            ObjectPool::<NodeContent<T, DIM>>::with_capacity(nodes_dimension.pow(3) as usize);
+        let mut node_children = Vec::with_capacity(nodes_dimension.pow(3) as usize);
         node_children.push(NodeChildren::new(key_none_value()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
-            root_size: size,
+            root_node_dimension: nodes_dimension,
             nodes,
             node_children,
         })
@@ -77,15 +76,15 @@ where
     pub fn insert_at_lod(
         &mut self,
         position: &V3c<u32>,
-        min_node_size: u32,
+        min_size: u32,
         data: T,
     ) -> Result<(), OctreeError> {
-        if 0 == min_node_size || (min_node_size as f32).log(2.0).fract() != 0.0 {
+        if 0 == min_size || (min_size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(min_node_size));
+            return Err(OctreeError::InvalidNodeSize(min_size));
         }
 
-        let root_bounds = Cube::root_bounds(self.root_size);
+        let root_bounds = Cube::root_bounds(self.root_node_dimension);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
@@ -95,13 +94,13 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
             let target_child_octant = child_octant_for(&current_bounds, position);
 
-            if current_bounds.size > min_node_size {
+            if current_bounds.size > min_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
@@ -117,13 +116,13 @@ where
                 } else {
                     // no children are available for the target octant
                     if self.nodes.get(current_node_key).is_leaf()
-                        && *self.nodes.get(current_node_key).leaf_data() == data
+                        && self.nodes.get(current_node_key).is_all(&data)
                     {
                         // The current Node is a leaf, but the data stored equals the data to be set, so no need to go deeper as tha data already matches
                         break;
                     }
                     if self.nodes.get(current_node_key).is_leaf()
-                        && *self.nodes.get(current_node_key).leaf_data() != data
+                        && !self.nodes.get(current_node_key).is_all(&data)
                     {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
@@ -163,9 +162,40 @@ where
                     }
                 }
             } else {
-                // current_bounds.size == min_node_size, which is the desired depth, so set content of current node
-                *self.nodes.get_mut(current_node_key) = NodeContent::Leaf(data);
-                self.deallocate_children_of(node_stack.last().unwrap().0);
+                // current_bounds.size == min_node_size, which is the desired depth; setting content of current node
+                let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
+                assert!(mat_index.x < DIM);
+                assert!(mat_index.y < DIM);
+                assert!(mat_index.z < DIM);
+                if min_size == 1 {
+                    self.nodes
+                        .get_mut(current_node_key)
+                        .as_mut_leaf_ref()
+                        .unwrap()[mat_index.x][mat_index.y][mat_index.z] = data;
+                } else if min_size < DIM as u32 {
+                    // update size is smaller, than the matrix, but > 1
+                    // simulate the Nodes layout and update accordingly
+                    let mat_index = mat_index
+                        - V3c::new(
+                            mat_index.x % min_size as usize,
+                            mat_index.y % min_size as usize,
+                            mat_index.z % min_size as usize,
+                        );
+                    for x in mat_index.x..(mat_index.x + min_size as usize) {
+                        for y in mat_index.y..(mat_index.y + min_size as usize) {
+                            for z in mat_index.z..(mat_index.z + min_size as usize) {
+                                self.nodes
+                                    .get_mut(current_node_key)
+                                    .as_mut_leaf_ref()
+                                    .unwrap()[x][y][z] = data.clone();
+                            }
+                        }
+                    }
+                } else {
+                    // update size equals matrix size, update the whole matrix
+                    *self.nodes.get_mut(current_node_key) = NodeContent::leaf_from(data);
+                    self.deallocate_children_of(node_stack.last().unwrap().0);
+                }
                 break;
             }
         }
@@ -192,8 +222,8 @@ where
 
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
-        let mut current_bounds = Cube::root_bounds(self.root_size);
-        let mut current_node_key = Octree::<T>::ROOT_NODE_KEY as usize;
+        let mut current_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
+        let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
@@ -203,8 +233,16 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Leaf(c) => {
-                    return Some(c);
+                NodeContent::Leaf(mat) => {
+                    // The matrix inside the leaf starts at bounds min_position,
+                    // ends in min_position + (DIM,DIM,DIM)
+                    // At this point the difference between the actual poition and min bounds,
+                    // must not be breater, than DIM, at each dimension
+                    let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
+                    assert!(mat_index.x < DIM);
+                    assert!(mat_index.y < DIM);
+                    assert!(mat_index.z < DIM);
+                    return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
                 }
                 _ => {
                     let child_octant_at_position = child_octant_for(&current_bounds, position);
@@ -224,8 +262,8 @@ where
 
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
-        let mut current_bounds = Cube::root_bounds(self.root_size);
-        let mut current_node_key = Octree::<T>::ROOT_NODE_KEY as usize;
+        let mut current_bounds = Cube::root_bounds(self.root_node_dimension);
+        let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
         }
@@ -236,7 +274,22 @@ where
                     return None;
                 }
                 NodeContent::Leaf(_) => {
-                    return self.nodes.get_mut(current_node_key).as_mut_leaf_ref()
+                    // The matrix inside the leaf starts at bounds min_position,
+                    // ends in min_position + (DIM,DIM,DIM)
+                    // At this point the difference between the actual poition and min bounds,
+                    // must not be breater, than DIM, at each dimension
+                    let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
+                    assert!(mat_index.x < DIM);
+                    assert!(mat_index.y < DIM);
+                    assert!(mat_index.z < DIM);
+
+                    return Some(
+                        &mut self
+                            .nodes
+                            .get_mut(current_node_key)
+                            .as_mut_leaf_ref()
+                            .unwrap()[mat_index.x][mat_index.y][mat_index.z],
+                    );
                 }
                 _ => {
                     let child_octant_at_position = child_octant_for(&current_bounds, position);
@@ -260,16 +313,12 @@ where
     }
 
     /// Clears the data at the given position and lod size
-    pub fn clear_at_lod(
-        &mut self,
-        position: &V3c<u32>,
-        min_node_size: u32,
-    ) -> Result<(), OctreeError> {
-        if 0 == min_node_size || (min_node_size as f32).log(2.0).fract() != 0.0 {
+    pub fn clear_at_lod(&mut self, position: &V3c<u32>, min_size: u32) -> Result<(), OctreeError> {
+        if 0 == min_size || (min_size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(min_node_size));
+            return Err(OctreeError::InvalidNodeSize(min_size));
         }
-        let root_bounds = Cube::root_bounds(self.root_size);
+        let root_bounds = Cube::root_bounds(self.root_node_dimension);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
@@ -279,12 +328,12 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
         let mut target_child_octant = 9; //This init value should not be used. In case there is only one node, there is parent of it;
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
-            if current_bounds.size > min_node_size {
+            if current_bounds.size > min_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if crate::object_pool::key_might_be_valid(
@@ -325,17 +374,49 @@ where
                     }
                 }
             } else {
-                // current_bounds.size == min_node_size, which is the desired depth, so unset the current node and its children
-                self.deallocate_children_of(current_node_key as u32);
-
-                // Set the parents child to None
-                if node_stack.len() >= 2 && target_child_octant < 9 {
-                    self.nodes.free(current_node_key);
-                    let parent_key = node_stack[node_stack.len() - 2].0 as usize;
-                    self.node_children[parent_key][target_child_octant] = key_none_value();
+                // current_bounds.size == min_node_size, which is the desired depth
+                let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
+                assert!(mat_index.x < DIM);
+                assert!(mat_index.y < DIM);
+                assert!(mat_index.z < DIM);
+                if min_size == 1 {
+                    self.nodes
+                        .get_mut(current_node_key)
+                        .as_mut_leaf_ref()
+                        .unwrap()[mat_index.x][mat_index.y][mat_index.z] = T::default();
+                } else if min_size < DIM as u32 {
+                    // update size is smaller, than the matrix, but > 1
+                    // simulate the Nodes layout and update accordingly
+                    let mat_index = mat_index
+                        - V3c::new(
+                            mat_index.x % min_size as usize,
+                            mat_index.y % min_size as usize,
+                            mat_index.z % min_size as usize,
+                        );
+                    for x in mat_index.x..(mat_index.x + min_size as usize) {
+                        for y in mat_index.y..(mat_index.y + min_size as usize) {
+                            for z in mat_index.z..(mat_index.z + min_size as usize) {
+                                self.nodes
+                                    .get_mut(current_node_key)
+                                    .as_mut_leaf_ref()
+                                    .unwrap()[x][y][z] = T::default();
+                            }
+                        }
+                    }
                 } else {
-                    // If the node doesn't have parents, then it's a root node and should not be deleted
-                    *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
+                    // The size to clear equals, or is greater than DIM, the whole node is to be erased
+                    // unset the current node and its children
+                    self.deallocate_children_of(current_node_key as u32);
+
+                    // Set the parents child to None
+                    if node_stack.len() >= 2 && target_child_octant < 9 {
+                        self.nodes.free(current_node_key);
+                        let parent_key = node_stack[node_stack.len() - 2].0 as usize;
+                        self.node_children[parent_key][target_child_octant] = key_none_value();
+                    } else {
+                        // If the node doesn't have parents, then it's a root node and should not be deleted
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
+                    }
                 }
                 break;
             }
@@ -357,7 +438,9 @@ where
                 }
                 NodeContent::Internal(contains_count) => {
                     if 1 < *contains_count {
-                        NodeContent::Internal(contains_count - 1)
+                        //TODO: Eliminating one Voxel does not eliminate the whole Node!
+                        // NodeContent::Internal(contains_count - 1)
+                        NodeContent::Internal(*contains_count)
                     } else {
                         NodeContent::Nothing
                     }

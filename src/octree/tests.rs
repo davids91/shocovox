@@ -240,7 +240,6 @@ mod octree_tests {
         assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
     }
 
-
     #[test]
     fn test_clear_to_nothing() {
         let mut tree = Octree::<u32>::new(2).ok().unwrap();

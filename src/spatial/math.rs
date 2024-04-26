@@ -122,7 +122,7 @@ impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
 
 impl<T> PartialEq for V3c<T>
 where
-    T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq + PartialEq + PartialEq,
+    T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y && self.z == other.z
@@ -134,6 +134,14 @@ impl From<V3c<u32>> for V3c<f32> {
     fn from(vec: V3c<u32>) -> V3c<f32> {
         {
             V3c::new(vec.x as f32, vec.y as f32, vec.z as f32)
+        }
+    }
+}
+
+impl From<V3c<u32>> for V3c<usize> {
+    fn from(vec: V3c<u32>) -> V3c<usize> {
+        {
+            V3c::new(vec.x as usize, vec.y as usize, vec.z as usize)
         }
     }
 }
@@ -169,6 +177,8 @@ pub(crate) fn offset_region(octant: u32) -> V3c<u32> {
 
 /// Each Node is separated to 8 Octants based on their relative position inside the Nodes occupying space.
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
+/// * `offset` - From range 0..size in each dimensions
+/// * `size` - Size of the region to check for child octants
 pub fn hash_region(offset: &V3c<f32>, size: f32) -> u32 {
     let midpoint = V3c::unit(size / 2.);
     // The below is rewritten to be branchless
