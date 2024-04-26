@@ -72,16 +72,17 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         self.insert_at_lod(position, 1, data)
     }
 
-    /// Sets the given data for the octree in the given lod(level of detail) size
+    /// Sets the given data for the octree in the given lod(level of detail) based on insert_size
+    /// * `insert_size` - The size of the part to clear, must be DIM^(x * 8)
     pub fn insert_at_lod(
         &mut self,
         position: &V3c<u32>,
-        min_size: u32,
+        insert_size: u32,
         data: T,
     ) -> Result<(), OctreeError> {
-        if 0 == min_size || (min_size as f32).log(2.0).fract() != 0.0 {
+        if 0 == insert_size || (insert_size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(min_size));
+            return Err(OctreeError::InvalidNodeSize(insert_size));
         }
 
         let root_bounds = Cube::root_bounds(self.root_node_dimension);
@@ -100,7 +101,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             let current_node_key = current_node_key as usize;
             let target_child_octant = child_octant_for(&current_bounds, position);
 
-            if current_bounds.size > min_size {
+            if current_bounds.size > insert_size {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
@@ -162,28 +163,35 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     }
                 }
             } else {
-                // current_bounds.size == min_node_size, which is the desired depth; setting content of current node
+                match self.nodes.get(current_node_key) {
+                    // At this point shoulg the current Node be anything other, than a leaf, it should be converted to one
+                    NodeContent::Leaf(_) => {}
+                    _ => {
+                        *self.nodes.get_mut(current_node_key) =
+                            NodeContent::leaf_from(T::default());
+                    }
+                }
                 let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
                 assert!(mat_index.x < DIM);
                 assert!(mat_index.y < DIM);
                 assert!(mat_index.z < DIM);
-                if min_size == 1 {
+                if insert_size == 1 {
                     self.nodes
                         .get_mut(current_node_key)
                         .as_mut_leaf_ref()
                         .unwrap()[mat_index.x][mat_index.y][mat_index.z] = data;
-                } else if min_size < DIM as u32 {
+                } else if insert_size < DIM as u32 {
                     // update size is smaller, than the matrix, but > 1
                     // simulate the Nodes layout and update accordingly
                     let mat_index = mat_index
                         - V3c::new(
-                            mat_index.x % min_size as usize,
-                            mat_index.y % min_size as usize,
-                            mat_index.z % min_size as usize,
+                            mat_index.x % insert_size as usize,
+                            mat_index.y % insert_size as usize,
+                            mat_index.z % insert_size as usize,
                         );
-                    for x in mat_index.x..(mat_index.x + min_size as usize) {
-                        for y in mat_index.y..(mat_index.y + min_size as usize) {
-                            for z in mat_index.z..(mat_index.z + min_size as usize) {
+                    for x in mat_index.x..(mat_index.x + insert_size as usize) {
+                        for y in mat_index.y..(mat_index.y + insert_size as usize) {
+                            for z in mat_index.z..(mat_index.z + insert_size as usize) {
                                 self.nodes
                                     .get_mut(current_node_key)
                                     .as_mut_leaf_ref()
@@ -235,13 +243,19 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 }
                 NodeContent::Leaf(mat) => {
                     // The matrix inside the leaf starts at bounds min_position,
-                    // ends in min_position + (DIM,DIM,DIM)
+                    // ends in min_position + (DIM,DIM,DIM) in case it's on the lowest level!
                     // At this point the difference between the actual poition and min bounds,
-                    // must not be breater, than DIM, at each dimension
-                    let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
-                    assert!(mat_index.x < DIM);
-                    assert!(mat_index.y < DIM);
-                    assert!(mat_index.z < DIM);
+                    // must not be greater, than DIM, at each dimension
+                    // However, for Leaf nodes with size > DIM ( actuially multiples of DIM )
+                    // mat_index is aligned to multiples of DIM.
+                    // Currently it does not matter though, as Leaf nodes with size > DIM
+                    // have uniform values, so any index would result in the same outcome
+                    // TODO: update for non-homogenous Leaf Nodes where size > DIM
+                    let mat_index = V3c::<usize>::new(
+                        position.x as usize % DIM,
+                        position.y as usize % DIM,
+                        position.z as usize % DIM,
+                    );
                     return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
                 }
                 _ => {
@@ -277,11 +291,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     // The matrix inside the leaf starts at bounds min_position,
                     // ends in min_position + (DIM,DIM,DIM)
                     // At this point the difference between the actual poition and min bounds,
-                    // must not be breater, than DIM, at each dimension
-                    let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
-                    assert!(mat_index.x < DIM);
-                    assert!(mat_index.y < DIM);
-                    assert!(mat_index.z < DIM);
+                    // must not be greater, than DIM, at each dimension
+                    let mat_index = V3c::<usize>::new(
+                        position.x as usize % DIM,
+                        position.y as usize % DIM,
+                        position.z as usize % DIM,
+                    );
 
                     return Some(
                         &mut self
@@ -313,10 +328,15 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
     }
 
     /// Clears the data at the given position and lod size
-    pub fn clear_at_lod(&mut self, position: &V3c<u32>, min_size: u32) -> Result<(), OctreeError> {
-        if 0 == min_size || (min_size as f32).log(2.0).fract() != 0.0 {
+    /// * `min_size` - The size of the part to clear, must be DIM^(x * 8)
+    pub fn clear_at_lod(
+        &mut self,
+        position: &V3c<u32>,
+        clear_size: u32,
+    ) -> Result<(), OctreeError> {
+        if 0 == clear_size || (clear_size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(min_size));
+            return Err(OctreeError::InvalidNodeSize(clear_size));
         }
         let root_bounds = Cube::root_bounds(self.root_node_dimension);
         if !bound_contains(&root_bounds, position) {
@@ -333,13 +353,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
-            if current_bounds.size > min_size {
-                // iteration needs to go deeper, as current Node size is still larger, than the requested
+            if current_bounds.size > clear_size {
+                // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
                 ) {
-                    //Iteration needs to go deeper
+                    //Iteration can go deeper , as target child is valid
                     node_stack.push((
                         self.node_children[current_node_key][target_child_octant],
                         Cube {
@@ -357,7 +377,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         assert!(self.nodes.get(current_node_key).is_leaf());
                         let current_data = self.nodes.get(current_node_key).leaf_data().clone();
                         let new_children = self.make_uniform_children(current_data);
-                        *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Internal(7);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
                             self.node_children[current_node_key][target_child_octant],
@@ -374,28 +394,29 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     }
                 }
             } else {
+                // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
                 let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
                 assert!(mat_index.x < DIM);
                 assert!(mat_index.y < DIM);
                 assert!(mat_index.z < DIM);
-                if min_size == 1 {
+                if clear_size == 1 {
                     self.nodes
                         .get_mut(current_node_key)
                         .as_mut_leaf_ref()
                         .unwrap()[mat_index.x][mat_index.y][mat_index.z] = T::default();
-                } else if min_size < DIM as u32 {
+                } else if clear_size < DIM as u32 {
                     // update size is smaller, than the matrix, but > 1
                     // simulate the Nodes layout and update accordingly
                     let mat_index = mat_index
                         - V3c::new(
-                            mat_index.x % min_size as usize,
-                            mat_index.y % min_size as usize,
-                            mat_index.z % min_size as usize,
+                            mat_index.x % clear_size as usize,
+                            mat_index.y % clear_size as usize,
+                            mat_index.z % clear_size as usize,
                         );
-                    for x in mat_index.x..(mat_index.x + min_size as usize) {
-                        for y in mat_index.y..(mat_index.y + min_size as usize) {
-                            for z in mat_index.z..(mat_index.z + min_size as usize) {
+                    for x in mat_index.x..(mat_index.x + clear_size as usize) {
+                        for y in mat_index.y..(mat_index.y + clear_size as usize) {
+                            for z in mat_index.z..(mat_index.z + clear_size as usize) {
                                 self.nodes
                                     .get_mut(current_node_key)
                                     .as_mut_leaf_ref()
