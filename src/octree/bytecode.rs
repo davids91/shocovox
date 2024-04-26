@@ -1,8 +1,54 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
-use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+use bendy::{
+    decoding::ListDecoder,
+    encoding::{Encoder, Error as BencodeError, SingleItemEncoder, ToBencode},
+};
 
-impl<T> ToBencode for NodeContent<T>
+impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
+    fn encode_single(data: &T, encoder: &mut Encoder) -> Result<(), BencodeError> {
+        let color = data.albedo();
+        encoder.emit(&color[0])?;
+        encoder.emit(&color[1])?;
+        encoder.emit(&color[2])?;
+        if let Some(d) = data.user_data() {
+            encoder.emit(&d)
+        } else {
+            encoder.emit_str("#")
+        }
+    }
+
+    fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
+        let r = match list.next_object()?.unwrap() {
+            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "int field red color component",
+                "Something else",
+            )),
+        }?;
+        let g = match list.next_object()?.unwrap() {
+            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "int field red color component",
+                "Something else",
+            )),
+        }?;
+        let b = match list.next_object()?.unwrap() {
+            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "int field red color component",
+                "Something else",
+            )),
+        }?;
+        let user_data = match list.next_object()?.unwrap() {
+            Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
+            _ => None,
+        };
+        Ok(VoxelData::new(r, g, b, user_data))
+    }
+}
+
+impl<T, const DIM: usize> ToBencode for NodeContent<T, DIM>
 where
     T: Default + Clone + VoxelData,
 {
@@ -16,24 +62,23 @@ where
             }),
             NodeContent::Leaf(data) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                let color = data.albedo();
-                e.emit(color[0])?;
-                e.emit(color[1])?;
-                e.emit(color[2])?;
-                if let Some(d) = data.user_data() {
-                    e.emit(d)
-                } else {
-                    e.emit_str("#")
+                for x in 0..DIM {
+                    for y in 0..DIM {
+                        for z in 0..DIM {
+                            NodeContent::<T, DIM>::encode_single(&data[x][y][z], e)?;
+                        }
+                    }
                 }
+                Ok(())
             }),
         }
     }
 }
 
 use bendy::decoding::{FromBencode, Object};
-impl<T> FromBencode for NodeContent<T>
+impl<T, const DIM: usize> FromBencode for NodeContent<T, DIM>
 where
-    T: Clone + VoxelData,
+    T: PartialEq + Default + Clone + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -76,32 +121,13 @@ where
                     };
                     Ok(NodeContent::Internal(count))
                 } else {
-                    let r = match list.next_object()?.unwrap() {
-                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-                        _ => Err(bendy::decoding::Error::unexpected_token(
-                            "int field red color component",
-                            "Something else",
-                        )),
-                    }?;
-                    let g = match list.next_object()?.unwrap() {
-                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-                        _ => Err(bendy::decoding::Error::unexpected_token(
-                            "int field red color component",
-                            "Something else",
-                        )),
-                    }?;
-                    let b = match list.next_object()?.unwrap() {
-                        Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-                        _ => Err(bendy::decoding::Error::unexpected_token(
-                            "int field red color component",
-                            "Something else",
-                        )),
-                    }?;
-                    let user_data = match list.next_object()?.unwrap() {
-                        Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
-                        _ => None,
-                    };
-                    Ok(NodeContent::Leaf(T::new(r, g, b, user_data)))
+                    Ok(NodeContent::<T, DIM>::Leaf(array_init::array_init(|_| {
+                        array_init::array_init(|_| {
+                            array_init::array_init(|_| {
+                                NodeContent::<T, DIM>::decode_single(&mut list).unwrap()
+                            })
+                        })
+                    })))
                 }
             }
             Object::Bytes(b) => {
@@ -172,7 +198,7 @@ impl FromBencode for NodeChildren<u32> {
 ///####################################################################################
 /// Octree
 ///####################################################################################
-impl<T> ToBencode for Octree<T>
+impl<T, const DIM: usize> ToBencode for Octree<T, DIM>
 where
     T: Default + Clone + VoxelData,
 {
@@ -180,16 +206,16 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.root_size)?;
+            e.emit_int(self.root_node_dimension)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
         })
     }
 }
 
-impl<T> FromBencode for Octree<T>
+impl<T, const DIM: usize> FromBencode for Octree<T, DIM>
 where
-    T: Default + Clone + VoxelData,
+    T: PartialEq + Default + Clone + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -214,13 +240,13 @@ where
                         "Something else",
                     )),
                 }?;
-                let nodes = ObjectPool::<NodeContent<T>>::decode_bencode_object(
+                let nodes = ObjectPool::<NodeContent<T, DIM>>::decode_bencode_object(
                     list.next_object()?.unwrap(),
                 )?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
                 Ok(Self {
                     auto_simplify,
-                    root_size,
+                    root_node_dimension: root_size,
                     nodes,
                     node_children,
                 })
