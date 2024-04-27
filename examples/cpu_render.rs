@@ -39,7 +39,7 @@ fn main() {
     let tree_size = 4;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
+    let mut tree = shocovox_rs::octree::Octree::<RGB, 2>::new(tree_size / 2)
         .ok()
         .unwrap();
 

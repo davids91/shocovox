@@ -42,9 +42,8 @@ impl NodeStackItem {
     }
 }
 
-impl<T> Octree<T>
-where
-    T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData,
+impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: usize>
+    Octree<T, DIM>
 {
     fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
         use crate::spatial::FLOAT_ERROR_TOLERANCE;
@@ -101,11 +100,60 @@ where
         )
     }
 
+    fn traverse_matrix<'a>(
+        ray: &Ray,
+        matrix: &'a [[[T; DIM]; DIM]; DIM],
+        bounds: &Cube,
+        intersection: &CubeHit,
+    ) -> Option<&'a T> {
+        // TODO: assertion may have a false negative result
+        // assert!(bounds.contains_point(&ray.point_at(intersection.impact_distance.unwrap_or(0.))));
+        let mut distance = intersection.impact_distance.unwrap_or(0.);
+        // Transform both the bounds and the ray relative to the bounds of the matrix
+        let transformed_ray = Ray {
+            origin: ray.origin - V3c::<f32>::from(bounds.min_position),
+            direction: ray.direction,
+        };
+        let mut current_position = {
+            let pos = transformed_ray.point_at(intersection.impact_distance.unwrap_or(distance));
+            V3c::new(
+                (pos.x as i32).clamp(0, (DIM - 1) as i32),
+                (pos.y as i32).clamp(0, (DIM - 1) as i32),
+                (pos.z as i32).clamp(0, (DIM - 1) as i32),
+            )
+        };
+        let current_bound = Cube {
+            min_position: V3c::<u32>::from(current_position),
+            size: 1,
+        };
+        while distance <= intersection.exit_distance {
+            if 0 <= current_position.x
+                && current_position.x < DIM as i32
+                && 0 <= current_position.y
+                && current_position.y < DIM as i32
+                && 0 <= current_position.z
+                && current_position.z < DIM as i32
+                && matrix[current_position.x as usize][current_position.y as usize]
+                    [current_position.z as usize]
+                    != T::default()
+            {
+                return Some(
+                    &matrix[current_position.x as usize][current_position.y as usize]
+                        [current_position.z as usize],
+                );
+            }
+            let step = Self::get_step_to_next_sibling(&current_bound, &transformed_ray);
+            current_position = current_position + V3c::<i32>::from(step);
+            distance = (transformed_ray.origin - V3c::<f32>::from(current_position)).length();
+        }
+        return None;
+    }
+
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
         use crate::object_pool::key_might_be_valid;
-        let root_bounds = Cube::root_bounds(self.root_size);
+        let root_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
 
@@ -113,25 +161,35 @@ where
             current_d = root_hit.impact_distance.unwrap_or(0.);
             if self
                 .nodes
-                .get(Octree::<T>::ROOT_NODE_KEY as usize)
+                .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
                 .is_leaf()
             {
-                return Some((
+                if let Some(root_matrix_hit) = Self::traverse_matrix(
+                    ray,
                     self.nodes
-                        .get(Octree::<T>::ROOT_NODE_KEY as usize)
+                        .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
                         .leaf_data(),
-                    ray.point_at(current_d),
-                    root_hit.impact_normal,
-                ));
+                    &root_bounds,
+                    &root_hit,
+                ) {
+                    return Some((
+                        root_matrix_hit,
+                        ray.point_at(current_d),
+                        root_hit.impact_normal,
+                    ));
+                } else {
+                    // If the root if a leaf already and there's no hit in it, then there is no hit at all.
+                    return None;
+                }
             }
             let target_octant = hash_region(
                 &(ray.point_at(current_d) - root_bounds.min_position.into()),
-                self.root_size as f32,
+                self.root_node_dimension as f32,
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
                 root_hit,
-                Octree::<T>::ROOT_NODE_KEY,
+                Octree::<T, DIM>::ROOT_NODE_KEY,
                 target_octant,
             ));
         }
@@ -161,15 +219,30 @@ where
             assert!(key_might_be_valid(current_node as u32));
 
             if self.nodes.get(current_node).is_leaf() {
-                return Some((
+                if let Some(leaf_hit) = Self::traverse_matrix(
+                    ray,
                     self.nodes.get(current_node).leaf_data(),
-                    ray.point_at(
-                        current_bounds_ray_intersection
-                            .impact_distance
-                            .unwrap_or(0.),
-                    ),
-                    current_bounds_ray_intersection.impact_normal,
-                ));
+                    &current_bounds,
+                    &current_bounds_ray_intersection,
+                ) {
+                    return Some((
+                        leaf_hit,
+                        ray.point_at(
+                            current_bounds_ray_intersection
+                                .impact_distance
+                                .unwrap_or(0.),
+                        ),
+                        current_bounds_ray_intersection.impact_normal,
+                    ));
+                } else {
+                    // POP
+                    let popped_target = node_stack.pop().unwrap();
+                    if let Some(parent) = node_stack.last_mut() {
+                        let step_vec = Self::get_step_to_next_sibling(&popped_target.bounds, ray);
+                        parent.add_point(step_vec);
+                    }
+                    current_d = current_bounds_ray_intersection.exit_distance;
+                }
             }
             current_d = current_bounds_ray_intersection
                 .impact_distance
