@@ -186,6 +186,21 @@ where
 }
 
 impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+    pub(in crate::octree) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
+        // --> In case the smallest possible node the contained matrix
+        // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
+        // --> In case of greater Nodes the below ratio equation is relevant
+        // mat[xyz]/DIM = (position - min_position) / bounds.size
+        let mat_index =
+            (V3c::<usize>::from(*position - bounds.min_position) * DIM) / bounds.size as usize;
+        // The difference between the actual position and min bounds
+        // must not be greater, than DIM at each dimension
+        assert!(mat_index.x < DIM);
+        assert!(mat_index.y < DIM);
+        assert!(mat_index.z < DIM);
+        mat_index
+    }
+
     pub(in crate::octree) fn make_uniform_children(
         &mut self,
         content: [[[T; DIM]; DIM]; DIM],

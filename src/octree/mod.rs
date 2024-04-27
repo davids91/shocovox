@@ -85,7 +85,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             return Err(OctreeError::InvalidNodeSize(insert_size));
         }
 
-        let root_bounds = Cube::root_bounds(self.root_node_dimension);
+        let root_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
@@ -164,17 +164,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 }
             } else {
                 match self.nodes.get(current_node_key) {
-                    // At this point shoulg the current Node be anything other, than a leaf, it should be converted to one
+                    // should the current Node be anything other, than a leaf at this point, it is to be converted into one
                     NodeContent::Leaf(_) => {}
                     _ => {
                         *self.nodes.get_mut(current_node_key) =
                             NodeContent::leaf_from(T::default());
                     }
                 }
-                let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
-                assert!(mat_index.x < DIM);
-                assert!(mat_index.y < DIM);
-                assert!(mat_index.z < DIM);
+                let mat_index = Self::mat_index(&current_bounds, position);
                 if insert_size == 1 {
                     self.nodes
                         .get_mut(current_node_key)
@@ -242,20 +239,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     return None;
                 }
                 NodeContent::Leaf(mat) => {
-                    // The matrix inside the leaf starts at bounds min_position,
-                    // ends in min_position + (DIM,DIM,DIM) in case it's on the lowest level!
-                    // At this point the difference between the actual poition and min bounds,
-                    // must not be greater, than DIM, at each dimension
-                    // However, for Leaf nodes with size > DIM ( actuially multiples of DIM )
-                    // mat_index is aligned to multiples of DIM.
-                    // Currently it does not matter though, as Leaf nodes with size > DIM
-                    // have uniform values, so any index would result in the same outcome
+                    let mat_index = Self::mat_index(&current_bounds, position);
                     // TODO: update for non-homogenous Leaf Nodes where size > DIM
-                    let mat_index = V3c::<usize>::new(
-                        position.x as usize % DIM,
-                        position.y as usize % DIM,
-                        position.z as usize % DIM,
-                    );
                     return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
                 }
                 _ => {
@@ -276,7 +261,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
-        let mut current_bounds = Cube::root_bounds(self.root_node_dimension);
+        let mut current_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
         let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
@@ -288,16 +273,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     return None;
                 }
                 NodeContent::Leaf(_) => {
-                    // The matrix inside the leaf starts at bounds min_position,
-                    // ends in min_position + (DIM,DIM,DIM)
-                    // At this point the difference between the actual poition and min bounds,
-                    // must not be greater, than DIM, at each dimension
-                    let mat_index = V3c::<usize>::new(
-                        position.x as usize % DIM,
-                        position.y as usize % DIM,
-                        position.z as usize % DIM,
-                    );
-
+                    let mat_index = Self::mat_index(&current_bounds, position);
                     return Some(
                         &mut self
                             .nodes
@@ -338,7 +314,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             // Only multiples of two are valid sizes
             return Err(OctreeError::InvalidNodeSize(clear_size));
         }
-        let root_bounds = Cube::root_bounds(self.root_node_dimension);
+        let root_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
@@ -396,10 +372,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             } else {
                 // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
-                let mat_index = V3c::<usize>::from(*position - current_bounds.min_position);
-                assert!(mat_index.x < DIM);
-                assert!(mat_index.y < DIM);
-                assert!(mat_index.z < DIM);
+                let mat_index = Self::mat_index(&current_bounds, position);
                 if clear_size == 1 {
                     self.nodes
                         .get_mut(current_node_key)
@@ -408,12 +381,6 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 } else if clear_size < DIM as u32 {
                     // update size is smaller, than the matrix, but > 1
                     // simulate the Nodes layout and update accordingly
-                    let mat_index = mat_index
-                        - V3c::new(
-                            mat_index.x % clear_size as usize,
-                            mat_index.y % clear_size as usize,
-                            mat_index.z % clear_size as usize,
-                        );
                     for x in mat_index.x..(mat_index.x + clear_size as usize) {
                         for y in mat_index.y..(mat_index.y + clear_size as usize) {
                             for z in mat_index.z..(mat_index.z + clear_size as usize) {

@@ -58,7 +58,7 @@ fn setup(
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok();
+    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok().unwrap();
     for x in 0..ARRAY_DIMENSION {
         for y in 0..ARRAY_DIMENSION {
             for z in 0..ARRAY_DIMENSION {
@@ -85,7 +85,8 @@ fn setup(
                         128
                     };
                     tree.insert(&V3c::new(x, y, z), r | (g << 8) | (b << 16) | 0xFF000000)
-                        .ok();
+                        .ok()
+                        .unwrap();
                 }
             }
         }

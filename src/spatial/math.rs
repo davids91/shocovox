@@ -45,6 +45,28 @@ impl V3c<u32> {
         let result: V3c<f32> = self.into();
         result / self.length()
     }
+    pub fn cut_each_component(&mut self, value: &u32) -> Self {
+        self.x = self.x.min(*value);
+        self.y = self.y.min(*value);
+        self.z = self.z.min(*value);
+        *self
+    }
+}
+
+impl V3c<usize> {
+    pub fn length(&self) -> f32 {
+        (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
+    }
+    pub fn normalized(self) -> V3c<f32> {
+        let result: V3c<f32> = self.into();
+        result / self.length()
+    }
+    pub fn cut_each_component(&mut self, value: &usize) -> Self {
+        self.x = self.x.min(*value);
+        self.y = self.y.min(*value);
+        self.z = self.z.min(*value);
+        *self
+    }
 }
 
 impl<T> V3c<T>
@@ -129,6 +151,14 @@ where
     }
 }
 impl<T> Eq for V3c<T> where T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq {}
+
+impl From<V3c<usize>> for V3c<f32> {
+    fn from(vec: V3c<usize>) -> V3c<f32> {
+        {
+            V3c::new(vec.x as f32, vec.y as f32, vec.z as f32)
+        }
+    }
+}
 
 impl From<V3c<u32>> for V3c<f32> {
     fn from(vec: V3c<u32>) -> V3c<f32> {

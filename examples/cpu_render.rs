@@ -43,7 +43,9 @@ fn main() {
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151)).ok();
+    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151))
+        .ok()
+        .unwrap();
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
@@ -52,7 +54,7 @@ fn main() {
                     || z < (tree_size / 4)
                     || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                 {
-                    // tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
+                    // tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok().unwrap();
                     tree.insert(
                         &V3c::new(x, y, z),
                         RGB::new(
@@ -61,7 +63,8 @@ fn main() {
                             (255 as f32 * z as f32 / tree_size as f32) as u8,
                         ),
                     )
-                    .ok();
+                    .ok()
+                    .unwrap();
                 }
             }
         }
@@ -174,7 +177,7 @@ fn main() {
         );
 
         // Create a window with default options and display the image.
-        window.set_image("image-001", image).ok();
+        window.set_image("image-001", image).ok().unwrap();
     }
 }
 
