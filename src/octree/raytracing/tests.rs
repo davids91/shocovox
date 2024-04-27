@@ -9,7 +9,6 @@ mod wgpu_tests {
 
 #[cfg(test)]
 mod octree_raytracing_tests {
-
     use crate::octree::{Octree, V3c};
     use crate::spatial::raytracing::Ray;
     use rand::{rngs::ThreadRng, Rng};
@@ -30,6 +29,28 @@ mod octree_raytracing_tests {
     fn test_get_by_ray_from_outside() {
         let mut rng = rand::thread_rng();
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        let mut filled = Vec::new();
+        for x in 1..4 {
+            for y in 1..4 {
+                if 10 > rng.gen_range(0..20) {
+                    let pos = V3c::new(x, y, 1);
+                    tree.insert(&pos, 5).ok().unwrap();
+                    filled.push(pos);
+                }
+            }
+        }
+
+        for p in filled.into_iter() {
+            let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
+            assert!(tree.get_by_ray(&ray).is_some());
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5);
+        }
+    }
+
+    #[test]
+    fn test_get_by_ray_from_outside_where_dim_is_2() {
+        let mut rng = rand::thread_rng();
+        let mut tree = Octree::<u32, 2>::new(2).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
@@ -376,5 +397,31 @@ mod octree_raytracing_tests {
             },
         };
         let _ = tree.get_by_ray(&ray); //should not cause infinite loop
+    }
+
+    #[test]
+    fn test_edge_case_matrix_undetected() {
+        let mut tree = Octree::<u32, 4>::new(1).ok().unwrap();
+
+        for x in 0..4 {
+            for z in 0..4 {
+                tree.insert(&V3c::new(x, 0, z), 5).ok().unwrap();
+            }
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: -1.0716193,
+                y: 8.0,
+                z: -7.927902,
+            },
+            direction: V3c {
+                x: 0.18699232,
+                y: -0.6052176,
+                z: 0.7737865,
+            },
+        };
+        assert!(tree.get_by_ray(&ray).is_some());
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5);
     }
 }

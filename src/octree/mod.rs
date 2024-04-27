@@ -101,7 +101,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             let current_node_key = current_node_key as usize;
             let target_child_octant = child_octant_for(&current_bounds, position);
 
-            if current_bounds.size > insert_size {
+            if current_bounds.size > insert_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if crate::object_pool::key_might_be_valid(
                     self.node_children[current_node_key][target_child_octant],
@@ -329,7 +329,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
-            if current_bounds.size > clear_size {
+            if current_bounds.size > clear_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if crate::object_pool::key_might_be_valid(

@@ -108,43 +108,44 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     ) -> Option<&'a T> {
         // TODO: assertion may have a false negative result
         // assert!(bounds.contains_point(&ray.point_at(intersection.impact_distance.unwrap_or(0.))));
-        let mut distance = intersection.impact_distance.unwrap_or(0.);
         // Transform both the bounds and the ray relative to the bounds of the matrix
         let transformed_ray = Ray {
             origin: ray.origin - V3c::<f32>::from(bounds.min_position),
             direction: ray.direction,
         };
         let mut current_position = {
-            let pos = transformed_ray.point_at(intersection.impact_distance.unwrap_or(distance));
+            let pos = transformed_ray.point_at(intersection.impact_distance.unwrap_or(0.));
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
                 (pos.z as i32).clamp(0, (DIM - 1) as i32),
             )
         };
-        let current_bound = Cube {
-            min_position: V3c::<u32>::from(current_position),
-            size: 1,
-        };
-        while distance <= intersection.exit_distance {
-            if 0 <= current_position.x
-                && current_position.x < DIM as i32
-                && 0 <= current_position.y
-                && current_position.y < DIM as i32
-                && 0 <= current_position.z
-                && current_position.z < DIM as i32
-                && matrix[current_position.x as usize][current_position.y as usize]
-                    [current_position.z as usize]
-                    != T::default()
+        loop {
+            if current_position.x < 0
+                || current_position.x >= DIM as i32
+                || current_position.y < 0
+                || current_position.y >= DIM as i32
+                || current_position.z < 0
+                || current_position.z >= DIM as i32
+            {
+                break;
+            }
+            if matrix[current_position.x as usize][current_position.y as usize]
+                [current_position.z as usize]
+                != T::default()
             {
                 return Some(
                     &matrix[current_position.x as usize][current_position.y as usize]
                         [current_position.z as usize],
                 );
             }
+            let current_bound = Cube {
+                min_position: V3c::<u32>::from(current_position),
+                size: 1,
+            };
             let step = Self::get_step_to_next_sibling(&current_bound, &transformed_ray);
             current_position = current_position + V3c::<i32>::from(step);
-            distance = (transformed_ray.origin - V3c::<f32>::from(current_position)).length();
         }
         return None;
     }
