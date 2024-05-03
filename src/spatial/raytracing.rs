@@ -1,7 +1,5 @@
 #[cfg(feature = "raytracing")]
-use crate::spatial::{
-    math::{plane_line_intersection, V3c},
-};
+use crate::spatial::math::{plane_line_intersection, V3c};
 use crate::spatial::Cube;
 
 #[cfg(feature = "raytracing")]
@@ -88,24 +86,25 @@ impl Cube {
 
         for f in CubeFaces::into_iter() {
             let face = &self.face(f);
-            if let Some(d) = plane_line_intersection(
-                &face.origin,
-                &face.direction,
-                &ray.origin,
-                &ray.direction,
-            ) {
+            if let Some(d) =
+                plane_line_intersection(&face.origin, &face.direction, &ray.origin, &ray.direction)
+            {
                 if 0. <= d && self.contains_point(&ray.point_at(d)) {
                     // ray hits the plane only when the resulting distance is at least positive,
                     // and the point is contained inside the cube
                     if 1 < distances.len()
-                        && (distances[0] - distances[1]).abs() < crate::spatial::FLOAT_ERROR_TOLERANCE
+                        && ((distances[0] - distances[1]).abs()
+                            < crate::spatial::FLOAT_ERROR_TOLERANCE
+                            || (d < distances[0] - crate::spatial::FLOAT_ERROR_TOLERANCE
+                                && d < distances[1] - crate::spatial::FLOAT_ERROR_TOLERANCE))
                     {
                         // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
                         distances[1] = d;
                     } else if distances.len() < 2 {
                         // not enough hits are gathered yet
-                        distances.push(d); 
-                    } else {  // enough hits are gathered, exit the loop
+                        distances.push(d);
+                    } else {
+                        // enough hits are gathered, exit the loop
                         break;
                     }
                     if distances.is_empty() || d <= distances[0] {

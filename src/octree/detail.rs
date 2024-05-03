@@ -9,11 +9,11 @@ use crate::octree::{hash_region, Cube, V3c};
 /// Returns whether the given bound contains the given position.
 pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
     position.x >= bounds.min_position.x
-        && position.x <= bounds.min_position.x + bounds.size
+        && position.x < bounds.min_position.x + bounds.size
         && position.y >= bounds.min_position.y
-        && position.y <= bounds.min_position.y + bounds.size
+        && position.y < bounds.min_position.y + bounds.size
         && position.z >= bounds.min_position.z
-        && position.z <= bounds.min_position.z + bounds.size
+        && position.z < bounds.min_position.z + bounds.size
 }
 
 /// Returns with the octant value(i.e. index) of the child for the given position

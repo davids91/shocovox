@@ -4,22 +4,23 @@ struct RGB {
     r: u8,
     g: u8,
     b: u8,
+    a: u8,
 }
 
 #[cfg(feature = "raytracing")]
 impl RGB {
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        RGB { r, g, b }
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        RGB { r, g, b, a }
     }
 }
 
 #[cfg(feature = "raytracing")]
 impl shocovox_rs::octree::VoxelData for RGB {
-    fn new(r: u8, g: u8, b: u8, _user_data: Option<u32>) -> Self {
-        Self { r, g, b }
+    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: Option<u32>) -> Self {
+        Self { r, g, b, a }
     }
-    fn albedo(&self) -> [u8; 3] {
-        [self.r, self.g, self.b]
+    fn albedo(&self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
     }
     fn user_data(&self) -> Option<u32> {
         None
@@ -37,13 +38,16 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 fn main() {
     // fill octree with data
     let tree_size = 8;
+    const MATRIX_DIMENSION: usize = 2;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB, 2>::new(tree_size / 4)
-        .ok()
-        .unwrap();
+    let mut tree = shocovox_rs::octree::Octree::<RGB, MATRIX_DIMENSION>::new(
+        tree_size / MATRIX_DIMENSION as u32,
+    )
+    .ok()
+    .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151))
+    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151, 255))
         .ok()
         .unwrap();
     for x in 0..tree_size {
@@ -54,15 +58,13 @@ fn main() {
                     || z < (tree_size / 4)
                     || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                 {
-                    tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151))
-                        .ok()
-                        .unwrap();
                     tree.insert(
                         &V3c::new(x, y, z),
                         RGB::new(
                             (255 as f32 * x as f32 / tree_size as f32) as u8,
                             (255 as f32 * y as f32 / tree_size as f32) as u8,
                             (255 as f32 * z as f32 / tree_size as f32) as u8,
+                            255,
                         ),
                     )
                     .ok()
@@ -101,7 +103,7 @@ fn main() {
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
             );
-        angle = angle + velos.x;
+        angle = angle + velos.x / 1.;
 
         // Set the viewport
         let origin = V3c::new(angle.sin() * radius, radius, angle.cos() * radius);
@@ -141,7 +143,6 @@ fn main() {
                     origin: viewport_ray.origin,
                     direction: (glass_point - viewport_ray.origin).normalized(),
                 };
-
 
                 use std::io::Write;
                 std::io::stdout().flush().ok().unwrap();

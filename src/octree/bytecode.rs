@@ -11,6 +11,7 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
         encoder.emit(&color[0])?;
         encoder.emit(&color[1])?;
         encoder.emit(&color[2])?;
+        encoder.emit(&color[3])?;
         if let Some(d) = data.user_data() {
             encoder.emit(&d)
         } else {
@@ -29,14 +30,21 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
         let g = match list.next_object()?.unwrap() {
             Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field red color component",
+                "int field green color component",
                 "Something else",
             )),
         }?;
         let b = match list.next_object()?.unwrap() {
             Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field red color component",
+                "int field blue color component",
+                "Something else",
+            )),
+        }?;
+        let a = match list.next_object()?.unwrap() {
+            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "int field alpha color component",
                 "Something else",
             )),
         }?;
@@ -44,7 +52,7 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
             Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
             _ => None,
         };
-        Ok(VoxelData::new(r, g, b, user_data))
+        Ok(VoxelData::new(r, g, b, a, user_data))
     }
 }
 

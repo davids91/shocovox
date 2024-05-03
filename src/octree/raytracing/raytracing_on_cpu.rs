@@ -100,54 +100,48 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         )
     }
 
-    fn traverse_matrix<'a>(
+    fn traverse_matrix(
         ray: &Ray,
-        matrix: &'a [[[T; DIM]; DIM]; DIM],
+        matrix: &[[[T; DIM]; DIM]; DIM],
         bounds: &Cube,
         intersection: &CubeHit,
-    ) -> Option<&'a T> {
-        // TODO: assertion may have a false negative result
-        // assert!(bounds.contains_point(&ray.point_at(intersection.impact_distance.unwrap_or(0.))));
+    ) -> Option<V3c<usize>> {
         // Transform both the bounds and the ray relative to the bounds of the matrix
-        let transformed_ray = Ray {
-            origin: ray.origin - V3c::<f32>::from(bounds.min_position),
-            direction: ray.direction,
-        };
-        let mut current_position = {
-            let pos = transformed_ray.point_at(intersection.impact_distance.unwrap_or(0.));
+        let mut current_index = {
+            let pos = ray.point_at(intersection.impact_distance.unwrap_or(0.))
+                - V3c::<f32>::from(bounds.min_position);
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
                 (pos.z as i32).clamp(0, (DIM - 1) as i32),
             )
         };
+        let mut current_bound = Cube {
+            min_position: bounds.min_position + V3c::<u32>::from(current_index),
+            size: bounds.size / DIM as u32,
+        };
         loop {
-            if current_position.x < 0
-                || current_position.x >= DIM as i32
-                || current_position.y < 0
-                || current_position.y >= DIM as i32
-                || current_position.z < 0
-                || current_position.z >= DIM as i32
+            if current_index.x < 0
+                || current_index.x >= DIM as i32
+                || current_index.y < 0
+                || current_index.y >= DIM as i32
+                || current_index.z < 0
+                || current_index.z >= DIM as i32
             {
-                break;
+                return None;
             }
-            if matrix[current_position.x as usize][current_position.y as usize]
-                [current_position.z as usize]
-                != T::default()
+            if matrix[current_index.x as usize][current_index.y as usize]
+                [current_index.z as usize]
+                .albedo()[3] // alpha component
+                > 0
             {
-                return Some(
-                    &matrix[current_position.x as usize][current_position.y as usize]
-                        [current_position.z as usize],
-                );
+                return Some(V3c::<usize>::from(current_index));
             }
-            let current_bound = Cube {
-                min_position: V3c::<u32>::from(current_position),
-                size: 1,
-            };
-            let step = Self::get_step_to_next_sibling(&current_bound, &transformed_ray);
-            current_position = current_position + V3c::<i32>::from(step);
+            let step = Self::get_step_to_next_sibling(&current_bound, &ray);
+            current_bound.min_position =
+                V3c::<u32>::from(V3c::<f32>::from(current_bound.min_position) + step);
+            current_index = current_index + V3c::<i32>::from(step);
         }
-        return None;
     }
 
     /// provides the collision point of the ray with the contained voxel field
@@ -173,10 +167,19 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     &root_bounds,
                     &root_hit,
                 ) {
+                    let result_raycast = Cube {
+                        min_position: root_bounds.min_position + V3c::<u32>::from(root_matrix_hit),
+                        size: root_bounds.size / DIM as u32,
+                    }
+                    .intersect_ray(ray)
+                    .unwrap_or(root_hit);
                     return Some((
-                        root_matrix_hit,
-                        ray.point_at(current_d),
-                        root_hit.impact_normal,
+                        &self
+                            .nodes
+                            .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
+                            .leaf_data()[root_matrix_hit.x][root_matrix_hit.y][root_matrix_hit.z],
+                        ray.point_at(result_raycast.impact_distance.unwrap_or(0.)),
+                        result_raycast.impact_normal,
                     ));
                 } else {
                     // If the root if a leaf already and there's no hit in it, then there is no hit at all.
@@ -185,7 +188,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             }
             let target_octant = hash_region(
                 &(ray.point_at(current_d) - root_bounds.min_position.into()),
-                self.root_node_dimension as f32,
+                self.root_node_dimension as f32 * DIM as f32,
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
@@ -213,27 +216,31 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     parent.add_point(step_vec);
                 }
                 current_d = current_bounds_ray_intersection.exit_distance;
-                continue;
+                continue; // Re-calculate current_bounds and ray intersection
             }
 
             let current_node = node_stack.last().unwrap().node as usize;
             assert!(key_might_be_valid(current_node as u32));
 
             if self.nodes.get(current_node).is_leaf() {
-                if let Some(leaf_hit) = Self::traverse_matrix(
+                if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     ray,
                     self.nodes.get(current_node).leaf_data(),
                     &current_bounds,
                     &current_bounds_ray_intersection,
                 ) {
+                    let result_raycast = Cube {
+                        min_position: current_bounds.min_position
+                            + V3c::<u32>::from(leaf_matrix_hit),
+                        size: current_bounds.size / DIM as u32,
+                    }
+                    .intersect_ray(ray)
+                    .unwrap_or(current_bounds_ray_intersection);
                     return Some((
-                        leaf_hit,
-                        ray.point_at(
-                            current_bounds_ray_intersection
-                                .impact_distance
-                                .unwrap_or(0.),
-                        ),
-                        current_bounds_ray_intersection.impact_normal,
+                        &self.nodes.get(current_node).leaf_data()[leaf_matrix_hit.x]
+                            [leaf_matrix_hit.y][leaf_matrix_hit.z],
+                        ray.point_at(result_raycast.impact_distance.unwrap_or(0.)),
+                        result_raycast.impact_normal,
                     ));
                 } else {
                     // POP
@@ -243,6 +250,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                         parent.add_point(step_vec);
                     }
                     current_d = current_bounds_ray_intersection.exit_distance;
+                    continue; // Re-calculate current_bounds and ray intersection
                 }
             }
             current_d = current_bounds_ray_intersection
@@ -258,13 +266,10 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     NodeContent::Leaf(_) => false,
                     _ => true,
                 };
-            let target_hit = if target_is_empty {
-                None
-            } else {
-                target_bounds.intersect_ray(ray)
-            };
+            let target_hit = target_bounds.intersect_ray(ray);
             if !target_is_empty && target_hit.is_some() {
                 // PUSH
+                current_d = target_hit.unwrap().impact_distance.unwrap_or(current_d);
                 let child_target_octant = hash_region(
                     &(ray.point_at(current_d) - target_bounds.min_position.into()),
                     target_bounds.size as f32,
@@ -281,6 +286,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 // Advance iteration to the next sibling
                 let current_target_bounds = node_stack.last().unwrap().target_bounds();
                 let step_vec = Self::get_step_to_next_sibling(&current_target_bounds, ray);
+                if let Some(hit) = target_hit {
+                    current_d = hit.exit_distance;
+                }
                 node_stack.last_mut().unwrap().add_point(step_vec);
             }
         }
