@@ -26,7 +26,8 @@ bevy = { version = "0.13.2", features = ["dynamic_linking"], optional = true}
 #linker = "/usr/bin/clang"
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 [dev-dependencies]
-lldb = "0.0.11"
+#lldb = "0.0.11" to enable debugging support
+# maybe try lldb-sys?!
 rand = "0.8.5"
 criterion = { version = "0.4", features = ["html_reports"] }
 
