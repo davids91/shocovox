@@ -83,7 +83,7 @@ mod octree_tests {
     #[test]
     fn test_simple_insert_and_get_where_dim_is_2() {
         std::env::set_var("RUST_BACKTRACE", "1");
-        let mut tree = Octree::<u32, 2>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
         tree.insert(&V3c::new(0, 1, 0), 6).ok().unwrap();
@@ -155,7 +155,7 @@ mod octree_tests {
 
     #[test]
     fn test_insert_at_lod_where_dim_is_2() {
-        let mut tree = Octree::<u32, 2>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
         tree.auto_simplify = false;
 
         // This will set the area equal to 8 1-sized nodes
@@ -193,7 +193,7 @@ mod octree_tests {
 
     #[test]
     fn test_insert_at_lod_with_unaligned_position() {
-        let mut tree = Octree::<u32, 4>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32, 4>::new(8).ok().unwrap();
         tree.auto_simplify = false;
 
         // This will set the area equal to 8 1-sized nodes

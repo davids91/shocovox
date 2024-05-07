@@ -214,7 +214,7 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.root_node_dimension)?;
+            e.emit_int(self.octree_size)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
         })
@@ -254,7 +254,7 @@ where
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
                 Ok(Self {
                     auto_simplify,
-                    root_node_dimension: root_size,
+                    octree_size: root_size,
                     nodes,
                     node_children,
                 })

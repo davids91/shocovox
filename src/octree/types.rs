@@ -63,7 +63,7 @@ impl VoxelData for u32 {
 #[cfg_attr(feature = "serialization", derive(Serialize))]
 pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub auto_simplify: bool,
-    pub(in crate::octree) root_node_dimension: u32,
+    pub(in crate::octree) octree_size: u32,
     pub(in crate::octree) nodes: ObjectPool<NodeContent<T, DIM>>,
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }

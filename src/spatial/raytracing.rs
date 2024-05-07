@@ -48,7 +48,7 @@ impl Ray {
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug, Copy, Clone, Default)]
-pub struct CubeHit {
+pub struct CubeRayIntersection {
     pub(crate) impact_distance: Option<f32>,
     pub(crate) exit_distance: f32,
     pub(crate) impact_normal: V3c<f32>,
@@ -75,7 +75,7 @@ impl Cube {
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
     #[cfg(feature = "raytracing")]
-    pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeHit> {
+    pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         assert!(ray.is_valid());
         let mut distances: Vec<f32> = Vec::new();
         let mut impact_normal = V3c::default();
@@ -114,13 +114,13 @@ impl Cube {
             }
         }
         if 1 < distances.len() {
-            Some(CubeHit {
+            Some(CubeRayIntersection {
                 impact_distance: Some(distances[0].min(distances[1])),
                 exit_distance: distances[0].max(distances[1]),
                 impact_normal,
             })
         } else if !distances.is_empty() {
-            Some(CubeHit {
+            Some(CubeRayIntersection {
                 impact_distance: None,
                 exit_distance: distances[0],
                 impact_normal,

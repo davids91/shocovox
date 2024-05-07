@@ -50,7 +50,7 @@ mod octree_raytracing_tests {
     #[test]
     fn test_get_by_ray_from_outside_where_dim_is_2() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<u32, 2>::new(2).ok().unwrap();
+        let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
@@ -465,7 +465,7 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_matrix_undetected() {
-        let mut tree = Octree::<u32, 4>::new(1).ok().unwrap();
+        let mut tree = Octree::<u32, 4>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
@@ -495,7 +495,7 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_matrix_undetected() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size / MATRIX_DIMENSION as u32)
+        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
             .ok()
             .unwrap();
 
@@ -529,7 +529,7 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_matrix_z_edge_error() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size / MATRIX_DIMENSION as u32)
+        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
             .ok()
             .unwrap();
 

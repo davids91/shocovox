@@ -37,15 +37,14 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 #[show_image::main]
 fn main() {
     // fill octree with data
-    let tree_size = 8;
-    const MATRIX_DIMENSION: usize = 2;
+    let tree_size = 16;
+    const MATRIX_DIMENSION: usize = 4;
+    const ARRAY_DIMENSION: u32 = 16;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB, MATRIX_DIMENSION>::new(
-        tree_size / MATRIX_DIMENSION as u32,
-    )
-    .ok()
-    .unwrap();
+    let mut tree = shocovox_rs::octree::Octree::<RGB, MATRIX_DIMENSION>::new(tree_size)
+        .ok()
+        .unwrap();
 
     tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151, 255))
         .ok()
@@ -53,10 +52,13 @@ fn main() {
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
-                if x < (tree_size / 4)
-                    || y < (tree_size / 4)
-                    || z < (tree_size / 4)
-                    || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
+                if ((x < (ARRAY_DIMENSION / 4)
+                    || y < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                    || ((ARRAY_DIMENSION / 2) <= x
+                        && (ARRAY_DIMENSION / 2) <= y
+                        && (ARRAY_DIMENSION / 2) <= z)
                 {
                     tree.insert(
                         &V3c::new(x, y, z),

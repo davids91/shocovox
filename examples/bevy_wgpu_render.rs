@@ -54,7 +54,7 @@ fn setup(
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<u32>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<u32, 8>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
@@ -62,9 +62,10 @@ fn setup(
     for x in 0..ARRAY_DIMENSION {
         for y in 0..ARRAY_DIMENSION {
             for z in 0..ARRAY_DIMENSION {
-                if x < (ARRAY_DIMENSION / 4)
+                if ((x < (ARRAY_DIMENSION / 4)
                     || y < (ARRAY_DIMENSION / 4)
-                    || z < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
                     || ((ARRAY_DIMENSION / 2) <= x
                         && (ARRAY_DIMENSION / 2) <= y
                         && (ARRAY_DIMENSION / 2) <= z)

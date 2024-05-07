@@ -48,20 +48,19 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// creates an octree with overall size nodes_dimension * DIM
     /// * `nodes_dimension` - must be a multiple of 2, determines the number of nodes the octree has
-    pub fn new(nodes_dimension: u32) -> Result<Self, OctreeError> {
-        if 0 == nodes_dimension || (nodes_dimension as f32).log(2.0).fract() != 0.0 {
+    pub fn new(size: u32) -> Result<Self, OctreeError> {
+        if 0 == size || (size as f32).log(2.0).fract() != 0.0 {
             // Only multiples of two are valid sizes
-            return Err(OctreeError::InvalidNodeSize(nodes_dimension));
+            return Err(OctreeError::InvalidNodeSize(size));
         }
-        let mut nodes =
-            ObjectPool::<NodeContent<T, DIM>>::with_capacity(nodes_dimension.pow(3) as usize);
-        let mut node_children = Vec::with_capacity(nodes_dimension.pow(3) as usize);
+        let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(size.pow(3) as usize);
+        let mut node_children = Vec::with_capacity(size.pow(3) as usize);
         node_children.push(NodeChildren::new(key_none_value()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
-            root_node_dimension: nodes_dimension,
+            octree_size: size,
             nodes,
             node_children,
         })
@@ -85,7 +84,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             return Err(OctreeError::InvalidNodeSize(insert_size));
         }
 
-        let root_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
+        let root_bounds = Cube::root_bounds(self.octree_size);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
@@ -227,7 +226,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
-        let mut current_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
+        let mut current_bounds = Cube::root_bounds(self.octree_size);
         let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
@@ -261,7 +260,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
-        let mut current_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
+        let mut current_bounds = Cube::root_bounds(self.octree_size);
         let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
         if !bound_contains(&current_bounds, position) {
             return None;
@@ -314,7 +313,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             // Only multiples of two are valid sizes
             return Err(OctreeError::InvalidNodeSize(clear_size));
         }
-        let root_bounds = Cube::root_bounds(self.root_node_dimension * DIM as u32);
+        let root_bounds = Cube::root_bounds(self.octree_size);
         if !bound_contains(&root_bounds, position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
