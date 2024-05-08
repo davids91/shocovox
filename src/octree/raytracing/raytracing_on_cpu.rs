@@ -100,14 +100,16 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         )
     }
 
+    /// Iterates on the given ray and matrix to find a potential intersection in 3D space
     fn traverse_matrix(
         ray: &Ray,
+        ray_start_distance: f32,
         matrix: &[[[T; DIM]; DIM]; DIM],
         bounds: &Cube,
         intersection: &CubeRayIntersection,
     ) -> Option<V3c<usize>> {
         let mut current_index = {
-            let pos = ray.point_at(intersection.impact_distance.unwrap_or(0.))
+            let pos = ray.point_at(intersection.impact_distance.unwrap_or(ray_start_distance))
                 - V3c::<f32>::from(bounds.min_position);
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
@@ -131,10 +133,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 return None;
             }
 
-            if 0 < matrix[current_index.x as usize][current_index.y as usize]
-                [current_index.z as usize]
-                .albedo()[3]
-            // alpha component
+            if !matrix[current_index.x as usize][current_index.y as usize][current_index.z as usize]
+                .is_empty()
             {
                 return Some(V3c::<usize>::from(current_index));
             }
@@ -163,6 +163,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             {
                 if let Some(root_matrix_hit) = Self::traverse_matrix(
                     ray,
+                    current_d,
                     self.nodes
                         .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
                         .leaf_data(),
@@ -229,6 +230,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             if self.nodes.get(current_node).is_leaf() {
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     ray,
+                    current_d,
                     self.nodes.get(current_node).leaf_data(),
                     &current_bounds,
                     &current_bounds_ray_intersection,

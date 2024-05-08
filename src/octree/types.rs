@@ -35,13 +35,21 @@ pub(in crate::octree) struct NodeChildren<T: Default> {
 }
 
 pub trait VoxelData {
-    fn new(r: u8, g: u8, b: u8, a: u8, user_data: Option<u32>) -> Self;
-    fn albedo(&self) -> [u8; 4]; // 0-255 RGBA
-    fn user_data(&self) -> Option<u32>;
+    fn new(r: u8, g: u8, b: u8, a: u8, user_data: u32) -> Self;
+    /// The color to display during raytracing 0-255 RGBA
+    fn albedo(&self) -> [u8; 4];
+    /// User defined data
+    fn user_data(&self) -> u32;
+    /// determines if the voxel is to be hit by rays in the raytracing algorithms
+    fn is_empty(&self) -> bool {
+        [0, 0, 0, 0] == self.albedo() && 0 == self.user_data()
+    }
+    /// Implementation to clear the contained data, as well as albedo
+    fn clear(&mut self);
 }
 
 impl VoxelData for u32 {
-    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: Option<u32>) -> Self {
+    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: u32) -> Self {
         r as u32 & 0x000000FF
             | ((g as u32 & 0x000000FF) << 8)
             | ((b as u32 & 0x000000FF) << 16)
@@ -55,8 +63,11 @@ impl VoxelData for u32 {
             ((self & 0xFF000000) >> 24) as u8,
         ]
     }
-    fn user_data(&self) -> Option<u32> {
-        None
+    fn user_data(&self) -> u32 {
+        0
+    }
+    fn clear(&mut self) {
+        *self = 0;
     }
 }
 

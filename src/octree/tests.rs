@@ -64,6 +64,7 @@ mod octree_serialization_tests {
 #[cfg(test)]
 mod octree_tests {
     use crate::octree::types::Octree;
+    use crate::octree::VoxelData;
     use crate::spatial::math::V3c;
 
     #[test]
@@ -82,13 +83,11 @@ mod octree_tests {
 
     #[test]
     fn test_simple_insert_and_get_where_dim_is_2() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
         tree.insert(&V3c::new(0, 1, 0), 6).ok().unwrap();
         tree.insert(&V3c::new(0, 0, 1), 7).ok().unwrap();
-        println!("result: {:?}", *tree.get(&V3c::new(1, 0, 0)).unwrap());
         assert!(tree.get(&V3c::new(1, 0, 0)).is_some_and(|v| *v == 5));
         assert!(tree.get(&V3c::new(0, 1, 0)).is_some_and(|v| *v == 6));
         assert!(tree.get(&V3c::new(0, 0, 1)).is_some_and(|v| *v == 7));
@@ -192,36 +191,24 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_insert_at_lod_with_unaligned_position() {
+    fn test_insert_at_lod_with_unaligned_position_where_dim_is_4() {
         let mut tree = Octree::<u32, 4>::new(8).ok().unwrap();
         tree.auto_simplify = false;
 
-        // This will set the area equal to 8 1-sized nodes
         tree.insert_at_lod(&V3c::new(3, 3, 3), 4, 5).ok().unwrap();
-
-        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
 
         // This will set the area equal to 64 1-sized nodes:
         // a size-4 node includes 2 levels,
         // 1-sized nodes at the bottom level doesn't have children,
         // 2-sized nodes above have 8 children each
         // so one 4-sized node has 8*8 = 64 children
-        tree.insert_at_lod(&V3c::new(3, 3, 3), 4, 1).ok().unwrap();
         let mut hits = 0;
         for x in 0..4 {
             for y in 0..4 {
                 for z in 0..4 {
-                    if tree.get(&V3c::new(x, y, z)).is_some()
-                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1
-                    {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
                         hits += 1;
+                        assert!(*hit == 5);
                     }
                 }
             }
@@ -229,32 +216,47 @@ mod octree_tests {
         assert!(hits == 64);
     }
 
-    // #[test]
-    // fn test_insert_at_lod_with_unaligned_size() {
-    //     let mut tree = Octree::<u32, 4>::new(2).ok().unwrap();
-    //     tree.auto_simplify = false;
+    #[test]
+    fn test_insert_at_lod_with_unaligned_size__() {
+        let mut tree = Octree::<u32>::new(8).ok().unwrap();
+        tree.auto_simplify = false;
 
-    //     // This will set the area equal to 8 1-sized nodes
-    //     tree.insert_at_lod(&V3c::new(3, 3, 3), 3, 5).ok().unwrap();
+        tree.insert_at_lod(&V3c::new(3, 3, 3), 3, 5).ok().unwrap();
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 5);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert!(hits == 8);
+    }
 
-    //     assert!(tree.get(&V3c::new(1, 1, 1)).is_some_and(|v| *v == 5));
-    //     //TODO: add assertions for the other positions
+    #[test]
+    fn test_insert_at_lod_with_unaligned_size_where_dim_is_4() {
+        let mut tree = Octree::<u32, 4>::new(8).ok().unwrap();
+        tree.auto_simplify = false;
 
-    //     let mut hits = 0;
-    //     for x in 0..4 {
-    //         for y in 0..4 {
-    //             for z in 0..4 {
-    //                 if tree.get(&V3c::new(x, y, z)).is_some()
-    //                     && *tree.get(&V3c::new(x, y, z)).unwrap() == 1
-    //                 {
-    //                     hits += 1;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     // println!("hits: {hits}");
-    //     assert!(hits == 64);
-    // }
+        tree.insert_at_lod(&V3c::new(3, 3, 3), 3, 5).ok().unwrap();
+
+        assert!(tree.get(&V3c::new(1, 1, 1)).is_some_and(|v| *v == 5));
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 5);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert!(hits == 27);
+    }
 
     #[test]
     fn test_insert_at_lod_with_simplify() {
@@ -282,9 +284,8 @@ mod octree_tests {
         for x in 0..4 {
             for y in 0..4 {
                 for z in 0..4 {
-                    if tree.get(&V3c::new(x, y, z)).is_some()
-                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 1
-                    {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 1);
                         hits += 1;
                     }
                 }
@@ -295,35 +296,62 @@ mod octree_tests {
 
     #[test]
     fn test_simplifyable_insert_and_get() {
-        let mut tree = Octree::<u32>::new(2).ok().unwrap();
+        const SIZE: u32 = 2;
+        let mut tree = Octree::<u32>::new(SIZE).ok().unwrap();
 
         // The below set of values should be simplified to a single node
-        tree.insert(&V3c::new(0, 0, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 0, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 1, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 1, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 0, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 1, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 1, 1), 5).ok().unwrap();
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                for z in 0..SIZE {
+                    tree.insert(&V3c::new(x, y, z), 5).ok().unwrap();
+                }
+            }
+        }
 
         // The below should brake the simplified node back to its parts
         tree.insert(&V3c::new(0, 0, 0), 4).ok().unwrap();
 
         // Integrity should be kept
-        assert!(*tree.get(&V3c::new(0, 0, 0)).unwrap() == 4);
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
+        assert!(tree.get(&V3c::new(0, 0, 0)).is_some_and(|v| *v == 4));
+        for x in 1..SIZE {
+            for y in 1..SIZE {
+                for z in 1..SIZE {
+                    assert!(tree.get(&V3c::new(x, y, z)).is_some_and(|v| *v == 5));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_simplifyable_insert_and_get_where_dim_is_2() {
+        const SIZE: u32 = 4;
+        let mut tree = Octree::<u32, 2>::new(SIZE).ok().unwrap();
+
+        // The below set of values should be simplified to a single node
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                for z in 0..SIZE {
+                    tree.insert(&V3c::new(x, y, z), 5).ok().unwrap();
+                }
+            }
+        }
+
+        // The below should brake the simplified node back to its parts
+        tree.insert(&V3c::new(0, 0, 0), 4).ok().unwrap();
+
+        // Integrity should be kept
+        assert!(tree.get(&V3c::new(0, 0, 0)).is_some_and(|v| *v == 4));
+        for x in 1..SIZE {
+            for y in 1..SIZE {
+                for z in 1..SIZE {
+                    assert!(tree.get(&V3c::new(x, y, z)).is_some_and(|v| *v == 5));
+                }
+            }
+        }
     }
 
     #[test]
     fn test_simple_clear() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let mut tree = Octree::<u32>::new(2).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
@@ -333,39 +361,85 @@ mod octree_tests {
 
         assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
         assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6);
-        println!("is some? {:?}", tree.get(&V3c::new(0, 0, 1)).unwrap());
-        //TODO: Below do not pass because in some cases clear puts default values
-        // assert!(tree.get(&V3c::new(0, 0, 1)).is_none());
-        // assert!(tree.get(&V3c::new(1, 1, 1)).is_none());
+        let item_at_001 = tree.get(&V3c::new(0, 0, 1));
+        assert!(item_at_001.is_none() || item_at_001.is_some_and(|v| v.is_empty()));
+        let item_at_111 = tree.get(&V3c::new(1, 1, 1));
+        assert!(item_at_111.is_none() || item_at_111.is_some_and(|v| v.is_empty()));
+    }
+
+    #[test]
+    fn test_simple_clear_where_dim_is_2() {
+        let mut tree = Octree::<u32, 2>::new(2).ok().unwrap();
+        tree.auto_simplify = false;
+        tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
+        tree.insert(&V3c::new(0, 1, 0), 6).ok().unwrap();
+        tree.insert(&V3c::new(0, 0, 1), 7).ok().unwrap();
+        tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
+
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6);
+        let item_at_001 = tree.get(&V3c::new(0, 0, 1));
+        assert!(item_at_001.is_none() || item_at_001.is_some_and(|v| v.is_empty()));
+        let item_at_111 = tree.get(&V3c::new(1, 1, 1));
+        assert!(item_at_111.is_none() || item_at_111.is_some_and(|v| v.is_empty()));
     }
 
     #[test]
     fn test_simplifyable_clear() {
-        let mut tree = Octree::<u32>::new(2).ok().unwrap();
+        const SIZE: u32 = 2;
+        let mut tree = Octree::<u32>::new(SIZE).ok().unwrap();
 
         // The below set of values should be simplified to a single node
-        tree.insert(&V3c::new(0, 0, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 0, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 1, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(0, 1, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 0, 1), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 1, 0), 5).ok().unwrap();
-        tree.insert(&V3c::new(1, 1, 1), 5).ok().unwrap();
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                for z in 0..SIZE {
+                    tree.insert(&V3c::new(x, y, z), 5).ok().unwrap();
+                }
+            }
+        }
 
         // The below should brake the simplified node back to its party
         tree.clear(&V3c::new(0, 0, 0)).ok().unwrap();
 
         // Integrity should be kept
-        //TODO: Below do not pass because in some cases clear puts default values
-        // assert!(tree.get(&V3c::new(0, 0, 0)).is_none());
-        assert!(*tree.get(&V3c::new(0, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(0, 1, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 0, 1)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 0)).unwrap() == 5);
-        assert!(*tree.get(&V3c::new(1, 1, 1)).unwrap() == 5);
+        let item_at_000 = tree.get(&V3c::new(0, 0, 0));
+        assert!(item_at_000.is_none() || item_at_000.is_some_and(|v| v.is_empty()));
+        for x in 1..SIZE {
+            for y in 1..SIZE {
+                for z in 1..SIZE {
+                    assert!(tree.get(&V3c::new(x, y, z)).is_some_and(|v| *v == 5));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_simplifyable_clear_where_dim_is_2() {
+        const SIZE: u32 = 4;
+        let mut tree = Octree::<u32, 2>::new(SIZE).ok().unwrap();
+
+        // The below set of values should be simplified to a single node
+        for x in 0..SIZE {
+            for y in 0..SIZE {
+                for z in 0..SIZE {
+                    tree.insert(&V3c::new(x, y, z), 5).ok().unwrap();
+                }
+            }
+        }
+
+        // The below should brake the simplified node back to its party
+        tree.clear(&V3c::new(0, 0, 0)).ok().unwrap();
+
+        // Integrity should be kept
+        let item_at_000 = tree.get(&V3c::new(0, 0, 0));
+        assert!(item_at_000.is_none() || item_at_000.is_some_and(|v| v.is_empty()));
+        for x in 1..SIZE {
+            for y in 1..SIZE {
+                for z in 1..SIZE {
+                    assert!(tree.get(&V3c::new(x, y, z)).is_some_and(|v| *v == 5));
+                }
+            }
+        }
     }
 
     #[test]
@@ -421,5 +495,128 @@ mod octree_tests {
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
         assert!(hits == (64 - 8));
+    }
+
+    #[test]
+    fn test_clear_at_lod_where_dim_is_2() {
+        let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
+
+        // This will set the area equal to 64 1-sized nodes
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok().unwrap();
+
+        // This will clear an area equal to 8 1-sized nodes
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    if tree.get(&V3c::new(x, y, z)).is_some()
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 5
+                    {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (64 - 8));
+    }
+
+    #[test]
+    fn test_clear_at_lod_with_unaligned_position() {
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+
+        // This will set the area equal to 64 1-sized nodes
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok().unwrap();
+
+        // This will clear an area equal to 8 1-sized nodes
+        tree.clear_at_lod(&V3c::new(1, 1, 1), 2).ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    if tree.get(&V3c::new(x, y, z)).is_some()
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 5
+                    {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (64 - 8));
+    }
+
+    #[test]
+    fn test_clear_at_lod_with_unaligned_position_where_dim_is_4() {
+        let mut tree = Octree::<u32, 4>::new(8).ok().unwrap();
+
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 8, 5).ok().unwrap();
+        tree.clear_at_lod(&V3c::new(1, 1, 1), 4).ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    if tree.get(&V3c::new(x, y, z)).is_some()
+                        && *tree.get(&V3c::new(x, y, z)).unwrap() == 5
+                    {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (512 - 64));
+    }
+
+    #[test]
+    fn test_clear_at_lod_with_unaligned_size() {
+        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok().unwrap();
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 3).ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 5);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        // in this case, clear size is taken as 2 as it is the largest smaller number where n == 2^x
+        assert!(hits == (64 - 8));
+    }
+
+    #[test]
+    fn test_clear_at_lod_with_unaligned_size_where_dim_is_4() {
+        let mut tree = Octree::<u32, 4>::new(8).ok().unwrap();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, 5).ok().unwrap();
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 3).ok().unwrap();
+
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 5);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert!(hits == (64 - 27));
     }
 }

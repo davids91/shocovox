@@ -16,14 +16,20 @@ impl RGB {
 
 #[cfg(feature = "raytracing")]
 impl shocovox_rs::octree::VoxelData for RGB {
-    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: Option<u32>) -> Self {
+    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: u32) -> Self {
         Self { r, g, b, a }
     }
     fn albedo(&self) -> [u8; 4] {
         [self.r, self.g, self.b, self.a]
     }
-    fn user_data(&self) -> Option<u32> {
-        None
+    fn user_data(&self) -> u32 {
+        0
+    }
+    fn clear(&mut self) {
+        self.r = 0;
+        self.g = 0;
+        self.b = 0;
+        self.a = 0;
     }
 }
 

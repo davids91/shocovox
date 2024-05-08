@@ -289,7 +289,11 @@ fn is_leaf(node: SizedNode) -> bool{
     || node.children[7] != key_none_value {
         return false;
     }
-    return node.contains_nodes == 1u;
+    return node.contains_nodes <= (
+        octreeMetaData.voxel_matrix_dim
+        * octreeMetaData.voxel_matrix_dim
+        * octreeMetaData.voxel_matrix_dim
+    );
 }
 
 fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
@@ -303,6 +307,7 @@ struct MatrixHit{
 
 fn traverse_matrix(
     ray: Line,
+    ray_start_distance: f32,
     matrix_index_start: u32,
     bounds: Cube,
     intersection: CubeRayIntersection
@@ -312,7 +317,7 @@ fn traverse_matrix(
     result.hit = false;
 
     let pos = (
-        point_in_ray_at_distance(ray, impact_or(intersection, 0.))
+        point_in_ray_at_distance(ray, impact_or(intersection, ray_start_distance))
         - bounds.min_position
     );
     var current_index = vec3i(
@@ -341,7 +346,7 @@ fn traverse_matrix(
             vec3u(current_index),
             vec2u(dimension, dimension)
         ));
-        if 0. < voxels[matrix_index_start + voxel_matrix_index].albedo[3] {
+        if !is_empty(voxels[matrix_index_start + voxel_matrix_index]) {
             result.hit = true;
             result.index = vec3u(current_index);
             return result;
@@ -378,7 +383,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         current_d = impact_or(root_intersection, 0.);
         if is_leaf(nodes[OCTREE_ROOT_NODE_KEY]) {
             let root_matrix_hit = traverse_matrix(
-                ray, nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
+                ray, current_d, nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
                 root_bounds, root_intersection
             );
             result.hit = root_matrix_hit.hit;
@@ -443,7 +448,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
 
         if is_leaf(nodes[current_node]) {
             let leaf_matrix_hit = traverse_matrix(
-                ray, nodes[current_node].voxels_start_at,
+                ray, current_d, nodes[current_node].voxels_start_at,
                 current_bounds, current_bounds_ray_intersection
             );
             if leaf_matrix_hit.hit == true {
@@ -524,6 +529,16 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
 struct Voxelement {
     albedo : vec4<f32>,
     content: u32,
+}
+
+fn is_empty(e: Voxelement) -> bool {
+    return (
+        0. == e.albedo.r
+        && 0. == e.albedo.g
+        && 0. == e.albedo.b
+        && 0. == e.albedo.a
+        && 0 == e.content
+    );
 }
 
 struct SizedNode {

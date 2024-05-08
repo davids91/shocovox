@@ -12,11 +12,7 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
         encoder.emit(&color[1])?;
         encoder.emit(&color[2])?;
         encoder.emit(&color[3])?;
-        if let Some(d) = data.user_data() {
-            encoder.emit(&d)
-        } else {
-            encoder.emit_str("#")
-        }
+        encoder.emit(&data.user_data())
     }
 
     fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
@@ -49,8 +45,8 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
             )),
         }?;
         let user_data = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Some(i.parse::<u32>().ok().unwrap()),
-            _ => None,
+            Object::Integer(i) => i.parse::<u32>().ok().unwrap(),
+            _ => 0,
         };
         Ok(VoxelData::new(r, g, b, a, user_data))
     }

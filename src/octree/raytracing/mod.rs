@@ -1,4 +1,4 @@
-mod types;
+pub mod types;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing_on_cpu;
