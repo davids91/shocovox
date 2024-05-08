@@ -50,7 +50,7 @@ mod octant_tests {
 #[cfg(test)]
 mod intersection_tests {
 
-    use crate::spatial::{math::plane_line_intersection, V3c};
+    use crate::spatial::{math::plane_line_intersection, raytracing::Ray, Cube, V3c};
 
     #[test]
     fn test_negative_intersection() {
@@ -65,5 +65,41 @@ mod intersection_tests {
             &line_direction
         )
         .is_some_and(|v| v == -1.));
+    }
+
+    #[test]
+    fn test_edge_case_cube_top_hit() {
+        let ray = Ray {
+            origin: V3c {
+                x: 8.965594,
+                y: 10.0,
+                z: -4.4292345,
+            },
+            direction: V3c {
+                x: -0.5082971,
+                y: -0.72216684,
+                z: 0.46915793,
+            },
+        };
+        let t_hit = (Cube {
+            min_position: V3c::new(2, 0, 0),
+            size: 2,
+        })
+        .intersect_ray(&ray)
+        .unwrap();
+
+        println!(
+            "2,0,0 * 2 is hit at: {:?}",
+            ray.point_at(t_hit.impact_distance.unwrap_or(0.))
+        );
+        println!(
+            "2,0,0 * 2 hit leaves at: {:?}",
+            ray.point_at(t_hit.exit_distance)
+        );
+
+        assert!(t_hit
+            .impact_distance
+            .is_some_and(|v| (v - 11.077772).abs() < 0.001));
+        assert!((ray.point_at(t_hit.impact_distance.unwrap()).y - 2.).abs() < 0.001);
     }
 }

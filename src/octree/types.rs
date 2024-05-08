@@ -3,21 +3,13 @@ use crate::object_pool::ObjectPool;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "serialization", derive(Serialize))]
-pub struct Octree<T: Default + Clone + VoxelData> {
-    pub auto_simplify: bool,
-    pub(in crate::octree) root_size: u32,
-    pub(in crate::octree) nodes: ObjectPool<NodeContent<T>>,
-    pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
-}
-
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T: Clone> {
+pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
     #[default]
     Nothing,
     Internal(u32), // cache data to store the enclosed nodes
-    Leaf(T),
+    Leaf([[[T; DIM]; DIM]; DIM]),
 }
 
 /// error types during usage or creation of the octree
@@ -43,23 +35,46 @@ pub(in crate::octree) struct NodeChildren<T: Default> {
 }
 
 pub trait VoxelData {
-    fn new(r: u8, g: u8, b: u8, user_data: Option<u32>) -> Self;
-    fn albedo(&self) -> [u8; 3]; // 0-255 RGB
-    fn user_data(&self) -> Option<u32>;
+    fn new(r: u8, g: u8, b: u8, a: u8, user_data: u32) -> Self;
+    /// The color to display during raytracing 0-255 RGBA
+    fn albedo(&self) -> [u8; 4];
+    /// User defined data
+    fn user_data(&self) -> u32;
+    /// determines if the voxel is to be hit by rays in the raytracing algorithms
+    fn is_empty(&self) -> bool {
+        [0, 0, 0, 0] == self.albedo() && 0 == self.user_data()
+    }
+    /// Implementation to clear the contained data, as well as albedo
+    fn clear(&mut self);
 }
 
 impl VoxelData for u32 {
-    fn new(r: u8, g: u8, b: u8, _user_data: Option<u32>) -> Self {
-        r as u32 & 0x000000FF | ((g as u32 & 0x000000FF) << 8) | ((b as u32 & 0x000000FF) << 16)
+    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: u32) -> Self {
+        r as u32 & 0x000000FF
+            | ((g as u32 & 0x000000FF) << 8)
+            | ((b as u32 & 0x000000FF) << 16)
+            | ((a as u32 & 0x000000FF) << 24)
     }
-    fn albedo(&self) -> [u8; 3] {
+    fn albedo(&self) -> [u8; 4] {
         [
             (self & 0x000000FF) as u8,
             ((self & 0x0000FF00) >> 8) as u8,
             ((self & 0x00FF0000) >> 16) as u8,
+            ((self & 0xFF000000) >> 24) as u8,
         ]
     }
-    fn user_data(&self) -> Option<u32> {
-        None
+    fn user_data(&self) -> u32 {
+        0
     }
+    fn clear(&mut self) {
+        *self = 0;
+    }
+}
+
+#[cfg_attr(feature = "serialization", derive(Serialize))]
+pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
+    pub auto_simplify: bool,
+    pub(in crate::octree) octree_size: u32,
+    pub(in crate::octree) nodes: ObjectPool<NodeContent<T, DIM>>,
+    pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }

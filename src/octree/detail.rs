@@ -9,11 +9,11 @@ use crate::octree::{hash_region, Cube, V3c};
 /// Returns whether the given bound contains the given position.
 pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
     position.x >= bounds.min_position.x
-        && position.x <= bounds.min_position.x + bounds.size
+        && position.x < bounds.min_position.x + bounds.size
         && position.y >= bounds.min_position.y
-        && position.y <= bounds.min_position.y + bounds.size
+        && position.y < bounds.min_position.y + bounds.size
         && position.z >= bounds.min_position.z
-        && position.z <= bounds.min_position.z + bounds.size
+        && position.z < bounds.min_position.z + bounds.size
 }
 
 /// Returns with the octant value(i.e. index) of the child for the given position
@@ -113,59 +113,109 @@ where
 ///####################################################################################
 /// NodeContent
 ///####################################################################################
-impl<T> NodeContent<T>
+impl<T, const DIM: usize> NodeContent<T, DIM>
 where
-    T: Clone + Default,
+    T: PartialEq + Clone + Default,
 {
     pub fn is_leaf(&self) -> bool {
         matches!(self, NodeContent::Leaf(_))
     }
 
-    pub fn data(&self) -> T {
+    pub fn is_all(&self, data: &T) -> bool {
         match self {
-            NodeContent::Leaf(t) => t.clone(),
-            _ => T::default(),
+            NodeContent::Leaf(d) => {
+                for x in 0..d.len() {
+                    for y in 0..d[x].len() {
+                        for z in 0..d[x][y].len() {
+                            if d[x][y][z] != *data {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            _ => false,
         }
     }
 
-    pub fn leaf_data(&self) -> &T {
+    pub fn data(&self, x: usize, y: usize, z: usize) -> Option<&T> {
+        match self {
+            NodeContent::Leaf(t) => Some(&t[x][y][z]),
+            _ => None,
+        }
+    }
+
+    pub fn leaf_data(&self) -> &[[[T; DIM]; DIM]; DIM] {
         match self {
             NodeContent::Leaf(t) => t,
             _ => panic!("leaf_data was called for NodeContent<T> where there is no content!"),
         }
     }
 
-    pub fn as_leaf_ref(&self) -> Option<&T> {
+    pub fn mut_leaf_data(&mut self) -> &mut [[[T; DIM]; DIM]; DIM] {
+        match self {
+            NodeContent::Leaf(t) => t,
+            _ => panic!("leaf_data was called for NodeContent<T> where there is no content!"),
+        }
+    }
+
+    pub fn as_leaf_ref(&self) -> Option<&[[[T; DIM]; DIM]; DIM]> {
         match self {
             NodeContent::Leaf(t) => Some(t),
             _ => None,
         }
     }
 
-    pub fn as_mut_leaf_ref(&mut self) -> Option<&mut T> {
+    pub fn as_mut_leaf_ref(&mut self) -> Option<&mut [[[T; DIM]; DIM]; DIM]> {
         match self {
             NodeContent::Leaf(t) => Some(t),
             _ => None,
         }
+    }
+
+    pub fn leaf_from(data: T) -> Self {
+        NodeContent::Leaf(array_init::array_init(|_| {
+            array_init::array_init(|_| array_init::array_init(|_| data.clone()))
+        }))
     }
 }
 
 ///####################################################################################
 /// Octree
 ///####################################################################################
-impl<T> Octree<T>
+impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Clone + VoxelData,
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
+
+    pub(crate) fn is_size_inadequate(size: u32) -> bool {
+        0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0
+    }
 }
 
-impl<T> Octree<T>
-where
-    T: Default + PartialEq + Clone + VoxelData,
-{
-    pub(in crate::octree) fn make_uniform_children(&mut self, content: T) -> [u32; 8] {
+impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+    pub(in crate::octree) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
+        // --> In case the smallest possible node the contained matrix
+        // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
+        // --> In case of greater Nodes the below ratio equation is relevant
+        // mat[xyz]/DIM = (position - min_position) / bounds.size
+        let mat_index =
+            (V3c::<usize>::from(*position - bounds.min_position) * DIM) / bounds.size as usize;
+        // The difference between the actual position and min bounds
+        // must not be greater, than DIM at each dimension
+        assert!(mat_index.x < DIM);
+        assert!(mat_index.y < DIM);
+        assert!(mat_index.z < DIM);
+        mat_index
+    }
+
+    pub(in crate::octree) fn make_uniform_children(
+        &mut self,
+        content: [[[T; DIM]; DIM]; DIM],
+    ) -> [u32; 8] {
         let children = [
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
@@ -233,7 +283,7 @@ where
             if crate::object_pool::key_might_be_valid(child_key) {
                 match self.nodes.get(child_key as usize) {
                     NodeContent::Leaf(_) => {
-                        actual_count += 1;
+                        actual_count += (DIM as u32).pow(3);
                     }
                     NodeContent::Internal(c) => {
                         actual_count += c;

@@ -1,7 +1,5 @@
 #[cfg(feature = "raytracing")]
-use crate::spatial::{
-    math::{plane_line_intersection, V3c},
-};
+use crate::spatial::math::{plane_line_intersection, V3c};
 use crate::spatial::Cube;
 
 #[cfg(feature = "raytracing")]
@@ -50,7 +48,7 @@ impl Ray {
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug, Copy, Clone, Default)]
-pub struct CubeHit {
+pub struct CubeRayIntersection {
     pub(crate) impact_distance: Option<f32>,
     pub(crate) exit_distance: f32,
     pub(crate) impact_normal: V3c<f32>,
@@ -77,7 +75,7 @@ impl Cube {
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
     #[cfg(feature = "raytracing")]
-    pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeHit> {
+    pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         assert!(ray.is_valid());
         let mut distances: Vec<f32> = Vec::new();
         let mut impact_normal = V3c::default();
@@ -88,24 +86,25 @@ impl Cube {
 
         for f in CubeFaces::into_iter() {
             let face = &self.face(f);
-            if let Some(d) = plane_line_intersection(
-                &face.origin,
-                &face.direction,
-                &ray.origin,
-                &ray.direction,
-            ) {
+            if let Some(d) =
+                plane_line_intersection(&face.origin, &face.direction, &ray.origin, &ray.direction)
+            {
                 if 0. <= d && self.contains_point(&ray.point_at(d)) {
                     // ray hits the plane only when the resulting distance is at least positive,
                     // and the point is contained inside the cube
                     if 1 < distances.len()
-                        && (distances[0] - distances[1]).abs() < crate::spatial::FLOAT_ERROR_TOLERANCE
+                        && ((distances[0] - distances[1]).abs()
+                            < crate::spatial::FLOAT_ERROR_TOLERANCE
+                            || (d < distances[0] - crate::spatial::FLOAT_ERROR_TOLERANCE
+                                && d < distances[1] - crate::spatial::FLOAT_ERROR_TOLERANCE))
                     {
                         // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
                         distances[1] = d;
                     } else if distances.len() < 2 {
                         // not enough hits are gathered yet
-                        distances.push(d); 
-                    } else {  // enough hits are gathered, exit the loop
+                        distances.push(d);
+                    } else {
+                        // enough hits are gathered, exit the loop
                         break;
                     }
                     if distances.is_empty() || d <= distances[0] {
@@ -115,13 +114,13 @@ impl Cube {
             }
         }
         if 1 < distances.len() {
-            Some(CubeHit {
+            Some(CubeRayIntersection {
                 impact_distance: Some(distances[0].min(distances[1])),
                 exit_distance: distances[0].max(distances[1]),
                 impact_normal,
             })
         } else if !distances.is_empty() {
-            Some(CubeHit {
+            Some(CubeRayIntersection {
                 impact_distance: None,
                 exit_distance: distances[0],
                 impact_normal,

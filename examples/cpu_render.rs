@@ -4,25 +4,32 @@ struct RGB {
     r: u8,
     g: u8,
     b: u8,
+    a: u8,
 }
 
 #[cfg(feature = "raytracing")]
 impl RGB {
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        RGB { r, g, b }
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        RGB { r, g, b, a }
     }
 }
 
 #[cfg(feature = "raytracing")]
 impl shocovox_rs::octree::VoxelData for RGB {
-    fn new(r: u8, g: u8, b: u8, _user_data: Option<u32>) -> Self {
-        Self { r, g, b }
+    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: u32) -> Self {
+        Self { r, g, b, a }
     }
-    fn albedo(&self) -> [u8; 3] {
-        [self.r, self.g, self.b]
+    fn albedo(&self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
     }
-    fn user_data(&self) -> Option<u32> {
-        None
+    fn user_data(&self) -> u32 {
+        0
+    }
+    fn clear(&mut self) {
+        self.r = 0;
+        self.g = 0;
+        self.b = 0;
+        self.a = 0;
     }
 }
 
@@ -36,32 +43,40 @@ use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
 #[show_image::main]
 fn main() {
     // fill octree with data
-    let tree_size = 4;
+    let tree_size = 16;
+    const MATRIX_DIMENSION: usize = 4;
+    const ARRAY_DIMENSION: u32 = 16;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB>::new(tree_size)
+    let mut tree = shocovox_rs::octree::Octree::<RGB, MATRIX_DIMENSION>::new(tree_size)
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151)).ok();
+    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151, 255))
+        .ok()
+        .unwrap();
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
-                if x < (tree_size / 4)
-                    || y < (tree_size / 4)
-                    || z < (tree_size / 4)
-                    || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
+                if ((x < (ARRAY_DIMENSION / 4)
+                    || y < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                    || ((ARRAY_DIMENSION / 2) <= x
+                        && (ARRAY_DIMENSION / 2) <= y
+                        && (ARRAY_DIMENSION / 2) <= z)
                 {
-                    // tree.insert(&V3c::new(x, y, z), RGB::new(100, 80, 151)).ok();
                     tree.insert(
                         &V3c::new(x, y, z),
                         RGB::new(
                             (255 as f32 * x as f32 / tree_size as f32) as u8,
                             (255 as f32 * y as f32 / tree_size as f32) as u8,
                             (255 as f32 * z as f32 / tree_size as f32) as u8,
+                            255,
                         ),
                     )
-                    .ok();
+                    .ok()
+                    .unwrap();
                 }
             }
         }
@@ -96,23 +111,24 @@ fn main() {
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
             );
-        angle = angle + velos.x;
+        angle = angle + velos.x / 1.;
 
         // Set the viewport
         let origin = V3c::new(angle.sin() * radius, radius, angle.cos() * radius);
-        let viewport = Ray {
+        let viewport_ray = Ray {
             direction: (V3c::unit(0.) - origin).normalized(),
             origin,
         };
-
         let viewport_up_direction = V3c::new(0., 1., 0.);
-        let viewport_right_direction = viewport_up_direction.cross(viewport.direction).normalized();
+        let viewport_right_direction = viewport_up_direction
+            .cross(viewport_ray.direction)
+            .normalized();
         let viewport_width = 4.;
         let viewport_height = 4.;
         let viewport_fov = 3.;
         let pixel_width = viewport_width as f32 / viewport_size_width as f32;
         let pixel_height = viewport_height as f32 / viewport_size_height as f32;
-        let viewport_bottom_left = viewport.origin + (viewport.direction * viewport_fov)
+        let viewport_bottom_left = viewport_ray.origin + (viewport_ray.direction * viewport_fov)
             - (viewport_up_direction * (viewport_height / 2.))
             - (viewport_right_direction * (viewport_width / 2.));
 
@@ -132,8 +148,8 @@ fn main() {
                     + viewport_right_direction * x as f32 * pixel_width
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
-                    origin: viewport.origin,
-                    direction: (glass_point - viewport.origin).normalized(),
+                    origin: viewport_ray.origin,
+                    direction: (glass_point - viewport_ray.origin).normalized(),
                 };
 
                 use std::io::Write;
@@ -155,7 +171,7 @@ fn main() {
                         ]),
                     );
                 } else {
-                    img.put_pixel(x, actual_y_in_image, Rgb([0, 0, 0]));
+                    img.put_pixel(x, actual_y_in_image, Rgb([128, 128, 128]));
                 }
                 print!(
                     "\r   progress: {}   ",
@@ -174,7 +190,7 @@ fn main() {
         );
 
         // Create a window with default options and display the image.
-        window.set_image("image-001", image).ok();
+        window.set_image("image-001", image).ok().unwrap();
     }
 }
 

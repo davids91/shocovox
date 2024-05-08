@@ -1,6 +1,6 @@
 [package]
 name = "shocovox-rs"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -14,7 +14,7 @@ bevy_wgpu = ["dep:bevy", "raytracing"]
 [dependencies]
 serde = { version = "1.0.183", features = ["derive"], optional = true }
 bendy = { git = "https://github.com/davids91/bendy.git" , features = ["std", "serde"]}
-
+array-init = "2.1.0"
 # for example cpu_render
 image = { version = "0.25.1", optional = true }
 show-image = { version = "0.14.0", optional = true }

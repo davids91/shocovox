@@ -245,7 +245,6 @@ mod object_pool_tests {
 
     #[test]
     fn test_edge_case_reused_item() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let mut pool = ObjectPool::<f32>::with_capacity(3);
         let test_value = 5.;
         let key_1 = pool.push(test_value);

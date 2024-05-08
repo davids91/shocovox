@@ -1,9 +1,7 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::prelude::*;
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::{
-    octree::raytracing::classic_raytracing_on_bevy_wgpu::OctreeViewMaterial, spatial::math::V3c,
-};
+use shocovox_rs::{octree::raytracing::types::OctreeViewMaterial, spatial::math::V3c};
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -27,7 +25,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OctreeViewMaterial>>,
 ) {
-    use shocovox_rs::octree::raytracing::classic_raytracing_on_bevy_wgpu::Viewport;
+    use shocovox_rs::octree::raytracing::types::Viewport;
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -54,17 +52,18 @@ fn setup(
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<u32>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<u32, 8>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok();
+    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok().unwrap();
     for x in 0..ARRAY_DIMENSION {
         for y in 0..ARRAY_DIMENSION {
             for z in 0..ARRAY_DIMENSION {
-                if x < (ARRAY_DIMENSION / 4)
+                if ((x < (ARRAY_DIMENSION / 4)
                     || y < (ARRAY_DIMENSION / 4)
-                    || z < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
                     || ((ARRAY_DIMENSION / 2) <= x
                         && (ARRAY_DIMENSION / 2) <= y
                         && (ARRAY_DIMENSION / 2) <= z)
@@ -85,7 +84,8 @@ fn setup(
                         128
                     };
                     tree.insert(&V3c::new(x, y, z), r | (g << 8) | (b << 16) | 0xFF000000)
-                        .ok();
+                        .ok()
+                        .unwrap();
                 }
             }
         }
