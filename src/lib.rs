@@ -1,3 +1,4 @@
-pub mod spatial;
+mod object_pool;
+mod spatial;
+
 pub mod octree;
-pub mod object_pool;

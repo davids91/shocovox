@@ -1,7 +1,7 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::prelude::*;
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::{octree::raytracing::types::OctreeViewMaterial, spatial::math::V3c};
+use shocovox_rs::{octree::raytracing::OctreeViewMaterial, octree::V3c};
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -25,7 +25,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OctreeViewMaterial>>,
 ) {
-    use shocovox_rs::octree::raytracing::types::Viewport;
+    use shocovox_rs::octree::raytracing::Viewport;
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -92,9 +92,8 @@ fn setup(
     }
     let quad_count = 2;
     let quad_size = 10. / quad_count as f32;
-    let mesh_handle = meshes.add(Mesh::from(shape::Quad {
-        size: Vec2::new(quad_size, quad_size),
-        flip: false,
+    let mesh_handle = meshes.add(Mesh::from(Rectangle {
+        half_size: Vec2::new(quad_size, quad_size) / 2.,
     }));
     let origin = Vec3::new(
         ARRAY_DIMENSION as f32 * 2.,

@@ -2,8 +2,7 @@ pub mod math;
 pub mod raytracing;
 pub mod tests;
 
-use crate::spatial::math::offset_region;
-use crate::spatial::math::V3c;
+use crate::spatial::math::{offset_region, vector::V3c};
 
 pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
 

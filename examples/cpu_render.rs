@@ -37,7 +37,7 @@ impl shocovox_rs::octree::VoxelData for RGB {
 use rand::Rng;
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::spatial::{math::V3c, raytracing::Ray};
+use shocovox_rs::octree::{raytracing::Ray, V3c};
 
 #[cfg(feature = "raytracing")]
 #[show_image::main]

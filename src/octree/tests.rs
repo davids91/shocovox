@@ -63,9 +63,8 @@ mod octree_serialization_tests {
 
 #[cfg(test)]
 mod octree_tests {
-    use crate::octree::types::Octree;
-    use crate::octree::VoxelData;
-    use crate::spatial::math::V3c;
+    use crate::octree::types::{Octree, VoxelData};
+    use crate::spatial::math::vector::V3c;
 
     #[test]
     fn test_simple_insert_and_get() {
