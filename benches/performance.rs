@@ -1,9 +1,9 @@
 use criterion::{criterion_group, criterion_main};
 use rand::Rng;
-use shocovox_rs::{octree::Octree, spatial::math::V3c};
+use shocovox_rs::{octree::Octree, octree::V3c};
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::spatial::raytracing::Ray;
+use shocovox_rs::octree::raytracing::Ray;
 
 fn criterion_benchmark(c: &mut criterion::Criterion) {
     let mut rng = rand::thread_rng();
@@ -11,7 +11,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]
     {
         let tree_size = 8;
-        let mut tree = shocovox_rs::octree::Octree::<u32>::new(tree_size)
+        let mut tree = shocovox_rs::octree::Octree::<u32, 4>::new(tree_size)
             .ok()
             .unwrap();
         tree.insert(&V3c::new(1, 3, 3), rng.gen_range(0..500))
