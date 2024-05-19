@@ -555,9 +555,36 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
+        assert!(tree
+            .get_by_ray(&ray)
+            .is_some_and(|v| *v.0 == 1 | 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., -1.)));
+    }
+
+    #[test]
+    fn test_edge_case_matrix_traversal_error() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 2;
+        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        tree.insert(&V3c::new(0, 0, 0), 0xFF000000).ok().unwrap();
+
+        let ray = Ray {
+            origin: V3c {
+                x: 23.84362,
+                y: 32.0,
+                z: -21.342018,
+            },
+            direction: V3c {
+                x: -0.51286834,
+                y: -0.70695364,
+                z: 0.48701409,
+            },
+        };
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
             println!("result is {:?}", v);
-            *v.0 == 1 | 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., -1.)
+            *v.0 == 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., 0.)
         }));
     }
 }

@@ -9,10 +9,7 @@ pub struct V3c<T> {
     pub z: T,
 }
 
-impl<T> V3c<T>
-where
-    T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Div<Output = T>,
-{
+impl<T: Copy> V3c<T> {
     pub fn new(x: T, y: T, z: T) -> Self {
         Self { x, y, z }
     }
@@ -123,6 +120,18 @@ impl<T: Mul<Output = T> + Copy> Mul<T> for V3c<T> {
             x: self.x * scalar,
             y: self.y * scalar,
             z: self.z * scalar,
+        }
+    }
+}
+
+impl<T: Mul<Output = T> + Copy> Mul<V3c<T>> for V3c<T> {
+    type Output = V3c<T>;
+
+    fn mul(self, other: V3c<T>) -> V3c<T> {
+        V3c {
+            x: self.x * other.x,
+            y: self.y * other.y,
+            z: self.z * other.z,
         }
     }
 }

@@ -4,6 +4,7 @@ use crate::octree::{Cube, Octree, V3c, VoxelData};
 use crate::spatial::{
     math::{hash_region, offset_region, plane_line_intersection},
     raytracing::{CubeRayIntersection, Ray},
+    FLOAT_ERROR_TOLERANCE,
 };
 
 impl NodeStackItem {
@@ -45,8 +46,81 @@ impl NodeStackItem {
 impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: usize>
     Octree<T, DIM>
 {
+    fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
+        //TODO: Handle when component is zero
+        V3c::new(
+            (1. + (ray.direction.z / ray.direction.x).powf(2.)
+                + (ray.direction.y / ray.direction.x).powf(2.))
+            .sqrt(),
+            ((ray.direction.x / ray.direction.y).powf(2.)
+                + (ray.direction.z / ray.direction.y).powf(2.)
+                + 1.)
+                .sqrt(),
+            (((ray.direction.x / ray.direction.z).powf(2.) + 1.)
+                + (ray.direction.y / ray.direction.z).powf(2.))
+            .sqrt(),
+        )
+    }
+
+    /// https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm)
+    /// Calculate the length of the ray should it is stepped one unit in [x/y/z] direction.
+    /// Smallest 2 component distances with direction changes are applied
+    ///  The Cell changes are also returned as step values of given unit size
+    /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
+    /// output: the step to the next sibling
+    fn dda_step_to_next_sibling(
+        ray: &Ray,
+        ray_current_distance: f32,
+        current_bounds: &Cube,
+        ray_scale_factors: &V3c<f32>,
+    ) -> V3c<f32> {
+        let step_needed_fn = |pos_component: f32,
+                              direction_component: f32,
+                              bounds_min_pos: f32|
+         -> f32 {
+            let step_to_min_pos = bounds_min_pos - pos_component;
+            if step_to_min_pos.signum() == direction_component.signum()
+                && FLOAT_ERROR_TOLERANCE < (step_to_min_pos - pos_component).abs()
+            {
+                step_to_min_pos
+            } else {
+                step_to_min_pos + current_bounds.size as f32
+            }
+        };
+
+        let p = ray.point_at(ray_current_distance);
+        let steps_needed = V3c::new(
+            step_needed_fn(p.x, ray.direction.x, current_bounds.min_position.x as f32),
+            step_needed_fn(p.y, ray.direction.y, current_bounds.min_position.y as f32),
+            step_needed_fn(p.z, ray.direction.z, current_bounds.min_position.z as f32),
+        );
+
+        let d_x = ray_current_distance + (steps_needed.x * ray_scale_factors.x).abs();
+        let d_y = ray_current_distance + (steps_needed.y * ray_scale_factors.y).abs();
+        let d_z = ray_current_distance + (steps_needed.z * ray_scale_factors.z).abs();
+        let min_d = d_x.min(d_y).min(d_z);
+
+
+        V3c::new(
+            if (min_d - d_x).abs() < FLOAT_ERROR_TOLERANCE {
+                (current_bounds.size as f32).copysign(ray.direction.x)
+            } else {
+                0.
+            },
+            if (min_d - d_y).abs() < FLOAT_ERROR_TOLERANCE {
+                (current_bounds.size as f32).copysign(ray.direction.y)
+            } else {
+                0.
+            },
+            if (min_d - d_z).abs() < FLOAT_ERROR_TOLERANCE {
+                (current_bounds.size as f32).copysign(ray.direction.z)
+            } else {
+                0.
+            },
+        )
+    }
+
     fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
-        use crate::spatial::FLOAT_ERROR_TOLERANCE;
         //Find the point furthest from the ray
         let midpoint = current.midpoint();
         let ref_point = midpoint
@@ -104,6 +178,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     fn traverse_matrix(
         ray: &Ray,
         ray_start_distance: f32,
+        ray_scale_factors: &V3c<f32>,
         matrix: &[[[T; DIM]; DIM]; DIM],
         bounds: &Cube,
         intersection: &CubeRayIntersection,
@@ -139,10 +214,17 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 return Some(V3c::<usize>::from(current_index));
             }
 
-            let step = Self::get_step_to_next_sibling(&current_bounds, &ray);
+            // TODO: ray_start_distance is not increased along with the steps!!
+            let step = Self::dda_step_to_next_sibling(
+                ray,
+                ray_start_distance,
+                &current_bounds,
+                ray_scale_factors,
+            );
             current_bounds.min_position =
                 V3c::<u32>::from(V3c::<f32>::from(current_bounds.min_position) + step);
             current_index = current_index + V3c::<i32>::from(step);
+            //TODO: in each step assert that at least one of the distances should be axis aligned
         }
     }
 
@@ -153,7 +235,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         let root_bounds = Cube::root_bounds(self.octree_size);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
-
+        let ray_scale_factors = Self::get_dda_scale_factors(&ray);
         if let Some(root_hit) = root_bounds.intersect_ray(ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
             if self
@@ -164,6 +246,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 if let Some(root_matrix_hit) = Self::traverse_matrix(
                     ray,
                     current_d,
+                    &ray_scale_factors,
                     self.nodes
                         .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
                         .leaf_data(),
@@ -231,6 +314,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     ray,
                     current_d,
+                    &ray_scale_factors,
                     self.nodes.get(current_node).leaf_data(),
                     &current_bounds,
                     &current_bounds_ray_intersection,
