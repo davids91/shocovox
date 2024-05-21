@@ -234,38 +234,66 @@ fn target_bounds(item: NodeStackItem) -> Cube {
     return result;
 }
 
-//crate::octree::raytracing::get_step_to_next_sibling
-fn get_step_to_next_sibling(current: Cube, ray: Line) -> vec3f {
-    let half_size = current.size / 2.;
-    let midpoint = current.min_position + half_size;
+//crate::octree:raytracing::get_dda_scale_factors
+fn get_dda_scale_factors(ray: Line) -> vec3f {
+    var angle_corrected_direction = ray.direction;
+    if 0. == ray.direction.x {
+        angle_corrected_direction.x = FLOAT_ERROR_TOLERANCE;
+    }
+    if 0. == ray.direction.y {
+        angle_corrected_direction.y = FLOAT_ERROR_TOLERANCE;
+    }
+    if 0. == ray.direction.z {
+        angle_corrected_direction.z = FLOAT_ERROR_TOLERANCE;
+    }
+    return vec3f(
+        sqrt(
+            1.
+            + pow(ray.direction.z / angle_corrected_direction.x, 2.)
+            + pow(ray.direction.y / angle_corrected_direction.x, 2.)
+        ),
+        sqrt(
+            pow(ray.direction.x / angle_corrected_direction.y, 2.)
+            + 1.
+            + pow(ray.direction.z / angle_corrected_direction.y, 2.)
+        ),
+        sqrt(
+            pow(ray.direction.x / angle_corrected_direction.z, 2.)
+            + pow(ray.direction.y / angle_corrected_direction.z, 2.)
+            + 1.
+        ),
+    );
+}
+
+//crate::octree::raytracing::dda_step_to_next_sibling
+fn dda_step_to_next_sibling(
+    ray: Line, 
+    ray_current_distance: ptr<function,f32>,
+    current_bounds: Cube,
+    ray_scale_factors: vec3f
+) -> vec3f {
     var signum_vec = sign(ray.direction);
-    if(0. == signum_vec.x){ signum_vec.x = 1.; }
-    if(0. == signum_vec.y){ signum_vec.y = 1.; }
-    if(0. == signum_vec.z){ signum_vec.z = 1.; }
-    var ref_point = midpoint + signum_vec * half_size;
+    let p = point_in_ray_at_distance(ray, *ray_current_distance);
+    let steps_needed = (
+        p - current_bounds.min_position
+        - (current_bounds.size * max(sign(ray.direction), vec3f(0.,0.,0.)))
+    );
 
-    // Find the min of the 3 plane intersections
-    let x_plane_distance = plane_line_intersection(
-        Plane(ref_point, vec3f(1., 0., 0.)), ray
-    ).d;
-    let y_plane_distance = plane_line_intersection(
-        Plane(ref_point, vec3f(0., 1., 0.)), ray
-    ).d;
-    let z_plane_distance = plane_line_intersection(
-        Plane(ref_point, vec3f(0., 0., 1.)), ray
-    ).d;
-    let min_d = min(x_plane_distance, min(y_plane_distance, z_plane_distance));
+    let d = (
+        vec3f(*ray_current_distance, *ray_current_distance, *ray_current_distance) 
+        + abs(steps_needed * ray_scale_factors)
+    );
+    *ray_current_distance = min(d.x, min(d.y, d.z));
 
-    // Step along the axes with the minimum distances
     var result = vec3f(0., 0., 0.);
-    if( abs(min_d - x_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.x = signum_vec.x * current.size;
+    if abs(*ray_current_distance - d.x) < FLOAT_ERROR_TOLERANCE {
+        result.x = f32(abs(current_bounds.size)) * signum_vec.x;
     }
-    if( abs(min_d - y_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.y = signum_vec.y * current.size;
+    if abs(*ray_current_distance - d.y) < FLOAT_ERROR_TOLERANCE {
+        result.y = f32(abs(current_bounds.size)) * signum_vec.y;
     }
-    if( abs(min_d - z_plane_distance) < FLOAT_ERROR_TOLERANCE ) {
-        result.z = signum_vec.z * current.size;
+    if abs(*ray_current_distance - d.z) < FLOAT_ERROR_TOLERANCE {
+        result.z = f32(abs(current_bounds.size)) * signum_vec.z;
     }
     return result;
 }
@@ -307,7 +335,8 @@ struct MatrixHit{
 
 fn traverse_matrix(
     ray: Line,
-    ray_start_distance: f32,
+    ray_current_distance: ptr<function,f32>,
+    ray_scale_factors: vec3f,
     matrix_index_start: u32,
     bounds: Cube,
     intersection: CubeRayIntersection
@@ -317,8 +346,9 @@ fn traverse_matrix(
     result.hit = false;
 
     let pos = (
-        point_in_ray_at_distance(ray, impact_or(intersection, ray_start_distance))
-        - bounds.min_position
+        point_in_ray_at_distance(
+            ray, impact_or(intersection, *ray_current_distance)
+        ) - bounds.min_position
     );
     var current_index = vec3i(
         clamp(i32(pos.x), 0, i32(dimension - 1)),
@@ -352,7 +382,12 @@ fn traverse_matrix(
             return result;
         }
 
-        let step = get_step_to_next_sibling(current_bounds, ray);
+        let step = dda_step_to_next_sibling(
+            ray,
+            ray_current_distance,
+            current_bounds,
+            ray_scale_factors
+        );
         current_bounds.min_position = current_bounds.min_position + vec3f(step);
         current_index = current_index + vec3i(step);
     }
@@ -376,6 +411,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     var node_stack: array<NodeStackItem, max_depth>;
     var node_stack_i: i32 = 0;
     let dimension = octreeMetaData.voxel_matrix_dim;
+    let ray_scale_factors = get_dda_scale_factors(ray);
 
     var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersection = cube_intersect_ray(root_bounds, ray);
@@ -383,7 +419,8 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         current_d = impact_or(root_intersection, 0.);
         if is_leaf(nodes[OCTREE_ROOT_NODE_KEY]) {
             let root_matrix_hit = traverse_matrix(
-                ray, current_d, nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
+                ray, &current_d, ray_scale_factors,
+                nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
                 root_bounds, root_intersection
             );
             result.hit = root_matrix_hit.hit;
@@ -437,7 +474,12 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             let popped_target = node_stack[node_stack_i - 1];
             node_stack_i -= 1;
             if(0 < node_stack_i){
-                let step_vec = get_step_to_next_sibling(popped_target.bounds, ray);
+                let step_vec = dda_step_to_next_sibling(
+                    ray,
+                    &current_d,
+                    popped_target.bounds,
+                    ray_scale_factors
+                );
                 node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
             }
             current_d = current_bounds_ray_intersection.exit_distance;
@@ -448,7 +490,8 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
 
         if is_leaf(nodes[current_node]) {
             let leaf_matrix_hit = traverse_matrix(
-                ray, current_d, nodes[current_node].voxels_start_at,
+                ray, &current_d, ray_scale_factors,
+                nodes[current_node].voxels_start_at,
                 current_bounds, current_bounds_ray_intersection
             );
             if leaf_matrix_hit.hit == true {
@@ -483,7 +526,12 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                 let popped_target = node_stack[node_stack_i - 1];
                 node_stack_i -= 1;
                 if(0 < node_stack_i){
-                    let step_vec = get_step_to_next_sibling(popped_target.bounds, ray);
+                    let step_vec = dda_step_to_next_sibling(
+                        ray,
+                        &current_d,
+                        popped_target.bounds,
+                        ray_scale_factors
+                    );
                     node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
                 }
                 current_d = current_bounds_ray_intersection.exit_distance;
@@ -515,7 +563,12 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         } else {
             // ADVANCE
             let current_target_bounds = target_bounds(node_stack[node_stack_i - 1]);
-            let step_vec = get_step_to_next_sibling(current_target_bounds, ray);
+            let step_vec = dda_step_to_next_sibling(
+                ray,
+                &current_d,
+                current_target_bounds,
+                ray_scale_factors
+            );
             node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
             if target_hit.hit == true {
                 current_d = target_hit.exit_distance;

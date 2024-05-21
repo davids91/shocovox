@@ -9,9 +9,102 @@ mod wgpu_tests {
 
 #[cfg(test)]
 mod octree_raytracing_tests {
-    use crate::octree::{Octree, V3c};
+    use crate::octree::{Cube, Octree, V3c};
     use crate::spatial::raytracing::Ray;
+    use crate::spatial::{math::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+    use rand::RngCore;
     use rand::{rngs::ThreadRng, Rng};
+
+    fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
+        //Find the point furthest from the ray
+        let midpoint = current.midpoint();
+        let ref_point = midpoint
+            + V3c::new(
+                (current.size as f32 / 2.).copysign(ray.direction.x),
+                (current.size as f32 / 2.).copysign(ray.direction.y),
+                (current.size as f32 / 2.).copysign(ray.direction.z),
+            );
+
+        // Find the min of the 3 plane intersections
+        let x_plane_distance = plane_line_intersection(
+            &ref_point,
+            &V3c::new(1., 0., 0.),
+            &ray.origin,
+            &ray.direction,
+        )
+        .unwrap();
+        let y_plane_distance = plane_line_intersection(
+            &ref_point,
+            &V3c::new(0., 1., 0.),
+            &ray.origin,
+            &ray.direction,
+        )
+        .unwrap();
+        let z_plane_distance = plane_line_intersection(
+            &ref_point,
+            &V3c::new(0., 0., 1.),
+            &ray.origin,
+            &ray.direction,
+        )
+        .unwrap();
+        let min_d = x_plane_distance.min(y_plane_distance).min(z_plane_distance);
+
+        // Step along the axes with the minimum distances
+        V3c::new(
+            if (min_d - x_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+                (current.size as f32).copysign(ray.direction.x)
+            } else {
+                0.
+            },
+            if (min_d - y_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+                (current.size as f32).copysign(ray.direction.y)
+            } else {
+                0.
+            },
+            if (min_d - z_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+                (current.size as f32).copysign(ray.direction.z)
+            } else {
+                0.
+            },
+        )
+    }
+
+    #[test]
+    fn compare_sibling_step_functions() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let cube = Cube {
+                min_position: V3c::new(
+                    rng.gen_range(0..100),
+                    rng.gen_range(0..100),
+                    rng.gen_range(0..100),
+                ),
+                size: rng.gen_range(1..1000),
+            };
+            let ray = make_ray_point_to(
+                &(V3c::from(cube.min_position) + V3c::unit(cube.size as f32) * 0.5),
+                &mut rng,
+            );
+            let scale_factors = Octree::<u32>::get_dda_scale_factors(&ray);
+            let mut current_d = cube
+                .intersect_ray(&ray)
+                .unwrap()
+                .impact_distance
+                .unwrap_or(0.);
+
+            assert!(
+                FLOAT_ERROR_TOLERANCE
+                    > (get_step_to_next_sibling(&cube, &ray)
+                        - Octree::<u32>::dda_step_to_next_sibling(
+                            &ray,
+                            &mut current_d,
+                            &cube,
+                            &scale_factors
+                        ))
+                    .length()
+            );
+        }
+    }
 
     fn make_ray_point_to(target: &V3c<f32>, rng: &mut ThreadRng) -> Ray {
         let origin = V3c {
@@ -467,6 +560,8 @@ mod octree_raytracing_tests {
     fn test_edge_case_matrix_undetected() {
         let mut tree = Octree::<u32, 4>::new(4).ok().unwrap();
 
+        println!("Normalized vec: {:?}", V3c::new(1., 0.8, 0.).normalized());
+
         for x in 0..4 {
             for z in 0..4 {
                 tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
@@ -555,9 +650,36 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
+        assert!(tree
+            .get_by_ray(&ray)
+            .is_some_and(|v| *v.0 == 1 | 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., -1.)));
+    }
+
+    #[test]
+    fn test_edge_case_matrix_traversal_error() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 2;
+        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        tree.insert(&V3c::new(0, 0, 0), 0xFF000000).ok().unwrap();
+
+        let ray = Ray {
+            origin: V3c {
+                x: 23.84362,
+                y: 32.0,
+                z: -21.342018,
+            },
+            direction: V3c {
+                x: -0.51286834,
+                y: -0.70695364,
+                z: 0.48701409,
+            },
+        };
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
             println!("result is {:?}", v);
-            *v.0 == 1 | 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., -1.)
+            *v.0 == 0xFF000000 && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
     }
 }
