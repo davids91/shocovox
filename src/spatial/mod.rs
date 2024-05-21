@@ -33,10 +33,6 @@ impl Cube {
         }
     }
 
-    pub(crate) fn midpoint(&self) -> V3c<f32> {
-        V3c::unit(self.size as f32 / 2.) + self.min_position.into()
-    }
-
     /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
     /// Edges included
     pub(crate) fn contains_point(&self, point: &V3c<f32>) -> bool {

@@ -139,13 +139,6 @@ where
         }
     }
 
-    pub fn data(&self, x: usize, y: usize, z: usize) -> Option<&T> {
-        match self {
-            NodeContent::Leaf(t) => Some(&t[x][y][z]),
-            _ => None,
-        }
-    }
-
     pub fn leaf_data(&self) -> &[[[T; DIM]; DIM]; DIM] {
         match self {
             NodeContent::Leaf(t) => t,

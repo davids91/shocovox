@@ -2,7 +2,7 @@ use crate::octree::{raytracing::types::NodeStackItem, NodeContent};
 use crate::octree::{Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
-    math::{hash_region, offset_region, plane_line_intersection},
+    math::{hash_region, offset_region},
     raytracing::{CubeRayIntersection, Ray},
     FLOAT_ERROR_TOLERANCE,
 };

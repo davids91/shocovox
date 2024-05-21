@@ -34,6 +34,7 @@ pub fn hash_region(offset: &V3c<f32>, size: f32) -> u32 {
         + (offset.y >= midpoint.y) as u32 * 4
 }
 
+#[allow(dead_code)] // Could be useful either for debugging or new implementations
 #[cfg(feature = "raytracing")]
 /// calculates the distance between the line, and the plane both described by a ray
 /// plane: normal, and a point on plane, line: origin and direction

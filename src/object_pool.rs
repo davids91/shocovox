@@ -119,6 +119,7 @@ where
     }
 }
 
+#[allow(dead_code)] // Object implemented for universal usage
 impl<T> ObjectPool<T>
 where
     T: Default + Clone,
