@@ -1,34 +1,5 @@
 #[cfg(feature = "raytracing")]
-use crate::spatial::{
-    math::{plane_line_intersection, vector::V3c},
-    Cube,
-};
-
-#[cfg(feature = "raytracing")]
-#[derive(Debug)]
-pub(crate) enum CubeFaces {
-    FRONT,
-    LEFT,
-    REAR,
-    RIGHT,
-    TOP,
-    BOTTOM,
-}
-
-#[cfg(feature = "raytracing")]
-impl CubeFaces {
-    pub(crate) fn into_iter() -> core::array::IntoIter<CubeFaces, 6> {
-        [
-            CubeFaces::FRONT,
-            CubeFaces::LEFT,
-            CubeFaces::REAR,
-            CubeFaces::RIGHT,
-            CubeFaces::TOP,
-            CubeFaces::BOTTOM,
-        ]
-        .into_iter()
-    }
-}
+use crate::spatial::{math::vector::V3c, Cube, FLOAT_ERROR_TOLERANCE};
 
 #[cfg(feature = "raytracing")]
 #[derive(Debug)]
@@ -58,77 +29,58 @@ pub struct CubeRayIntersection {
 
 #[cfg(feature = "raytracing")]
 impl Cube {
-    pub fn face(&self, face: CubeFaces) -> Ray {
-        let midpoint = self.midpoint();
-        let direction = match face {
-            CubeFaces::FRONT => V3c::new(0., 0., -1.),
-            CubeFaces::LEFT => V3c::new(-1., 0., 0.),
-            CubeFaces::REAR => V3c::new(0., 0., 1.),
-            CubeFaces::RIGHT => V3c::new(1., 0., 0.),
-            CubeFaces::TOP => V3c::new(0., 1., 0.),
-            CubeFaces::BOTTOM => V3c::new(0., -1., 0.),
-        };
-        Ray {
-            origin: midpoint + direction * (self.size as f32 / 2.),
-            direction,
-        }
-    }
-
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
+    /// https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
     #[cfg(feature = "raytracing")]
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         assert!(ray.is_valid());
-        let mut distances: Vec<f32> = Vec::new();
-        let mut impact_normal = V3c::default();
 
-        if self.contains_point(&ray.origin) {
-            distances.push(0.);
+        let max_position = V3c::<f32>::from(self.min_position) + V3c::unit(self.size as f32);
+        let t1 = (self.min_position.x as f32 - ray.origin.x) / ray.direction.x;
+        let t2 = (max_position.x - ray.origin.x) / ray.direction.x;
+        let t3 = (self.min_position.y as f32 - ray.origin.y) / ray.direction.y;
+        let t4 = (max_position.y - ray.origin.y) / ray.direction.y;
+        let t5 = (self.min_position.z as f32 - ray.origin.z) / ray.direction.z;
+        let t6 = (max_position.z - ray.origin.z) / ray.direction.z;
+
+        let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
+        let tmax = t1.max(t2).min(t3.max(t4)).min(t5.max(t6));
+
+        if tmax < 0. || tmin > tmax {
+            // ray is intersecting the cube, but it is behind it
+            // OR ray doesn't intersect cube
+            return None;
         }
 
-        for f in CubeFaces::into_iter() {
-            let face = &self.face(f);
-            if let Some(d) =
-                plane_line_intersection(&face.origin, &face.direction, &ray.origin, &ray.direction)
-            {
-                if 0. <= d && self.contains_point(&ray.point_at(d)) {
-                    // ray hits the plane only when the resulting distance is at least positive,
-                    // and the point is contained inside the cube
-                    if 1 < distances.len()
-                        && ((distances[0] - distances[1]).abs()
-                            < crate::spatial::FLOAT_ERROR_TOLERANCE
-                            || (d < distances[0] - crate::spatial::FLOAT_ERROR_TOLERANCE
-                                && d < distances[1] - crate::spatial::FLOAT_ERROR_TOLERANCE))
-                    {
-                        // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
-                        distances[1] = d;
-                    } else if distances.len() < 2 {
-                        // not enough hits are gathered yet
-                        distances.push(d);
-                    } else {
-                        // enough hits are gathered, exit the loop
-                        break;
-                    }
-                    if distances.is_empty() || d <= distances[0] {
-                        impact_normal = face.direction;
-                    }
-                }
-            }
+        let p = ray.point_at(tmin);
+        let mut impact_normal = V3c::unit(0.);
+        if (p.x - self.min_position.x as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.x = -1.;
+        } else if (p.x - (self.min_position.x + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.x = 1.;
+        } else if (p.y - self.min_position.y as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.y = -1.;
+        } else if (p.y - (self.min_position.y + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.y = 1.;
+        } else if (p.z - self.min_position.z as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.z = -1.;
+        } else if (p.z - (self.min_position.z + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
+            impact_normal.z = 1.;
         }
-        if 1 < distances.len() {
-            Some(CubeRayIntersection {
-                impact_distance: Some(distances[0].min(distances[1])),
-                exit_distance: distances[0].max(distances[1]),
-                impact_normal,
-            })
-        } else if !distances.is_empty() {
-            Some(CubeRayIntersection {
+
+        if tmin < 0.0 {
+            return Some(CubeRayIntersection {
                 impact_distance: None,
-                exit_distance: distances[0],
-                impact_normal,
-            })
-        } else {
-            None
+                exit_distance: tmax,
+                impact_normal: impact_normal,
+            });
         }
+
+        return Some(CubeRayIntersection {
+            impact_distance: Some(tmin),
+            exit_distance: tmax,
+            impact_normal: impact_normal,
+        });
     }
 }

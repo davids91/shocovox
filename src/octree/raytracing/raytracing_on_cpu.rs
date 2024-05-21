@@ -47,33 +47,16 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     Octree<T, DIM>
 {
     pub(in crate::octree) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
-        let angle_corrected_direction = V3c::new(
-            if 0. != ray.direction.x {
-                ray.direction.x
-            } else {
-                FLOAT_ERROR_TOLERANCE
-            },
-            if 0. != ray.direction.y {
-                ray.direction.y
-            } else {
-                FLOAT_ERROR_TOLERANCE
-            },
-            if 0. != ray.direction.z {
-                ray.direction.z
-            } else {
-                FLOAT_ERROR_TOLERANCE
-            },
-        );
         V3c::new(
-            (1. + (ray.direction.z / angle_corrected_direction.x).powf(2.)
-                + (ray.direction.y / angle_corrected_direction.x).powf(2.))
+            (1. + (ray.direction.z / ray.direction.x).powf(2.)
+                + (ray.direction.y / ray.direction.x).powf(2.))
             .sqrt(),
-            ((ray.direction.x / angle_corrected_direction.y).powf(2.)
+            ((ray.direction.x / ray.direction.y).powf(2.)
                 + 1.
-                + (ray.direction.z / angle_corrected_direction.y).powf(2.))
+                + (ray.direction.z / ray.direction.y).powf(2.))
             .sqrt(),
-            (((ray.direction.x / angle_corrected_direction.z).powf(2.) + 1.)
-                + (ray.direction.y / angle_corrected_direction.z).powf(2.))
+            (((ray.direction.x / ray.direction.z).powf(2.) + 1.)
+                + (ray.direction.y / ray.direction.z).powf(2.))
             .sqrt(),
         )
     }
@@ -201,12 +184,33 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
+        let ray = Ray {
+            origin: ray.origin,
+            direction: V3c::new(
+                if 0. != ray.direction.x {
+                    ray.direction.x
+                } else {
+                    FLOAT_ERROR_TOLERANCE
+                },
+                if 0. != ray.direction.y {
+                    ray.direction.y
+                } else {
+                    FLOAT_ERROR_TOLERANCE
+                },
+                if 0. != ray.direction.z {
+                    ray.direction.z
+                } else {
+                    FLOAT_ERROR_TOLERANCE
+                },
+            ),
+        };
+
         use crate::object_pool::key_might_be_valid;
         let root_bounds = Cube::root_bounds(self.octree_size);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
         let ray_scale_factors = Self::get_dda_scale_factors(&ray);
-        if let Some(root_hit) = root_bounds.intersect_ray(ray) {
+        if let Some(root_hit) = root_bounds.intersect_ray(&ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
             if self
                 .nodes
@@ -214,7 +218,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 .is_leaf()
             {
                 if let Some(root_matrix_hit) = Self::traverse_matrix(
-                    ray,
+                    &ray,
                     &mut current_d,
                     &ray_scale_factors,
                     self.nodes
@@ -229,7 +233,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                             + V3c::<u32>::from(root_matrix_hit * matrix_unit as usize),
                         size: matrix_unit,
                     }
-                    .intersect_ray(ray)
+                    .intersect_ray(&ray)
                     .unwrap_or(root_hit);
                     return Some((
                         &self
@@ -271,7 +275,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 let popped_target = node_stack.pop().unwrap();
                 if let Some(parent) = node_stack.last_mut() {
                     let step_vec = Self::dda_step_to_next_sibling(
-                        ray,
+                        &ray,
                         &mut current_d,
                         &popped_target.bounds,
                         &ray_scale_factors,
@@ -287,7 +291,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             if self.nodes.get(current_node).is_leaf() {
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
-                    ray,
+                    &ray,
                     &mut current_d,
                     &ray_scale_factors,
                     self.nodes.get(current_node).leaf_data(),
@@ -300,7 +304,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                             + V3c::<u32>::from(leaf_matrix_hit * matrix_unit as usize),
                         size: matrix_unit,
                     }
-                    .intersect_ray(ray)
+                    .intersect_ray(&ray)
                     .unwrap_or(current_bounds_ray_intersection);
                     return Some((
                         &self.nodes.get(current_node).leaf_data()[leaf_matrix_hit.x]
@@ -313,7 +317,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     let popped_target = node_stack.pop().unwrap();
                     if let Some(parent) = node_stack.last_mut() {
                         let step_vec = Self::dda_step_to_next_sibling(
-                            ray,
+                            &ray,
                             &mut current_d,
                             &popped_target.bounds,
                             &ray_scale_factors,
@@ -337,7 +341,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     NodeContent::Leaf(_) => false,
                     _ => true,
                 };
-            let target_hit = target_bounds.intersect_ray(ray);
+            let target_hit = target_bounds.intersect_ray(&ray);
             if !target_is_empty && target_hit.is_some() {
                 // PUSH
                 current_d = target_hit.unwrap().impact_distance.unwrap_or(current_d);
@@ -357,7 +361,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 // Advance iteration to the next sibling
                 let current_target_bounds = node_stack.last().unwrap().target_bounds();
                 let step_vec = Self::dda_step_to_next_sibling(
-                    ray,
+                    &ray,
                     &mut current_d,
                     &current_target_bounds,
                     &ray_scale_factors,

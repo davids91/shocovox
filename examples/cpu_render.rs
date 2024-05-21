@@ -111,7 +111,7 @@ fn main() {
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
                 (-5 + rng.gen_range(0..10)) as f32 / 2000.,
             );
-        angle = angle + velos.x / 1.;
+        angle = angle + velos.x / 10.;
 
         // Set the viewport
         let origin = V3c::new(angle.sin() * radius, radius, angle.cos() * radius);

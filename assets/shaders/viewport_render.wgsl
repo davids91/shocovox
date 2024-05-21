@@ -129,61 +129,51 @@ fn point_in_ray_at_distance(ray: Line, d: f32) -> vec3f{
 //crate::spatial::raytracing::Cube::intersect_ray
 fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
     var result: CubeRayIntersection;
-    var distances: array<f32, 2>; // An exit point and a potential impact point is needed to be stored
-    var distances_i = 0;
+    let max_position = cube.min_position + vec3f(cube.size, cube.size, cube.size);
+    let t1 = (cube.min_position.x - ray.origin.x) / ray.direction.x;
+    let t2 = (max_position.x - ray.origin.x) / ray.direction.x;
+    let t3 = (cube.min_position.y - ray.origin.y) / ray.direction.y;
+    let t4 = (max_position.y - ray.origin.y) / ray.direction.y;
+    let t5 = (cube.min_position.z - ray.origin.z) / ray.direction.z;
+    let t6 = (max_position.z - ray.origin.z) / ray.direction.z;
 
-    if cube_contains_point(cube, ray.origin) {
-        distances[0] = 0.;
-        distances_i = 1;
-    }
+    let tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
+    let tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
 
-    for(var cube_face_index: u32 = 0u; cube_face_index <= 6u; cube_face_index = cube_face_index + 1u){
-        let face = get_cube_face(cube, cube_face_index);
-        let intersection = plane_line_intersection(face, ray);
-        if(intersection.hit){
-            if(0. <= intersection.d && cube_contains_point(cube, point_in_ray_at_distance(ray, intersection.d))){
-                // ray hits the plane only when the resulting distance is at least positive,
-                // and the point is contained inside the cube
-                if(
-                    1 < distances_i
-                    && (
-                        abs(distances[0] - distances[1]) < FLOAT_ERROR_TOLERANCE
-                        ||(
-                            intersection.d < (distances[0] - FLOAT_ERROR_TOLERANCE)
-                            && intersection.d < (distances[1] - FLOAT_ERROR_TOLERANCE)
-                        )
-                    )
-                ){
-                    // the first 2 hits were of an edge or the corner of the cube, so one of them can be discarded
-                    distances[1] = intersection.d;
-                } else if distances_i < 2 { // not enough hits are gathered yet
-                    distances[distances_i] = intersection.d; 
-                    distances_i = distances_i + 1;
-                } else { // enough hits are gathered, exit the loop
-                    break;
-                }
-                if 0 == distances_i || intersection.d <= distances[0] {
-                    result.impact_normal = face.normal;
-                }
-            }
-        }
-    }
-    if 1 < distances_i {
-        result.hit = true;
-        result.impact_hit = true;
-        result.impact_distance = min(distances[0], distances[1]);
-        result.exit_distance = max(distances[0], distances[1]);
-    } else if 0 < distances_i {
-        result.hit = true;
-        result.impact_hit = false;
-        result.impact_distance = 0.;
-        result.exit_distance = distances[0];
-    } else {
+    if tmax < 0. || tmin > tmax{
         result.hit = false;
-        result.impact_hit = false;
-        result.impact_distance = 0.;
-        result.exit_distance = 0.;
+        return result;
     }
+
+    let p = point_in_ray_at_distance(ray, tmin);
+    var impact_normal = vec3f(0.,0.,0.);
+    if abs(p.x - cube.min_position.x) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.x = -1.;
+    } else if abs(p.x - (cube.min_position.x + cube.size)) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.x = 1.;
+    } else if abs(p.y - cube.min_position.y) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.y = -1.;
+    } else if abs(p.y - (cube.min_position.y + cube.size)) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.y = 1.;
+    } else if abs(p.z - cube.min_position.z) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.z = -1.;
+    } else if abs(p.z - (cube.min_position.z + cube.size)) < FLOAT_ERROR_TOLERANCE {
+        impact_normal.z = 1.;
+    }
+
+    if tmin < 0.0 {
+        result.hit = true;
+        result.impact_hit = false;
+        result.exit_distance = tmax;
+        result.impact_normal = impact_normal;
+        return result;
+    }
+
+    result.hit = true;
+    result.impact_hit = true;
+    result.impact_distance = tmin;
+    result.exit_distance = tmax;
+    result.impact_normal = impact_normal;
     return result;
 }
 
@@ -236,30 +226,20 @@ fn target_bounds(item: NodeStackItem) -> Cube {
 
 //crate::octree:raytracing::get_dda_scale_factors
 fn get_dda_scale_factors(ray: Line) -> vec3f {
-    var angle_corrected_direction = ray.direction;
-    if 0. == ray.direction.x {
-        angle_corrected_direction.x = FLOAT_ERROR_TOLERANCE;
-    }
-    if 0. == ray.direction.y {
-        angle_corrected_direction.y = FLOAT_ERROR_TOLERANCE;
-    }
-    if 0. == ray.direction.z {
-        angle_corrected_direction.z = FLOAT_ERROR_TOLERANCE;
-    }
     return vec3f(
         sqrt(
             1.
-            + pow(ray.direction.z / angle_corrected_direction.x, 2.)
-            + pow(ray.direction.y / angle_corrected_direction.x, 2.)
+            + pow(ray.direction.z / ray.direction.x, 2.)
+            + pow(ray.direction.y / ray.direction.x, 2.)
         ),
         sqrt(
-            pow(ray.direction.x / angle_corrected_direction.y, 2.)
+            pow(ray.direction.x / ray.direction.y, 2.)
             + 1.
-            + pow(ray.direction.z / angle_corrected_direction.y, 2.)
+            + pow(ray.direction.z / ray.direction.y, 2.)
         ),
         sqrt(
-            pow(ray.direction.x / angle_corrected_direction.z, 2.)
-            + pow(ray.direction.y / angle_corrected_direction.z, 2.)
+            pow(ray.direction.x / ray.direction.z, 2.)
+            + pow(ray.direction.y / ray.direction.z, 2.)
             + 1.
         ),
     );
@@ -404,8 +384,20 @@ struct OctreeRayIntersection {
 
 const max_depth = 20; // the depth for an octree the size of 1048576
                       // which would be approximately 10 km in case 1 voxel is 1 cm
-fn get_by_ray(ray: Line) -> OctreeRayIntersection{
+fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
+
+    // Eliminate all zeroes within the direction of the ray
+    var ray = ray_;
+    if 0. == ray.direction.x {
+        ray.direction.x = FLOAT_ERROR_TOLERANCE;
+    }
+    if 0. == ray.direction.y {
+        ray.direction.y = FLOAT_ERROR_TOLERANCE;
+    }
+    if 0. == ray.direction.z {
+        ray.direction.z = FLOAT_ERROR_TOLERANCE;
+    }
 
     var current_d: f32  = 0.0;
     var node_stack: array<NodeStackItem, max_depth>;

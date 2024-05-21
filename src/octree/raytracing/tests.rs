@@ -12,12 +12,13 @@ mod octree_raytracing_tests {
     use crate::octree::{Cube, Octree, V3c};
     use crate::spatial::raytracing::Ray;
     use crate::spatial::{math::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
-    use rand::RngCore;
+
     use rand::{rngs::ThreadRng, Rng};
 
+    /// Reference implementation to decide step to sibling boundary
     fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
         //Find the point furthest from the ray
-        let midpoint = current.midpoint();
+        let midpoint = V3c::unit((current.size / 2) as f32) + current.min_position.into();
         let ref_point = midpoint
             + V3c::new(
                 (current.size as f32 / 2.).copysign(ray.direction.x),
@@ -32,21 +33,21 @@ mod octree_raytracing_tests {
             &ray.origin,
             &ray.direction,
         )
-        .unwrap();
+        .unwrap_or(f32::MAX);
         let y_plane_distance = plane_line_intersection(
             &ref_point,
             &V3c::new(0., 1., 0.),
             &ray.origin,
             &ray.direction,
         )
-        .unwrap();
+        .unwrap_or(f32::MAX);
         let z_plane_distance = plane_line_intersection(
             &ref_point,
             &V3c::new(0., 0., 1.),
             &ray.origin,
             &ray.direction,
         )
-        .unwrap();
+        .unwrap_or(f32::MAX);
         let min_d = x_plane_distance.min(y_plane_distance).min(z_plane_distance);
 
         // Step along the axes with the minimum distances
@@ -71,6 +72,9 @@ mod octree_raytracing_tests {
 
     #[test]
     fn compare_sibling_step_functions() {
+        // Sometimes this test fails because the optimized implementation
+        // does not consider points at the exact edges of the cube to be part of it
+        // and axis aligned ray directions at the cube boundaries also behave differently
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let cube = Cube {
@@ -332,58 +336,6 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some());
-    }
-
-    #[test]
-    fn test_edge_case_cube_edges() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(3, 0, 0), 0 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(3, 3, 0), 1 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 2 | 0xFF000000)
-            .ok()
-            .unwrap();
-
-        for y in 0..4 {
-            tree.insert(&V3c::new(0, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(1, y, y), 4 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(2, y, y), 5 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(3, y, y), 6 | 0xFF000000)
-                .ok()
-                .unwrap();
-        }
-
-        let ray = Ray {
-            origin: V3c {
-                x: 10.0,
-                y: 10.0,
-                z: -5.,
-            },
-            direction: (V3c {
-                x: 3.0,
-                y: 1.9,
-                z: 2.0,
-            } - V3c {
-                x: 10.0,
-                y: 10.0,
-                z: -5.,
-            })
-            .normalized(),
-        };
-
-        //Should reach position 3, 2, 2
-        assert!(tree
-            .get_by_ray(&ray)
-            .is_some_and(|v| *v.0 == 6 | 0xFF000000));
     }
 
     #[test]

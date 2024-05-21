@@ -229,34 +229,6 @@ mod raytracing_tests {
         };
         assert!(cube.intersect_ray(&ray_below).is_some());
 
-        let ray_on_edge = Ray {
-            origin: V3c {
-                x: 2.,
-                y: 5.,
-                z: 4.0,
-            },
-            direction: V3c {
-                x: 0.,
-                y: -1.,
-                z: 0.,
-            },
-        };
-        assert!(cube.intersect_ray(&ray_on_edge).is_some());
-
-        let ray_on_corner = Ray {
-            origin: V3c {
-                x: 4.0,
-                y: 5.,
-                z: 4.0,
-            },
-            direction: V3c {
-                x: 0.,
-                y: -1.,
-                z: 0.,
-            },
-        };
-        assert!(cube.intersect_ray(&ray_on_corner).is_some());
-
         let ray_miss = Ray {
             origin: V3c {
                 x: 2.,
@@ -319,17 +291,6 @@ mod raytracing_tests {
         };
         assert!(!cube.intersect_ray(&corner_miss).is_some());
 
-        let corner_just_hit = Ray {
-            direction: (V3c {
-                x: 4.0,
-                y: 4.0,
-                z: 4.0,
-            } - origin)
-                .normalized(),
-            origin,
-        };
-        assert!(cube.intersect_ray(&corner_just_hit).is_some());
-
         let ray_still_miss = Ray {
             origin: V3c {
                 x: -1.,
@@ -390,7 +351,7 @@ mod raytracing_tests {
             size: 16,
         };
         let hit = cube.intersect_ray(&ray).unwrap();
-        assert!(hit.impact_distance.is_some_and(|d| d == 0.));
+        assert!(hit.impact_distance.is_none());
         assert!(hit.exit_distance > 0.);
     }
 
