@@ -69,9 +69,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 + (ray.direction.y / angle_corrected_direction.x).powf(2.))
             .sqrt(),
             ((ray.direction.x / angle_corrected_direction.y).powf(2.)
-                + (ray.direction.z / angle_corrected_direction.y).powf(2.)
-                + 1.)
-                .sqrt(),
+                + 1.
+                + (ray.direction.z / angle_corrected_direction.y).powf(2.))
+            .sqrt(),
             (((ray.direction.x / angle_corrected_direction.z).powf(2.) + 1.)
                 + (ray.direction.y / angle_corrected_direction.z).powf(2.))
             .sqrt(),
@@ -79,9 +79,13 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     }
 
     /// https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm)
-    /// Calculate the length of the ray should it is stepped one unit in [x/y/z] direction.
-    /// Smallest 2 component distances with direction changes are applied
-    ///  The Cell changes are also returned as step values of given unit size
+    /// Calculate the length of the ray should its iteration be stepped one unit in the [x/y/z] direction.
+    /// Changes with minimum ray iteration length shall be applied
+    /// The step is also returned in the given unit size ( based on the cell bounds )
+    /// * `ray` - The ray to base the step on
+    /// * `ray_current_distance` - The distance the ray iteration is currently at
+    /// * `current_bounds` - The cell which boundaries the current ray iteration intersects
+    /// * `ray_scale_factors` - Pre-computed dda values for the ray
     /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
     /// output: the step to the next sibling
     pub(in crate::octree) fn dda_step_to_next_sibling(
@@ -127,15 +131,18 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     /// Iterates on the given ray and matrix to find a potential intersection in 3D space
     fn traverse_matrix(
         ray: &Ray,
-        ray_start_distance: &mut f32,
+        ray_current_distance: &mut f32,
         ray_scale_factors: &V3c<f32>,
         matrix: &[[[T; DIM]; DIM]; DIM],
         bounds: &Cube,
         intersection: &CubeRayIntersection,
     ) -> Option<V3c<usize>> {
         let mut current_index = {
-            let pos = ray.point_at(intersection.impact_distance.unwrap_or(*ray_start_distance))
-                - V3c::<f32>::from(bounds.min_position);
+            let pos = ray.point_at(
+                intersection
+                    .impact_distance
+                    .unwrap_or(*ray_current_distance),
+            ) - V3c::<f32>::from(bounds.min_position);
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
@@ -166,7 +173,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             let step = Self::dda_step_to_next_sibling(
                 ray,
-                ray_start_distance,
+                ray_current_distance,
                 &current_bounds,
                 ray_scale_factors,
             );
@@ -176,7 +183,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             #[cfg(debug_assertions)]
             {
                 let relative_point =
-                    ray.point_at(*ray_start_distance) - V3c::from(current_bounds.min_position);
+                    ray.point_at(*ray_current_distance) - V3c::from(current_bounds.min_position);
                 debug_assert!(
                     (relative_point.x < FLOAT_ERROR_TOLERANCE
                         || (relative_point.x - current_bounds.size as f32) < FLOAT_ERROR_TOLERANCE)
