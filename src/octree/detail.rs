@@ -18,7 +18,7 @@ pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> b
 
 /// Returns with the octant value(i.e. index) of the child for the given position
 pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> u32 {
-    assert!(bound_contains(bounds, position));
+    debug_assert!(bound_contains(bounds, position));
     hash_region(
         &(*position - bounds.min_position).into(),
         bounds.size as f32,
@@ -124,10 +124,10 @@ where
     pub fn is_all(&self, data: &T) -> bool {
         match self {
             NodeContent::Leaf(d) => {
-                for x in 0..d.len() {
-                    for y in 0..d[x].len() {
-                        for z in 0..d[x][y].len() {
-                            if d[x][y][z] != *data {
+                for x in d.iter() {
+                    for y in x.iter() {
+                        for item in y.iter() {
+                            if *item != *data {
                                 return false;
                             }
                         }
@@ -199,9 +199,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             (V3c::<usize>::from(*position - bounds.min_position) * DIM) / bounds.size as usize;
         // The difference between the actual position and min bounds
         // must not be greater, than DIM at each dimension
-        assert!(mat_index.x < DIM);
-        assert!(mat_index.y < DIM);
-        assert!(mat_index.z < DIM);
+        debug_assert!(mat_index.x < DIM);
+        debug_assert!(mat_index.y < DIM);
+        debug_assert!(mat_index.z < DIM);
         mat_index
     }
 

@@ -173,16 +173,10 @@ fn main() {
                 } else {
                     img.put_pixel(x, actual_y_in_image, Rgb([128, 128, 128]));
                 }
-                print!(
-                    "\r   progress: {}   ",
-                    (x + y * viewport_size_height) as f32
-                        / (viewport_size_height * viewport_size_width) as f32
-                );
             }
         }
 
         use show_image::{ImageInfo, ImageView};
-        println!("Done!");
         let binding = img.into_raw();
         let image = ImageView::new(
             ImageInfo::rgb8(viewport_size_width, viewport_size_height),

@@ -85,12 +85,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     } else {
                         // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
                         // The Node becomes non-empty, but its count remains 0; After the insertion the count will be updated for the whole structure
-                        match *self.nodes.get(current_node_key) {
-                            NodeContent::Nothing => {
-                                // A special case during the first insertion, where the root Node was empty beforehand
-                                *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0);
-                            }
-                            _ => {}
+                        if let NodeContent::Nothing = *self.nodes.get(current_node_key) {
+                            // A special case during the first insertion, where the root Node was empty beforehand
+                            *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0);
                         };
                         let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
                         self.node_children
@@ -118,10 +115,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         // update size is smaller, than the matrix, but > 1
                         // simulate the Nodes layout and update accordingly
                         mat_index.cut_each_component(&(DIM - insert_size as usize));
-                        for x in mat_index.x..(mat_index.x + insert_size as usize) {
-                            for y in mat_index.y..(mat_index.y + insert_size as usize) {
-                                for z in mat_index.z..(mat_index.z + insert_size as usize) {
-                                    d[x][y][z] = data.clone();
+                        for x in d.iter_mut().skip(mat_index.x).take(insert_size as usize) {
+                            for y in x.iter_mut().skip(mat_index.x).take(insert_size as usize) {
+                                for item in
+                                    y.iter_mut().skip(mat_index.x).take(insert_size as usize)
+                                {
+                                    *item = data.clone();
                                 }
                             }
                         }
@@ -227,7 +226,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity, the node targeted for clean will update node count correctly
-                        assert!(self.nodes.get(current_node_key).is_leaf());
+                        debug_assert!(self.nodes.get(current_node_key).is_leaf());
                         let current_data = self.nodes.get(current_node_key).leaf_data().clone();
                         let new_children = self.make_uniform_children(current_data);
                         *self.nodes.get_mut(current_node_key) =

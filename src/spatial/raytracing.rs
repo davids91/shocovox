@@ -34,7 +34,7 @@ impl Cube {
     /// https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
     #[cfg(feature = "raytracing")]
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
-        assert!(ray.is_valid());
+        debug_assert!(ray.is_valid());
 
         let max_position = V3c::<f32>::from(self.min_position) + V3c::unit(self.size as f32);
         let t1 = (self.min_position.x as f32 - ray.origin.x) / ray.direction.x;
@@ -73,14 +73,14 @@ impl Cube {
             return Some(CubeRayIntersection {
                 impact_distance: None,
                 exit_distance: tmax,
-                impact_normal: impact_normal,
+                impact_normal,
             });
         }
 
-        return Some(CubeRayIntersection {
+        Some(CubeRayIntersection {
             impact_distance: Some(tmin),
             exit_distance: tmax,
-            impact_normal: impact_normal,
-        });
+            impact_normal,
+        })
     }
 }

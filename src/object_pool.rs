@@ -42,8 +42,8 @@ where
         match data {
             Object::List(mut list) => {
                 let reserved = match list.next_object()?.unwrap() {
-                    Object::Integer(i) if i == "0" => Ok(false),
-                    Object::Integer(i) if i == "1" => Ok(true),
+                    Object::Integer("0") => Ok(false),
+                    Object::Integer("1") => Ok(true),
                     Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
                         "boolean field reserved",
                         format!("the number: {}", i),
@@ -205,12 +205,12 @@ where
     }
 
     pub(crate) fn get(&self, key: usize) -> &T {
-        assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        debug_assert!(key < self.buffer.len() && self.buffer[key].reserved);
         &self.buffer[key].item
     }
 
     pub(crate) fn get_mut(&mut self, key: usize) -> &mut T {
-        assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        debug_assert!(key < self.buffer.len() && self.buffer[key].reserved);
         &mut self.buffer[key].item
     }
 }
@@ -224,13 +224,13 @@ mod object_pool_tests {
         let mut pool = ObjectPool::<f32>::with_capacity(3);
         let test_value = 5.;
         let key = pool.push(test_value);
-        assert!(*pool.get(key) == test_value);
+        debug_assert!(*pool.get(key) == test_value);
 
         *pool.get_mut(key) = 10.;
-        assert!(*pool.get(key) == 10.);
+        debug_assert!(*pool.get(key) == 10.);
 
-        assert!(pool.pop(key).unwrap() == 10.);
-        assert!(pool.pop(key).is_none());
+        debug_assert!(pool.pop(key).unwrap() == 10.);
+        debug_assert!(pool.pop(key).is_none());
     }
 
     #[test]
@@ -238,10 +238,10 @@ mod object_pool_tests {
         let mut pool = ObjectPool::<f32>::with_capacity(3);
         let test_value = 5.;
         let key = pool.push(test_value);
-        assert!(*pool.get(key) == test_value);
+        debug_assert!(*pool.get(key) == test_value);
 
         pool.free(key);
-        assert!(pool.pop(key).is_none());
+        debug_assert!(pool.pop(key).is_none());
     }
 
     #[test]
@@ -251,9 +251,9 @@ mod object_pool_tests {
         let key_1 = pool.push(test_value);
         pool.push(test_value * 2.);
         pool.pop(key_1);
-        assert!(pool.first_available == 0); // the first item should be available
+        debug_assert!(pool.first_available == 0); // the first item should be available
 
         pool.push(test_value * 3.);
-        assert!(*pool.get(key_1) == test_value * 3.); // the original key is reused to hold the latest value
+        debug_assert!(*pool.get(key_1) == test_value * 3.); // the original key is reused to hold the latest value
     }
 }

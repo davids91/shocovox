@@ -8,11 +8,11 @@ use bendy::{
 impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
     fn encode_single(data: &T, encoder: &mut Encoder) -> Result<(), BencodeError> {
         let color = data.albedo();
-        encoder.emit(&color[0])?;
-        encoder.emit(&color[1])?;
-        encoder.emit(&color[2])?;
-        encoder.emit(&color[3])?;
-        encoder.emit(&data.user_data())
+        encoder.emit(color[0])?;
+        encoder.emit(color[1])?;
+        encoder.emit(color[2])?;
+        encoder.emit(color[3])?;
+        encoder.emit(data.user_data())
     }
 
     fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
@@ -66,10 +66,10 @@ where
             }),
             NodeContent::Leaf(data) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                for x in 0..DIM {
-                    for y in 0..DIM {
-                        for z in 0..DIM {
-                            NodeContent::<T, DIM>::encode_single(&data[x][y][z], e)?;
+                for x in data.iter().take(DIM) {
+                    for y in x.iter().take(DIM) {
+                        for z in y.iter().take(DIM) {
+                            NodeContent::<T, DIM>::encode_single(z, e)?;
                         }
                     }
                 }
@@ -225,8 +225,8 @@ where
         match data {
             Object::List(mut list) => {
                 let auto_simplify = match list.next_object()?.unwrap() {
-                    Object::Integer(i) if i == "0" => Ok(false),
-                    Object::Integer(i) if i == "1" => Ok(true),
+                    Object::Integer("0") => Ok(false),
+                    Object::Integer("1") => Ok(true),
                     Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
                         "boolean field auto_simplify",
                         format!("the number: {}", i),

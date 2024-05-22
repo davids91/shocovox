@@ -287,7 +287,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             }
 
             let current_node = node_stack.last().unwrap().node as usize;
-            assert!(key_might_be_valid(current_node as u32));
+            debug_assert!(key_might_be_valid(current_node as u32));
 
             if self.nodes.get(current_node).is_leaf() {
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
