@@ -263,9 +263,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         while !node_stack.is_empty() {
             let current_bounds = node_stack.last().unwrap().bounds;
             let current_bounds_ray_intersection = node_stack.last().unwrap().bounds_intersection;
+            let current_node = self.nodes.get(node_stack.last().unwrap().node as usize);
+            debug_assert!(key_might_be_valid(
+                node_stack.last().unwrap().node as usize as u32
+            ));
+
             if !node_stack.last().unwrap().contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
-                || match self.nodes.get(node_stack.last().unwrap().node as usize) {
+                || match current_node {
                     NodeContent::Nothing => true,
                     NodeContent::Internal(count) => 0 == *count,
                     _ => false,
@@ -285,16 +290,12 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 current_d = current_bounds_ray_intersection.exit_distance;
                 continue; // Re-calculate current_bounds and ray intersection
             }
-
-            let current_node = node_stack.last().unwrap().node as usize;
-            debug_assert!(key_might_be_valid(current_node as u32));
-
-            if self.nodes.get(current_node).is_leaf() {
+            if current_node.is_leaf() {
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     &ray,
                     &mut current_d,
                     &ray_scale_factors,
-                    self.nodes.get(current_node).leaf_data(),
+                    current_node.leaf_data(),
                     &current_bounds,
                     &current_bounds_ray_intersection,
                 ) {
@@ -307,8 +308,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     .intersect_ray(&ray)
                     .unwrap_or(current_bounds_ray_intersection);
                     return Some((
-                        &self.nodes.get(current_node).leaf_data()[leaf_matrix_hit.x]
-                            [leaf_matrix_hit.y][leaf_matrix_hit.z],
+                        &current_node.leaf_data()[leaf_matrix_hit.x][leaf_matrix_hit.y]
+                            [leaf_matrix_hit.z],
                         ray.point_at(result_raycast.impact_distance.unwrap_or(current_d)),
                         result_raycast.impact_normal,
                     ));
@@ -332,8 +333,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 .impact_distance
                 .unwrap_or(current_d);
 
+            let current_node_key = node_stack.last().unwrap().node as usize;
             let target_octant = node_stack.last().unwrap().target_octant;
-            let target_child = self.node_children[current_node][target_octant];
+            let target_child = self.node_children[current_node_key][target_octant];
             let target_bounds = current_bounds.child_bounds_for(target_octant);
             let target_is_empty = !key_might_be_valid(target_child)
                 || match self.nodes.get(target_child as usize) {

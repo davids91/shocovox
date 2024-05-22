@@ -286,7 +286,7 @@ fn key_might_be_valid(key: u32) -> bool{
 }
 
 //Unique to this implementation, not adapted from rust code
-fn is_leaf(node: SizedNode) -> bool{
+fn is_leaf(node: SizedNode, dimension: u32) -> bool{
     if node.children[0] != key_none_value
     || node.children[1] != key_none_value
     || node.children[2] != key_none_value
@@ -298,9 +298,7 @@ fn is_leaf(node: SizedNode) -> bool{
         return false;
     }
     return node.contains_nodes <= (
-        octreeMetaData.voxel_matrix_dim
-        * octreeMetaData.voxel_matrix_dim
-        * octreeMetaData.voxel_matrix_dim
+        dimension * dimension * dimension
     );
 }
 
@@ -319,9 +317,9 @@ fn traverse_matrix(
     ray_scale_factors: vec3f,
     matrix_index_start: u32,
     bounds: Cube,
-    intersection: CubeRayIntersection
+    intersection: CubeRayIntersection,
+    dimension: u32
 ) -> MatrixHit{
-    let dimension = octreeMetaData.voxel_matrix_dim;
     var result: MatrixHit;
     result.hit = false;
 
@@ -386,6 +384,7 @@ const max_depth = 20; // the depth for an octree the size of 1048576
                       // which would be approximately 10 km in case 1 voxel is 1 cm
 fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
+    let dimension = octreeMetaData.voxel_matrix_dim;
 
     // Eliminate all zeroes within the direction of the ray
     var ray = ray_;
@@ -402,18 +401,18 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var current_d: f32  = 0.0;
     var node_stack: array<NodeStackItem, max_depth>;
     var node_stack_i: i32 = 0;
-    let dimension = octreeMetaData.voxel_matrix_dim;
     let ray_scale_factors = get_dda_scale_factors(ray);
 
     var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
         current_d = impact_or(root_intersection, 0.);
-        if is_leaf(nodes[OCTREE_ROOT_NODE_KEY]) {
+        if is_leaf(nodes[OCTREE_ROOT_NODE_KEY], dimension) {
             let root_matrix_hit = traverse_matrix(
                 ray, &current_d, ray_scale_factors,
                 nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
-                root_bounds, root_intersection
+                root_bounds, root_intersection,
+                dimension
             );
             result.hit = root_matrix_hit.hit;
             if root_matrix_hit.hit == true {
@@ -459,8 +458,9 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     while(0 < node_stack_i && node_stack_i < max_depth) { // until there are items on the stack
         let current_bounds = node_stack[node_stack_i - 1].bounds;
         let current_bounds_ray_intersection = node_stack[node_stack_i - 1].bounds_intersection;
+        var current_node = nodes[node_stack[node_stack_i - 1].node];
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
-            || nodes[node_stack[node_stack_i - 1].node].contains_nodes == 0u
+            || current_node.contains_nodes == 0u
         ){
             // POP
             let popped_target = node_stack[node_stack_i - 1];
@@ -478,17 +478,16 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             continue;
         }
 
-        let current_node = node_stack[node_stack_i - 1].node;
-
-        if is_leaf(nodes[current_node]) {
+        if is_leaf(current_node, dimension) {
             let leaf_matrix_hit = traverse_matrix(
                 ray, &current_d, ray_scale_factors,
-                nodes[current_node].voxels_start_at,
-                current_bounds, current_bounds_ray_intersection
+                current_node.voxels_start_at,
+                current_bounds, current_bounds_ray_intersection,
+                dimension
             );
             if leaf_matrix_hit.hit == true {
                 let hit_in_voxels = (
-                    nodes[current_node].voxels_start_at
+                    current_node.voxels_start_at
                     + u32(voxel_matrix_index_mapping(
                         leaf_matrix_hit.index,
                         vec2u(dimension, dimension)
@@ -533,11 +532,11 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         current_d = impact_or(current_bounds_ray_intersection, current_d);
 
         let target_octant = node_stack[node_stack_i - 1].target_octant;
-        let target_child = nodes[current_node].children[target_octant];
+        let target_child = current_node.children[target_octant];
         let target_bounds = child_bounds_for(current_bounds, target_octant);
         let target_is_empty = (
             !key_might_be_valid(target_child)
-            || nodes[current_node].contains_nodes == 0u
+            || nodes[target_child].contains_nodes == 0u
         );
 
         let target_hit = cube_intersect_ray(target_bounds, ray);

@@ -17,7 +17,7 @@ fn main() {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-const ARRAY_DIMENSION: u32 = 32;
+const ARRAY_DIMENSION: u32 = 64;
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(
@@ -52,7 +52,7 @@ fn setup(
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<u32, 8>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<u32, 16>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
