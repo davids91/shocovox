@@ -167,4 +167,7 @@ fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut mats: ResMut<Assets<OctreeVi
 }
 
 #[cfg(not(feature = "bevy_wgpu"))]
-fn main() {} //nothing to do when the feature is not enabled
+fn main() {
+    //nothing to do when the feature is not enabled
+    println!("You probably forgot to enable the feature \"bevy_wgpu\"")
+}
