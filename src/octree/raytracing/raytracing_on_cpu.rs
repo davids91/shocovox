@@ -1,5 +1,5 @@
-use crate::octree::{raytracing::types::NodeStackItem, NodeContent};
-use crate::octree::{Cube, Octree, V3c, VoxelData};
+use crate::object_pool::key_might_be_valid;
+use crate::octree::{raytracing::types::NodeStackItem, Cube, NodeContent, Octree, V3c, VoxelData};
 
 use crate::spatial::{
     math::{hash_region, offset_region},
@@ -32,10 +32,6 @@ impl NodeStackItem {
             &(self.child_center - self.bounds.min_position.into()),
             self.bounds.size as f32,
         );
-    }
-
-    pub(crate) fn target_bounds(&self) -> Cube {
-        self.bounds.child_bounds_for(self.target_octant)
     }
 
     pub(crate) fn contains_target_center(&self) -> bool {
@@ -205,7 +201,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             ),
         };
 
-        use crate::object_pool::key_might_be_valid;
         let root_bounds = Cube::root_bounds(self.octree_size);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
@@ -261,14 +256,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         }
 
         while !node_stack.is_empty() {
-            let current_bounds = node_stack.last().unwrap().bounds;
-            let current_bounds_ray_intersection = node_stack.last().unwrap().bounds_intersection;
-            let current_node = self.nodes.get(node_stack.last().unwrap().node as usize);
-            debug_assert!(key_might_be_valid(
-                node_stack.last().unwrap().node as usize as u32
-            ));
+            let node_stack_top = node_stack.last().unwrap();
+            let current_bounds = node_stack_top.bounds;
+            let current_bounds_ray_intersection = node_stack_top.bounds_intersection;
+            let current_node_key = node_stack_top.node as usize;
+            let current_node = self.nodes.get(current_node_key);
+            debug_assert!(key_might_be_valid(node_stack_top.node));
 
-            if !node_stack.last().unwrap().contains_target_center() // If current target is OOB
+            if !node_stack_top.contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
                 || match current_node {
                     NodeContent::Nothing => true,
@@ -333,12 +328,11 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 .impact_distance
                 .unwrap_or(current_d);
 
-            let current_node_key = node_stack.last().unwrap().node as usize;
-            let target_octant = node_stack.last().unwrap().target_octant;
-            let target_child = self.node_children[current_node_key][target_octant];
-            let target_bounds = current_bounds.child_bounds_for(target_octant);
-            let target_is_empty = !key_might_be_valid(target_child)
-                || match self.nodes.get(target_child as usize) {
+            let mut target_octant = node_stack_top.target_octant;
+            let mut target_bounds = current_bounds.child_bounds_for(target_octant);
+            let mut target_child_key = self.node_children[current_node_key][target_octant];
+            let target_is_empty = !key_might_be_valid(target_child_key)
+                || match self.nodes.get(target_child_key as usize) {
                     NodeContent::Internal(count) => 0 == *count,
                     NodeContent::Leaf(_) => false,
                     _ => true,
@@ -354,23 +348,40 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 node_stack.push(NodeStackItem::new(
                     target_bounds,
                     target_hit.unwrap(),
-                    target_child,
+                    target_child_key,
                     child_target_octant,
                 ));
             } else {
                 // ADVANCE
                 // target child is invalid, or it does not intersect with the ray
                 // Advance iteration to the next sibling
-                let current_target_bounds = node_stack.last().unwrap().target_bounds();
-                let step_vec = Self::dda_step_to_next_sibling(
-                    &ray,
-                    &mut current_d,
-                    &current_target_bounds,
-                    &ray_scale_factors,
-                );
-                node_stack.last_mut().unwrap().add_point(step_vec);
-                if let Some(hit) = target_hit {
-                    current_d = hit.exit_distance;
+                loop {
+                    if !node_stack.last().unwrap().contains_target_center()
+                        || (key_might_be_valid(target_child_key)
+                            && match self.nodes.get(target_child_key as usize) {
+                                NodeContent::Nothing => false,
+                                NodeContent::Internal(count) => 0 < *count,
+                                _ => true,
+                            })
+                    {
+                        // stop advancing because current target is OOB or not empty while inside bounds
+                        break;
+                    }
+
+                    // step the iteration to the next sibling cell!
+                    let step_vec = Self::dda_step_to_next_sibling(
+                        &ray,
+                        &mut current_d,
+                        &target_bounds,
+                        &ray_scale_factors,
+                    );
+                    if let Some(hit) = target_bounds.intersect_ray(&ray) {
+                        current_d = hit.exit_distance;
+                    }
+                    node_stack.last_mut().unwrap().add_point(step_vec);
+                    target_octant = node_stack.last().unwrap().target_octant;
+                    target_bounds = current_bounds.child_bounds_for(target_octant);
+                    target_child_key = self.node_children[current_node_key][target_octant];
                 }
             }
         }

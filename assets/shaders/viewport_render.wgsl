@@ -212,18 +212,6 @@ fn add_point_to(item: NodeStackItem, point: vec3f) -> NodeStackItem {
     return result;
 }
 
-//crate::octree:raytracing::NodeStackItem::target_bounds
-//crate::spatial::Cube::child_bounds_for
-fn target_bounds(item: NodeStackItem) -> Cube {
-    var result: Cube;
-    result.size = item.bounds.size / 2.;
-    result.min_position = (
-        item.bounds.min_position 
-        + ( offset_region(item.target_octant) * result.size )
-    );
-    return result;
-}
-
 //crate::octree:raytracing::get_dda_scale_factors
 fn get_dda_scale_factors(ray: Line) -> vec3f {
     return vec3f(
@@ -531,12 +519,12 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         }
         current_d = impact_or(current_bounds_ray_intersection, current_d);
 
-        let target_octant = node_stack[node_stack_i - 1].target_octant;
-        let target_child = current_node.children[target_octant];
-        let target_bounds = child_bounds_for(current_bounds, target_octant);
+        var target_octant = node_stack[node_stack_i - 1].target_octant;
+        var target_bounds = child_bounds_for(current_bounds, target_octant);
+        var target_child_key = current_node.children[target_octant];
         let target_is_empty = (
-            !key_might_be_valid(target_child)
-            || nodes[target_child].contains_nodes == 0u
+            !key_might_be_valid(target_child_key)
+            || nodes[target_child_key].contains_nodes == 0u
         );
 
         let target_hit = cube_intersect_ray(target_bounds, ray);
@@ -548,21 +536,36 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 target_bounds.size
             );
             node_stack[node_stack_i] = new_node_stack_item(
-                target_bounds, target_hit, target_child, child_target_octant
+                target_bounds, target_hit, target_child_key, child_target_octant
             );
             node_stack_i += 1;
         } else {
             // ADVANCE
-            let current_target_bounds = target_bounds(node_stack[node_stack_i - 1]);
-            let step_vec = dda_step_to_next_sibling(
-                ray,
-                &current_d,
-                current_target_bounds,
-                ray_scale_factors
-            );
-            node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
-            if target_hit.hit == true {
-                current_d = target_hit.exit_distance;
+            loop{
+                if ((!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
+                 || (
+                    key_might_be_valid(target_child_key)
+                    && 0u < nodes[target_child_key].contains_nodes
+                )) {
+                    break;
+                }
+
+                let step_vec = dda_step_to_next_sibling(
+                    ray,
+                    &current_d,
+                    target_bounds,
+                    ray_scale_factors
+                );
+                if target_hit.hit == true {
+                    current_d = target_hit.exit_distance;
+                }
+                node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
+                target_octant = node_stack[node_stack_i - 1].target_octant;
+                target_bounds = child_bounds_for(
+                    current_bounds,
+                    node_stack[node_stack_i - 1].target_octant
+                );
+                target_child_key = current_node.children[target_octant];
             }
         }
     }
