@@ -205,7 +205,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             ),
         };
 
-        use crate::object_pool::key_might_be_valid;
         let root_bounds = Cube::root_bounds(self.octree_size);
         let mut current_d = 0.0; // No need to initialize, but it will shut the compiler
         let mut node_stack = Vec::new();
@@ -264,9 +263,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let current_bounds = node_stack.last().unwrap().bounds;
             let current_bounds_ray_intersection = node_stack.last().unwrap().bounds_intersection;
             let current_node = self.nodes.get(node_stack.last().unwrap().node as usize);
-            debug_assert!(key_might_be_valid(
-                node_stack.last().unwrap().node as usize as u32
-            ));
+            debug_assert!(self
+                .nodes
+                .key_is_valid(node_stack.last().unwrap().node as usize));
 
             if !node_stack.last().unwrap().contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
@@ -337,7 +336,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let target_octant = node_stack.last().unwrap().target_octant;
             let target_child = self.node_children[current_node_key][target_octant as u32];
             let target_bounds = current_bounds.child_bounds_for(target_octant);
-            let target_is_empty = !key_might_be_valid(target_child)
+            let target_is_empty = !self.nodes.key_is_valid(target_child as usize)
                 || match self.nodes.get(target_child as usize) {
                     NodeContent::Internal(count) => 0 == *count,
                     NodeContent::Leaf(_) => false,
