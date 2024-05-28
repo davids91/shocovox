@@ -45,7 +45,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             if current_bounds.size > insert_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if self.nodes.key_is_valid(
-                    self.node_children[current_node_key][target_child_octant as u32],
+                    self.node_children[current_node_key][target_child_octant as u32] as usize,
                 ) {
                     node_stack.push((
                         self.node_children[current_node_key][target_child_octant as u32],
@@ -211,7 +211,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if self.nodes.key_is_valid(
-                    self.node_children[current_node_key][target_child_octant as u32],
+                    self.node_children[current_node_key][target_child_octant as u32] as usize,
                 ) {
                     //Iteration can go deeper , as target child is valid
                     node_stack.push((
