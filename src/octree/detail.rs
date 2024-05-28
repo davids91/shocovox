@@ -17,7 +17,7 @@ pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> b
 }
 
 /// Returns with the octant value(i.e. index) of the child for the given position
-pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> u32 {
+pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> u8 {
     debug_assert!(bound_contains(bounds, position));
     hash_region(
         &(*position - bounds.min_position).into(),
@@ -26,7 +26,7 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
 }
 
 ///####################################################################################
-/// NodeChildrenArray + NodeChildren
+/// NodeChildren
 ///####################################################################################
 impl<T> NodeChildren<T>
 where
@@ -61,6 +61,7 @@ where
         self.content = NodeChildrenArray::Children(children)
     }
 
+    #[cfg(feature = "bevy_wgpu")]
     pub(in crate::octree) fn get_full(&self) -> [T; 8] {
         match &self.content {
             NodeChildrenArray::Children(c) => c.clone(),
@@ -279,7 +280,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         actual_count += (DIM as u32).pow(3);
                     }
                     NodeContent::Internal(c) => {
-                        actual_count += c;
+                        actual_count += *c as u32;
                     }
                     _ => {}
                 }

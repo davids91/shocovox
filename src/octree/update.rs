@@ -45,10 +45,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             if current_bounds.size > insert_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if crate::object_pool::key_might_be_valid(
-                    self.node_children[current_node_key][target_child_octant],
+                    self.node_children[current_node_key][target_child_octant as u32],
                 ) {
                     node_stack.push((
-                        self.node_children[current_node_key][target_child_octant],
+                        self.node_children[current_node_key][target_child_octant as u32],
                         Cube {
                             min_position: current_bounds.min_position
                                 + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -75,7 +75,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
-                            self.node_children[current_node_key][target_child_octant],
+                            self.node_children[current_node_key][target_child_octant as u32],
                             Cube {
                                 min_position: current_bounds.min_position
                                     + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -101,7 +101,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                                 size: current_bounds.size / 2,
                             },
                         ));
-                        self.node_children[current_node_key][target_child_octant] =
+                        self.node_children[current_node_key][target_child_octant as u32] =
                             node_stack.last().unwrap().0;
                     }
                 }
@@ -162,12 +162,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
                     // To correct this, the children will determine the count
                     *self.nodes.get_mut(node_key as usize) =
-                        NodeContent::Internal(self.count_cached_children(node_key));
+                        NodeContent::Internal(self.count_cached_children(node_key).min(255) as u8);
                 }
                 // Update the number of voxels the node contains; It can hold at maximum size*size*size voxels
                 NodeContent::Internal(contains_count) => {
                     *self.nodes.get_mut(node_key as usize) = NodeContent::Internal(
-                        (contains_count + added_nodes_count).min(node_bounds.size.pow(3)),
+                        (*contains_count as u32 + added_nodes_count)
+                            .min(node_bounds.size.pow(3))
+                            .min(255) as u8,
                     );
                 }
                 _ => {}
@@ -209,11 +211,11 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 target_child_octant = child_octant_for(&current_bounds, position);
                 if crate::object_pool::key_might_be_valid(
-                    self.node_children[current_node_key][target_child_octant],
+                    self.node_children[current_node_key][target_child_octant as u32],
                 ) {
                     //Iteration can go deeper , as target child is valid
                     node_stack.push((
-                        self.node_children[current_node_key][target_child_octant],
+                        self.node_children[current_node_key][target_child_octant as u32],
                         Cube {
                             min_position: current_bounds.min_position
                                 + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -230,10 +232,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         let current_data = self.nodes.get(current_node_key).leaf_data().clone();
                         let new_children = self.make_uniform_children(current_data);
                         *self.nodes.get_mut(current_node_key) =
-                            NodeContent::Internal(current_bounds.size.pow(3));
+                            NodeContent::Internal(current_bounds.size.pow(3).min(255) as u8);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
-                            self.node_children[current_node_key][target_child_octant],
+                            self.node_children[current_node_key][target_child_octant as u32],
                             Cube {
                                 min_position: current_bounds.min_position
                                     + offset_region(target_child_octant) * current_bounds.size / 2,
@@ -281,7 +283,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     if node_stack.len() >= 2 && target_child_octant < 9 {
                         self.nodes.free(current_node_key);
                         let parent_key = node_stack[node_stack.len() - 2].0 as usize;
-                        self.node_children[parent_key][target_child_octant] = key_none_value();
+                        self.node_children[parent_key][target_child_octant as u32] =
+                            key_none_value();
                     } else {
                         // If the node doesn't have parents, then it's a root node and should not be deleted
                         *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
@@ -297,20 +300,24 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         for (node_key, _node_bounds) in node_stack.into_iter().rev() {
             match self.nodes.get(node_key as usize) {
                 NodeContent::Nothing => {
-                    *self.nodes.get_mut(node_key as usize) =
-                        if !self.node_children[node_key as usize].is_empty() {
-                            // This is incorrect information which needs to be corrected
-                            // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
-                            // To correct this, the children will determine the count
-                            NodeContent::Internal(self.count_cached_children(node_key))
-                        } else {
-                            NodeContent::Nothing
-                        };
+                    *self.nodes.get_mut(node_key as usize) = if !self.node_children
+                        [node_key as usize]
+                        .is_empty()
+                    {
+                        // This is incorrect information which needs to be corrected
+                        // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
+                        // To correct this, the children will determine the count
+                        NodeContent::Internal(self.count_cached_children(node_key).min(255) as u8)
+                    } else {
+                        NodeContent::Nothing
+                    };
                 }
                 NodeContent::Internal(contains_count) => {
                     *self.nodes.get_mut(node_key as usize) =
-                        if removed_nodes_count < *contains_count {
-                            NodeContent::Internal(contains_count - removed_nodes_count)
+                        if removed_nodes_count < *contains_count as u32 {
+                            NodeContent::Internal(
+                                (*contains_count as u32 - removed_nodes_count).min(255) as u8,
+                            )
                         } else {
                             NodeContent::Nothing
                         };

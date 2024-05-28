@@ -123,7 +123,7 @@ where
                             ))
                         }
                     };
-                    Ok(NodeContent::Internal(count))
+                    Ok(NodeContent::Internal(count as u8))
                 } else {
                     Ok(NodeContent::<T, DIM>::Leaf(array_init::array_init(|_| {
                         array_init::array_init(|_| {

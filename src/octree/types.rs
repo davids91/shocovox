@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
     #[default]
     Nothing,
-    Internal(u32), // cache data to store the enclosed nodes
+    Internal(u8), // cache data to store the enclosed nodes
     Leaf([[[T; DIM]; DIM]; DIM]),
 }
 
@@ -30,7 +30,10 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
+    /// The key value to signify "no child" at a given slot
     pub(in crate::octree) default_key: T,
+
+    /// The contained child key values
     pub(in crate::octree) content: NodeChildrenArray<T>,
 }
 

@@ -12,7 +12,7 @@ impl NodeStackItem {
         bounds: Cube,
         bounds_intersection: CubeRayIntersection,
         node: u32,
-        target_octant: u32,
+        target_octant: u8,
     ) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
             + V3c::unit(bounds.size as f32 / 4.)
