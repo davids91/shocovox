@@ -261,7 +261,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let current_bounds_ray_intersection = node_stack_top.bounds_intersection;
             let current_node_key = node_stack_top.node as usize;
             let current_node = self.nodes.get(current_node_key);
-            debug_assert!(key_might_be_valid(node_stack_top.node));
+            debug_assert!(self
+                .nodes
+                .key_is_valid(node_stack.last().unwrap().node as usize));
 
             if !node_stack_top.contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
@@ -331,7 +333,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let mut target_octant = node_stack_top.target_octant;
             let mut target_bounds = current_bounds.child_bounds_for(target_octant);
             let mut target_child_key = self.node_children[current_node_key][target_octant];
-            let target_is_empty = !key_might_be_valid(target_child_key)
+            let target_is_empty = !self.nodes.key_is_valid(target_child_key)
                 || match self.nodes.get(target_child_key as usize) {
                     NodeContent::Internal(count) => 0 == *count,
                     NodeContent::Leaf(_) => false,

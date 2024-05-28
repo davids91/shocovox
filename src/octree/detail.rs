@@ -229,7 +229,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         let mut to_deallocate = Vec::new();
         if let Some(children) = self.node_children[node as usize].iter() {
             for child in children {
-                if crate::object_pool::key_might_be_valid(*child) {
+                if self.nodes.key_is_valid(*child as usize) {
                     to_deallocate.push(*child);
                 }
             }
@@ -244,10 +244,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
     /// Updates the given node recursively to collapse nodes with uniform children into a leaf
     pub(in crate::octree) fn simplify(&mut self, node: u32) -> bool {
         let mut data = NodeContent::Nothing;
-        if crate::object_pool::key_might_be_valid(node) {
+        if self.nodes.key_is_valid(node as usize) {
             for i in 0..8 {
                 let child_key = self.node_children[node as usize][i];
-                if crate::object_pool::key_might_be_valid(child_key) {
+                if self.nodes.key_is_valid(child_key as usize) {
                     if let Some(leaf_data) = self.nodes.get(child_key as usize).as_leaf_ref() {
                         if !data.is_leaf() {
                             data = NodeContent::Leaf(leaf_data.clone());
@@ -274,7 +274,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         let mut actual_count = 0;
         for i in 0..8 {
             let child_key = self.node_children[node as usize][i];
-            if crate::object_pool::key_might_be_valid(child_key) {
+            if self.nodes.key_is_valid(child_key as usize) {
                 match self.nodes.get(child_key as usize) {
                     NodeContent::Leaf(_) => {
                         actual_count += (DIM as u32).pow(3);

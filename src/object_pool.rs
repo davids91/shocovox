@@ -15,10 +15,6 @@ pub fn key_none_value() -> u32 {
     u32::MAX
 }
 
-pub fn key_might_be_valid(key: u32) -> bool {
-    key < u32::MAX
-}
-
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
 impl<T> ToBencode for ReusableItem<T>
 where
@@ -185,7 +181,7 @@ where
     }
 
     pub(crate) fn pop(&mut self, key: usize) -> Option<T> {
-        if key < self.buffer.len() && self.buffer[key].reserved {
+        if self.key_is_valid(key) {
             self.buffer[key].reserved = false;
             self.first_available = self.first_available.min(key);
             Some(std::mem::take(&mut self.buffer[key].item))
@@ -195,7 +191,7 @@ where
     }
 
     pub(crate) fn free(&mut self, key: usize) -> bool {
-        if key < self.buffer.len() && self.buffer[key].reserved {
+        if self.key_is_valid(key) {
             self.buffer[key].reserved = false;
             self.first_available = self.first_available.min(key);
             true
@@ -205,13 +201,17 @@ where
     }
 
     pub(crate) fn get(&self, key: usize) -> &T {
-        debug_assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        debug_assert!(self.key_is_valid(key));
         &self.buffer[key].item
     }
 
     pub(crate) fn get_mut(&mut self, key: usize) -> &mut T {
-        debug_assert!(key < self.buffer.len() && self.buffer[key].reserved);
+        debug_assert!(self.key_is_valid(key));
         &mut self.buffer[key].item
+    }
+
+    pub(crate) fn key_is_valid(&self, key: usize) -> bool {
+        key < self.buffer.len() && self.buffer[key].reserved
     }
 }
 
