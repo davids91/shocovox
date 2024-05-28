@@ -5,7 +5,7 @@ use crate::spatial::math::vector::V3c;
 ///####################################################################################
 /// Octant
 ///####################################################################################
-pub(crate) fn offset_region(octant: u32) -> V3c<u32> {
+pub(crate) fn offset_region(octant: u8) -> V3c<u32> {
     match octant {
         0 => V3c::new(0, 0, 0),
         1 => V3c::new(1, 0, 0),
@@ -23,15 +23,15 @@ pub(crate) fn offset_region(octant: u32) -> V3c<u32> {
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
 /// * `offset` - From range 0..size in each dimensions
 /// * `size` - Size of the region to check for child octants
-pub fn hash_region(offset: &V3c<f32>, size: f32) -> u32 {
-    let midpoint = V3c::unit(size / 2.);
+pub fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
     // The below is rewritten to be branchless
-    // (if offset.x < midpoint.x { 0 } else { 1 })
-    //     + if offset.z < midpoint.z { 0 } else { 2 }
-    //     + if offset.y < midpoint.y { 0 } else { 4 }
-    (offset.x >= midpoint.x) as u32
-        + (offset.z >= midpoint.z) as u32 * 2
-        + (offset.y >= midpoint.y) as u32 * 4
+    let half_size = size / 2.0;
+    // (if offset.x < half_size { 0 } else { 1 })
+    //     + if offset.z < half_size{ 0 } else { 2 }
+    //     + if offset.y < half_size { 0 } else { 4 }
+    (offset.x >= half_size) as u8
+        + (offset.z >= half_size) as u8 * 2
+        + (offset.y >= half_size) as u8 * 4
 }
 
 #[allow(dead_code)] // Could be useful either for debugging or new implementations

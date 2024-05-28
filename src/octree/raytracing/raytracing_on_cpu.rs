@@ -12,7 +12,7 @@ impl NodeStackItem {
         bounds: Cube,
         bounds_intersection: CubeRayIntersection,
         node: u32,
-        target_octant: u32,
+        target_octant: u8,
     ) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
             + V3c::unit(bounds.size as f32 / 4.)
@@ -335,7 +335,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             let current_node_key = node_stack.last().unwrap().node as usize;
             let target_octant = node_stack.last().unwrap().target_octant;
-            let target_child = self.node_children[current_node_key][target_octant];
+            let target_child = self.node_children[current_node_key][target_octant as u32];
             let target_bounds = current_bounds.child_bounds_for(target_octant);
             let target_is_empty = !key_might_be_valid(target_child)
                 || match self.nodes.get(target_child as usize) {
