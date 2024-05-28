@@ -90,7 +90,7 @@ fn setup(
             }
         }
     }
-    let quad_count = 2;
+    let quad_count = 1;
     let quad_size = 10. / quad_count as f32;
     let mesh_handle = meshes.add(Mesh::from(Rectangle {
         half_size: Vec2::new(quad_size, quad_size) / 2.,
