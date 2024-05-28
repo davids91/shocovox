@@ -25,7 +25,7 @@ impl Cube {
     }
 
     /// Creates a bounding box within an area described by the min_position and size, for the given octant
-    pub(crate) fn child_bounds_for(&self, octant: u32) -> Cube {
+    pub(crate) fn child_bounds_for(&self, octant: u8) -> Cube {
         let child_size = self.size / 2;
         Cube {
             min_position: (self.min_position + (offset_region(octant) * child_size)),

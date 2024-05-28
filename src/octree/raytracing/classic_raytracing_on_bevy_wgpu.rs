@@ -59,7 +59,7 @@ impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
                 }
                 NodeContent::Internal(count) => {
                     nodes.push(SizedNode {
-                        contains_nodes: *count,
+                        contains_nodes: *count as u32,
                         children: self.node_children[i].get_full(),
                         voxels_start_at: key_none_value(),
                     });

@@ -90,7 +90,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 _ => {
                     let child_octant_at_position = child_octant_for(&current_bounds, position);
                     let child_at_position =
-                        self.node_children[current_node_key][child_octant_at_position];
+                        self.node_children[current_node_key][child_octant_at_position as u32];
                     if crate::object_pool::key_might_be_valid(child_at_position) {
                         current_node_key = child_at_position as usize;
                         current_bounds =
@@ -132,7 +132,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 _ => {
                     let child_octant_at_position = child_octant_for(&current_bounds, position);
                     let child_at_position =
-                        self.node_children[current_node_key][child_octant_at_position];
+                        self.node_children[current_node_key][child_octant_at_position as u32];
                     if crate::object_pool::key_might_be_valid(child_at_position) {
                         current_node_key = child_at_position as usize;
                         current_bounds =
