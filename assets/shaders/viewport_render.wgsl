@@ -391,42 +391,6 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
         current_d = impact_or(root_intersection, 0.);
-        if is_leaf(nodes[OCTREE_ROOT_NODE_KEY], dimension) {
-            let root_matrix_hit = traverse_matrix(
-                ray, &current_d, ray_scale_factors,
-                nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at,
-                root_bounds, root_intersection,
-                dimension
-            );
-            result.hit = root_matrix_hit.hit;
-            if root_matrix_hit.hit == true {
-                let hit_in_voxels = (
-                    nodes[OCTREE_ROOT_NODE_KEY].voxels_start_at
-                    + u32(voxel_matrix_index_mapping(
-                        root_matrix_hit.index,
-                        vec2u(dimension, dimension)
-                    ))
-                );
-                let matrix_unit = root_bounds.size / f32(dimension);
-                let result_bounds = Cube(
-                    root_bounds.min_position + (
-                        vec3f(root_matrix_hit.index) * matrix_unit
-                    ),
-                    matrix_unit
-                );
-                var result_raycast = cube_intersect_ray(result_bounds, ray);
-                if result_raycast.hit == false {
-                    result_raycast = root_intersection;
-                }
-                result.albedo = voxels[hit_in_voxels].albedo;
-                result.content = voxels[hit_in_voxels].content;
-                result.collision_point = point_in_ray_at_distance(
-                    ray, impact_or(result_raycast, current_d)
-                );
-                result.impact_normal = result_raycast.impact_normal;
-            }
-            return result;
-        }
         let target_octant = hash_region(
             point_in_ray_at_distance(ray, current_d) - root_bounds.min_position,
             root_bounds.size,

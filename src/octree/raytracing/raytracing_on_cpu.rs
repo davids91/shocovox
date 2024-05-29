@@ -206,42 +206,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         let ray_scale_factors = Self::get_dda_scale_factors(&ray);
         if let Some(root_hit) = root_bounds.intersect_ray(&ray) {
             current_d = root_hit.impact_distance.unwrap_or(0.);
-            if self
-                .nodes
-                .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
-                .is_leaf()
-            {
-                if let Some(root_matrix_hit) = Self::traverse_matrix(
-                    &ray,
-                    &mut current_d,
-                    &ray_scale_factors,
-                    self.nodes
-                        .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
-                        .leaf_data(),
-                    &root_bounds,
-                    &root_hit,
-                ) {
-                    let matrix_unit = root_bounds.size / DIM as u32;
-                    let result_raycast = Cube {
-                        min_position: root_bounds.min_position
-                            + V3c::<u32>::from(root_matrix_hit * matrix_unit as usize),
-                        size: matrix_unit,
-                    }
-                    .intersect_ray(&ray)
-                    .unwrap_or(root_hit);
-                    return Some((
-                        &self
-                            .nodes
-                            .get(Octree::<T, DIM>::ROOT_NODE_KEY as usize)
-                            .leaf_data()[root_matrix_hit.x][root_matrix_hit.y][root_matrix_hit.z],
-                        ray.point_at(result_raycast.impact_distance.unwrap_or(current_d)),
-                        result_raycast.impact_normal,
-                    ));
-                } else {
-                    // If the root if a leaf already and there's no hit in it, then there is no hit at all.
-                    return None;
-                }
-            }
             let target_octant = hash_region(
                 &(ray.point_at(current_d) - root_bounds.min_position.into()),
                 root_bounds.size as f32,
