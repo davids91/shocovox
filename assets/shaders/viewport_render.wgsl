@@ -268,11 +268,6 @@ fn dda_step_to_next_sibling(
 
 const key_none_value : u32 = 4294967295u;
 
-//crate::object_pool::key_might_be_valid
-fn key_might_be_valid(key: u32) -> bool{
-    return key < key_none_value;
-}
-
 //Unique to this implementation, not adapted from rust code
 fn is_leaf(node: SizedNode, dimension: u32) -> bool{
     if node.children[0] != key_none_value
@@ -373,6 +368,7 @@ const max_depth = 20; // the depth for an octree the size of 1048576
 fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
     let dimension = octreeMetaData.voxel_matrix_dim;
+    let voxelement_count = arrayLength(&nodes);
 
     // Eliminate all zeroes within the direction of the ray
     var ray = ray_;
@@ -523,7 +519,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         var target_bounds = child_bounds_for(current_bounds, target_octant);
         var target_child_key = current_node.children[target_octant];
         let target_is_empty = (
-            !key_might_be_valid(target_child_key)
+            target_child_key >= voxelement_count //!crate::object_pool::key_is_valid
             || nodes[target_child_key].contains_nodes == 0u
         );
 
@@ -544,7 +540,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             loop{
                 if ((!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
                  || (
-                    key_might_be_valid(target_child_key)
+                    target_child_key < voxelement_count //crate::object_pool::key_is_valid
                     && 0u < nodes[target_child_key].contains_nodes
                 )) {
                     break;

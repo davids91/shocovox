@@ -1,4 +1,3 @@
-use crate::object_pool::key_might_be_valid;
 use crate::octree::{raytracing::types::NodeStackItem, Cube, NodeContent, Octree, V3c, VoxelData};
 
 use crate::spatial::{
@@ -332,8 +331,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             let mut target_octant = node_stack_top.target_octant;
             let mut target_bounds = current_bounds.child_bounds_for(target_octant);
-            let mut target_child_key = self.node_children[current_node_key][target_octant];
-            let target_is_empty = !self.nodes.key_is_valid(target_child_key)
+            let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
+            let target_is_empty = !self.nodes.key_is_valid(target_child_key as usize)
                 || match self.nodes.get(target_child_key as usize) {
                     NodeContent::Internal(count) => 0 == *count,
                     NodeContent::Leaf(_) => false,
@@ -359,7 +358,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 // Advance iteration to the next sibling
                 loop {
                     if !node_stack.last().unwrap().contains_target_center()
-                        || (key_might_be_valid(target_child_key)
+                        || (self.nodes.key_is_valid(target_child_key as usize)
                             && match self.nodes.get(target_child_key as usize) {
                                 NodeContent::Nothing => false,
                                 NodeContent::Internal(count) => 0 < *count,
@@ -383,7 +382,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     node_stack.last_mut().unwrap().add_point(step_vec);
                     target_octant = node_stack.last().unwrap().target_octant;
                     target_bounds = current_bounds.child_bounds_for(target_octant);
-                    target_child_key = self.node_children[current_node_key][target_octant];
+                    target_child_key = self.node_children[current_node_key][target_octant as u32];
                 }
             }
         }
