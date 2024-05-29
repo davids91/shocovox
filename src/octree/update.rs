@@ -1,6 +1,7 @@
 use crate::object_pool::key_none_value;
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
+    hash_region,
     types::{NodeChildren, NodeContent, OctreeError},
     Octree, VoxelData,
 };
@@ -153,9 +154,6 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         // post-processing operations
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            if simplifyable {
-                simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
-            }
             match self.nodes.get(node_key as usize) {
                 NodeContent::Nothing => {
                     // This is incorrect information which needs to be corrected
@@ -173,6 +171,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     );
                 }
                 _ => {}
+            }
+            if simplifyable {
+                simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
             }
         }
         Ok(())
@@ -275,7 +276,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     }
                     removed_nodes_count = clear_size.pow(3);
                 } else {
-                    // The size to clear equals, or is greater than DIM, the whole node is to be erased
+                    // The size to clear >= DIM, the whole node is to be erased
                     // unset the current node and its children
                     self.deallocate_children_of(current_node_key as u32);
 
@@ -296,8 +297,18 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
 
         // post-processing operations
-        node_stack.pop(); // Except for the last removed element
-        for (node_key, _node_bounds) in node_stack.into_iter().rev() {
+        let mut empty_child: Option<(Cube, usize)> = None;
+        if let Some((node_key, node_bounds)) = node_stack.pop() {
+            if self.nodes.key_is_valid(node_key as usize)
+                && self.nodes.get(node_key as usize).is_empty()
+            {
+                // If the updated node is empty, mark it as such
+                *self.nodes.get_mut(node_key as usize) = NodeContent::Nothing;
+                empty_child = Some((node_bounds, node_key as usize));
+            }
+        }
+        let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
+        for (node_key, node_bounds) in node_stack.into_iter().rev() {
             match self.nodes.get(node_key as usize) {
                 NodeContent::Nothing => {
                     *self.nodes.get_mut(node_key as usize) = if !self.node_children
@@ -323,6 +334,25 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         };
                 }
                 _ => {}
+            }
+            if let Some((child_bounds, child_key)) = empty_child {
+                // If the child of this node wasset to NodeContent::Nothing during this clear operation
+                // it needs to be freed up, and the child index of this node needs to be updated as well
+                let child_octant = hash_region(
+                    &(V3c::from(child_bounds.min_position - node_bounds.min_position)
+                        + V3c::unit(child_bounds.size as f32 / 2.)),
+                    node_bounds.size as f32,
+                ) as usize;
+                self.node_children[node_key as usize].clear(child_octant);
+                self.nodes.free(child_key);
+            };
+            if let NodeContent::Nothing = self.nodes.get(node_key as usize) {
+                debug_assert!(self.node_children[node_key as usize].is_empty());
+                empty_child = Some((node_bounds, node_key as usize));
+            }
+
+            if simplifyable {
+                simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
             }
         }
         Ok(())

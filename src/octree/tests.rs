@@ -384,6 +384,22 @@ mod octree_tests {
     }
 
     #[test]
+    fn test_double_clear() {
+        let mut tree = Octree::<u32>::new(2).ok().unwrap();
+        tree.auto_simplify = false;
+        tree.insert(&V3c::new(1, 0, 0), 5).ok().unwrap();
+        tree.insert(&V3c::new(0, 1, 0), 6).ok().unwrap();
+        tree.insert(&V3c::new(0, 0, 1), 6).ok().unwrap();
+        tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
+        tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
+
+        assert!(*tree.get(&V3c::new(1, 0, 0)).unwrap() == 5);
+        assert!(*tree.get(&V3c::new(0, 1, 0)).unwrap() == 6);
+        let item_at_001 = tree.get(&V3c::new(0, 0, 1));
+        assert!(item_at_001.is_none() || item_at_001.is_some_and(|v| v.is_empty()));
+    }
+
+    #[test]
     fn test_simplifyable_clear() {
         const SIZE: u32 = 2;
         let mut tree = Octree::<u32>::new(SIZE).ok().unwrap();

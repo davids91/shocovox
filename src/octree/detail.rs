@@ -30,7 +30,7 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
 ///####################################################################################
 impl<T> NodeChildren<T>
 where
-    T: Default + Clone,
+    T: PartialEq + Default + Clone,
 {
     pub(in crate::octree) fn is_empty(&self) -> bool {
         matches!(&self.content, NodeChildrenArray::NoChildren)
@@ -54,6 +54,19 @@ where
         match &self.content {
             NodeChildrenArray::Children(c) => Some(c.iter()),
             _ => None,
+        }
+    }
+
+    pub(in crate::octree) fn clear(&mut self, child_index: usize) {
+        debug_assert!(child_index < 8);
+        match &mut self.content {
+            NodeChildrenArray::Children(c) => {
+                c[child_index] = self.default_key.clone();
+                if 8 == c.iter().filter(|e| **e == self.default_key).count() {
+                    self.content = NodeChildrenArray::NoChildren;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -116,10 +129,29 @@ where
 ///####################################################################################
 impl<T, const DIM: usize> NodeContent<T, DIM>
 where
-    T: PartialEq + Clone + Default,
+    T: VoxelData + PartialEq + Clone + Default,
 {
     pub fn is_leaf(&self) -> bool {
         matches!(self, NodeContent::Leaf(_))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            NodeContent::Leaf(d) => {
+                for x in d.iter() {
+                    for y in x.iter() {
+                        for item in y.iter() {
+                            if !item.is_empty() {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            NodeContent::Nothing => true,
+            NodeContent::Internal(_) => false,
+        }
     }
 
     pub fn is_all(&self, data: &T) -> bool {
