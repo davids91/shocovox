@@ -1,6 +1,7 @@
 use crate::object_pool::key_none_value;
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
 use crate::octree::{hash_region, Cube, V3c};
+use crate::spatial::math::octant_bitmask;
 
 ///####################################################################################
 /// Utility functions
@@ -30,7 +31,7 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) ->
 ///####################################################################################
 impl<T> NodeChildren<T>
 where
-    T: PartialEq + Default + Clone,
+    T: Default + Clone + PartialEq,
 {
     pub(in crate::octree) fn is_empty(&self) -> bool {
         matches!(&self.content, NodeChildrenArray::NoChildren)
@@ -59,19 +60,31 @@ where
 
     pub(in crate::octree) fn clear(&mut self, child_index: usize) {
         debug_assert!(child_index < 8);
-        match &mut self.content {
-            NodeChildrenArray::Children(c) => {
-                c[child_index] = self.default_key.clone();
-                if 8 == c.iter().filter(|e| **e == self.default_key).count() {
-                    self.content = NodeChildrenArray::NoChildren;
-                }
+        if let NodeChildrenArray::Children(c) = &mut self.content {
+            c[child_index] = self.default_key.clone();
+            if 8 == c.iter().filter(|e| **e == self.default_key).count() {
+                self.content = NodeChildrenArray::NoChildren;
             }
-            _ => {}
         }
     }
 
     pub(in crate::octree) fn set(&mut self, children: [T; 8]) {
         self.content = NodeChildrenArray::Children(children)
+    }
+
+    fn occupied_bits(&self) -> u8 {
+        match &self.content {
+            NodeChildrenArray::Children(c) => {
+                let mut result = 0;
+                for (child_octant, child) in c.iter().enumerate().take(8) {
+                    if *child != self.default_key {
+                        result |= octant_bitmask(child_octant as u8);
+                    }
+                }
+                result
+            }
+            _ => 0,
+        }
     }
 
     #[cfg(feature = "bevy_wgpu")]
@@ -277,6 +290,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
     pub(in crate::octree) fn simplify(&mut self, node: u32) -> bool {
         let mut data = NodeContent::Nothing;
         if self.nodes.key_is_valid(node as usize) {
+            match self.nodes.get(node as usize) {
+                NodeContent::Leaf(_) | NodeContent::Nothing => {
+                    return true;
+                }
+                _ => {}
+            }
             for i in 0..8 {
                 let child_key = self.node_children[node as usize][i];
                 if self.nodes.key_is_valid(child_key as usize) {
@@ -301,23 +320,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
     }
 
-    /// Count the number of children a Node has according to the stored cache of the children
-    pub(in crate::octree) fn count_cached_children(&self, node: u32) -> u32 {
-        let mut actual_count = 0;
-        for i in 0..8 {
-            let child_key = self.node_children[node as usize][i];
-            if self.nodes.key_is_valid(child_key as usize) {
-                match self.nodes.get(child_key as usize) {
-                    NodeContent::Leaf(_) => {
-                        actual_count += (DIM as u32).pow(3);
-                    }
-                    NodeContent::Internal(c) => {
-                        actual_count += *c as u32;
-                    }
-                    _ => {}
-                }
-            }
+    /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
+    /// As they might be empty by fault and to correct them the occupied bits is required.
+    /// Leaf nodes are all oocupied by default
+    pub(in crate::octree) fn occupied_bits(&self, node: u32) -> u8 {
+        match self.nodes.get(node as usize) {
+            NodeContent::Leaf(_) => 0xFF,
+            _ => self.node_children[node as usize].occupied_bits(),
         }
-        actual_count
     }
 }

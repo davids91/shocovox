@@ -549,6 +549,25 @@ mod octree_tests {
         // This will clear an area equal to 8 1-sized nodes
         tree.clear_at_lod(&V3c::new(1, 1, 1), 2).ok().unwrap();
 
+        // unset voxels should not be present
+        assert!(tree.get(&V3c::new(0, 0, 0)).is_none());
+        assert!(tree.get(&V3c::new(0, 0, 1)).is_none());
+        assert!(tree.get(&V3c::new(0, 1, 0)).is_none());
+        assert!(tree.get(&V3c::new(0, 1, 1)).is_none());
+        assert!(tree.get(&V3c::new(1, 0, 0)).is_none());
+        assert!(tree.get(&V3c::new(1, 0, 1)).is_none());
+        assert!(tree.get(&V3c::new(1, 1, 0)).is_none());
+        assert!(tree.get(&V3c::new(1, 1, 1)).is_none());
+
+        // sampling some voxels who should be present
+        assert!(tree.get(&V3c::new(0, 0, 2)).is_some());
+        assert!(tree.get(&V3c::new(0, 2, 0)).is_some());
+        assert!(tree.get(&V3c::new(0, 2, 2)).is_some());
+        assert!(tree.get(&V3c::new(2, 0, 0)).is_some());
+        assert!(tree.get(&V3c::new(2, 0, 2)).is_some());
+        assert!(tree.get(&V3c::new(2, 2, 0)).is_some());
+        assert!(tree.get(&V3c::new(2, 2, 2)).is_some());
+
         let mut hits = 0;
         for x in 0..4 {
             for y in 0..4 {

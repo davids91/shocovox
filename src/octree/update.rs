@@ -6,7 +6,7 @@ use crate::octree::{
     Octree, VoxelData,
 };
 use crate::spatial::{
-    math::{offset_region, vector::V3c},
+    math::{octant_bitmask, offset_region, vector::V3c},
     Cube,
 };
 
@@ -37,11 +37,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
-        let mut added_nodes_count = 0;
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
+            let current_node = self.nodes.get(current_node_key);
             let target_child_octant = child_octant_for(&current_bounds, position);
+            let target_child_occupies = octant_bitmask(target_child_octant);
 
             if current_bounds.size > insert_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
@@ -57,23 +58,24 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         },
                     ));
                 } else {
-                    let is_full_match = self.nodes.get(current_node_key).is_all(&data);
+                    let is_full_match = current_node.is_all(&data);
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_leaf() && is_full_match {
+                    if current_node.is_leaf() && is_full_match {
                         // The current Node is a leaf, but the data stored equals the data to be set, so no need to go deeper as tha data already matches
                         break;
                     }
-                    if self.nodes.get(current_node_key).is_leaf() && !is_full_match {
+                    if current_node.is_leaf() && !is_full_match {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
-                        let content = self.nodes.get(current_node_key).clone();
-                        let new_children = self.make_uniform_children(content.leaf_data().clone());
+                        let new_children =
+                            self.make_uniform_children(current_node.leaf_data().clone());
 
-                        // Set node type as internal, after the insertion the count will be updated for the whole structure
-                        // Since this node in this function will only have at most 1 child node( the currently inserted node),
-                        // Internal count will be updated correctly, as the other children of this node will contain no voxels
-                        *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0);
+                        // Set node type as internal; Since this node in this function will only have
+                        // at most 1 child node( the currently inserted node ), so the occupancy bitmask
+                        // is known at this point: as the node was a leaf, it's fully occupied
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0xFF);
+
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
                             self.node_children[current_node_key][target_child_octant as u32],
@@ -84,12 +86,25 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             },
                         ));
                     } else {
-                        // current Node is a non-leaf Node, which doesn't have the child at the requested position, so it is inserted
-                        // The Node becomes non-empty, but its count remains 0; After the insertion the count will be updated for the whole structure
-                        if let NodeContent::Nothing = *self.nodes.get(current_node_key) {
-                            // A special case during the first insertion, where the root Node was empty beforehand
-                            *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0);
-                        };
+                        // current Node is a non-leaf Node, which doesn't have the child at the requested position,
+                        // so it is inserted and the Node becomes non-empty
+                        match current_node {
+                            NodeContent::Nothing => {
+                                // A special case during the first insertion, where the root Node was empty beforehand
+                                *self.nodes.get_mut(current_node_key) =
+                                    NodeContent::Internal(target_child_occupies);
+                            }
+                            NodeContent::Internal(occupied_bits) => {
+                                // the node has pre-existing children and a new child node is inserted
+                                // occupancy bitmask needs to employ that
+                                *self.nodes.get_mut(current_node_key) =
+                                    NodeContent::Internal(occupied_bits | target_child_occupies);
+                            }
+                            _ => {}
+                        }
+
+                        // The occupancy bitmask of the newly inserted child will be updated in the next
+                        // loop of the depth iteration
                         let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
                         self.node_children
                             .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
@@ -107,6 +122,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     }
                 }
             } else {
+                // current_bounds.size == min_node_size, which is the desired depth
                 let mut mat_index = Self::mat_index(&current_bounds, position);
                 let mut matrix_update_fn = |d: &mut [[[T; DIM]; DIM]; DIM]| {
                     // In case insert_size does not equal DIM, the matrix needs to be updated
@@ -129,12 +145,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 };
                 match self.nodes.get_mut(current_node_key) {
                     NodeContent::Leaf(d) => {
-                        added_nodes_count = insert_size.pow(3);
                         matrix_update_fn(d);
                     }
                     // should the current Node be anything other, than a leaf at this point, it is to be converted into one
                     _ => {
-                        added_nodes_count = current_bounds.size.pow(3);
                         if insert_size == DIM as u32 || insert_size >= current_bounds.size {
                             // update size equals matrix size, update the whole matrix
                             *self.nodes.get_mut(current_node_key) = NodeContent::leaf_from(data);
@@ -153,27 +167,26 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
         // post-processing operations
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
-        for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            match self.nodes.get(node_key as usize) {
-                NodeContent::Nothing => {
-                    // This is incorrect information which needs to be corrected
-                    // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
-                    // To correct this, the children will determine the count
-                    *self.nodes.get_mut(node_key as usize) =
-                        NodeContent::Internal(self.count_cached_children(node_key).min(255) as u8);
-                }
-                // Update the number of voxels the node contains; It can hold at maximum size*size*size voxels
-                NodeContent::Internal(contains_count) => {
-                    *self.nodes.get_mut(node_key as usize) = NodeContent::Internal(
-                        (*contains_count as u32 + added_nodes_count)
-                            .min(node_bounds.size.pow(3))
-                            .min(255) as u8,
-                    );
-                }
-                _ => {}
+        for (node_key, _node_bounds) in node_stack.into_iter().rev() {
+            let current_node = self.nodes.get(node_key as usize);
+            if !self.nodes.key_is_valid(node_key as usize)
+                || matches!(current_node, NodeContent::Leaf(_))
+            {
+                continue;
+            }
+            let previous_occupied_bits = self.occupied_bits(node_key);
+            let occupied_bits = self.occupied_bits(node_key);
+            if let NodeContent::Nothing = current_node {
+                // This is incorrect information which needs to be corrected
+                // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
+                *self.nodes.get_mut(node_key as usize) =
+                    NodeContent::Internal(self.occupied_bits(node_key));
             }
             if simplifyable {
                 simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
+            }
+            if !simplifyable && occupied_bits == previous_occupied_bits {
+                break;
             }
         }
         Ok(())
@@ -203,11 +216,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
-        let mut target_child_octant = 9; //This init value should not be used. In case there is only one node, there is parent of it;
-        let mut removed_nodes_count = 0;
+        let mut parent_target = child_octant_for(&root_bounds, position); //This init value is never used
+
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
+            let current_node = self.nodes.get(current_node_key);
+            let target_child_octant;
+
             if current_bounds.size > clear_size.max(DIM as u32) {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 target_child_octant = child_octant_for(&current_bounds, position);
@@ -225,15 +241,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     ));
                 } else {
                     // no children are available for the target octant
-                    if self.nodes.get(current_node_key).is_leaf() {
+                    if current_node.is_leaf() {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
-                        // as separate Nodes with the same data as their parent to keep integrity, the node targeted for clean will update node count correctly
-                        debug_assert!(self.nodes.get(current_node_key).is_leaf());
-                        let current_data = self.nodes.get(current_node_key).leaf_data().clone();
+                        // as separate Nodes with the same data as their parent to keep integrity, the cleared node will update occupancy bitmask correctly
+                        let current_data = current_node.leaf_data().clone();
                         let new_children = self.make_uniform_children(current_data);
-                        *self.nodes.get_mut(current_node_key) =
-                            NodeContent::Internal(current_bounds.size.pow(3).min(255) as u8);
+                        *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0xFF);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
                             self.node_children[current_node_key][target_child_octant as u32],
@@ -259,7 +273,6 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         .as_mut_leaf_ref()
                         .unwrap()[mat_index.x][mat_index.y][mat_index.z]
                         .clear();
-                    removed_nodes_count = 1;
                 } else if clear_size < DIM as u32 {
                     // update size is smaller, than the matrix, but > 1
                     mat_index.cut_each_component(&(DIM - clear_size as usize));
@@ -274,26 +287,24 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             }
                         }
                     }
-                    removed_nodes_count = clear_size.pow(3);
                 } else {
                     // The size to clear >= DIM, the whole node is to be erased
                     // unset the current node and its children
                     self.deallocate_children_of(current_node_key as u32);
 
                     // Set the parents child to None
-                    if node_stack.len() >= 2 && target_child_octant < 9 {
+                    if node_stack.len() >= 2 {
                         self.nodes.free(current_node_key);
                         let parent_key = node_stack[node_stack.len() - 2].0 as usize;
-                        self.node_children[parent_key][target_child_octant as u32] =
-                            key_none_value();
+                        self.node_children[parent_key][parent_target as u32] = key_none_value();
                     } else {
                         // If the node doesn't have parents, then it's a root node and should not be deleted
                         *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
                     }
-                    removed_nodes_count = current_bounds.size.pow(3);
                 }
                 break;
             }
+            parent_target = target_child_octant;
         }
 
         // post-processing operations
@@ -309,34 +320,15 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            match self.nodes.get(node_key as usize) {
-                NodeContent::Nothing => {
-                    *self.nodes.get_mut(node_key as usize) = if !self.node_children
-                        [node_key as usize]
-                        .is_empty()
-                    {
-                        // This is incorrect information which needs to be corrected
-                        // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
-                        // To correct this, the children will determine the count
-                        NodeContent::Internal(self.count_cached_children(node_key).min(255) as u8)
-                    } else {
-                        NodeContent::Nothing
-                    };
-                }
-                NodeContent::Internal(contains_count) => {
-                    *self.nodes.get_mut(node_key as usize) =
-                        if removed_nodes_count < *contains_count as u32 {
-                            NodeContent::Internal(
-                                (*contains_count as u32 - removed_nodes_count).min(255) as u8,
-                            )
-                        } else {
-                            NodeContent::Nothing
-                        };
-                }
-                _ => {}
-            }
+            let previous_occupied_bits = self.occupied_bits(node_key);
+            let occupied_bits = self.occupied_bits(node_key);
+            *self.nodes.get_mut(node_key as usize) = if 0 != occupied_bits {
+                NodeContent::Internal(occupied_bits)
+            } else {
+                NodeContent::Nothing
+            };
             if let Some((child_bounds, child_key)) = empty_child {
-                // If the child of this node wasset to NodeContent::Nothing during this clear operation
+                // If the child of this node was set to NodeContent::Nothing during this clear operation
                 // it needs to be freed up, and the child index of this node needs to be updated as well
                 let child_octant = hash_region(
                     &(V3c::from(child_bounds.min_position - node_bounds.min_position)
@@ -353,6 +345,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
             if simplifyable {
                 simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
+            }
+            if !simplifyable && previous_occupied_bits == occupied_bits {
+                break;
             }
         }
         Ok(())

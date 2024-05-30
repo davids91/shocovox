@@ -1,7 +1,7 @@
-use crate::octree::{raytracing::types::NodeStackItem, Cube, NodeContent, Octree, V3c, VoxelData};
+use crate::octree::{raytracing::types::NodeStackItem, Cube, Octree, V3c, VoxelData};
 
 use crate::spatial::{
-    math::{hash_region, offset_region},
+    math::{hash_region, is_bitmask_occupied_at_octant, offset_region},
     raytracing::{CubeRayIntersection, Ray},
     FLOAT_ERROR_TOLERANCE,
 };
@@ -11,6 +11,7 @@ impl NodeStackItem {
         bounds: Cube,
         bounds_intersection: CubeRayIntersection,
         node: u32,
+        occupied_bits: u8,
         target_octant: u8,
     ) -> Self {
         let child_center = Into::<V3c<f32>>::into(bounds.min_position)
@@ -20,6 +21,7 @@ impl NodeStackItem {
             bounds_intersection,
             bounds,
             node,
+            occupied_bits,
             target_octant,
             child_center,
         }
@@ -214,6 +216,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 root_bounds,
                 root_hit,
                 Octree::<T, DIM>::ROOT_NODE_KEY,
+                self.occupied_bits(Octree::<T, DIM>::ROOT_NODE_KEY),
                 target_octant,
             ));
         }
@@ -230,11 +233,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             if !node_stack_top.contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
-                || match current_node {
-                    NodeContent::Nothing => true,
-                    NodeContent::Internal(count) => 0 == *count,
-                    _ => false,
-                }
+                || node_stack_top.occupied_bits == 0
             {
                 // POP
                 let popped_target = node_stack.pop().unwrap();
@@ -297,11 +296,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let mut target_bounds = current_bounds.child_bounds_for(target_octant);
             let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
             let target_is_empty = !self.nodes.key_is_valid(target_child_key as usize)
-                || match self.nodes.get(target_child_key as usize) {
-                    NodeContent::Internal(count) => 0 == *count,
-                    NodeContent::Leaf(_) => false,
-                    _ => true,
-                };
+                || !is_bitmask_occupied_at_octant(node_stack_top.occupied_bits, target_octant);
             let target_hit = target_bounds.intersect_ray(&ray);
             if !target_is_empty && target_hit.is_some() {
                 // PUSH
@@ -314,6 +309,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     target_bounds,
                     target_hit.unwrap(),
                     target_child_key,
+                    self.occupied_bits(target_child_key),
                     child_target_octant,
                 ));
             } else {
@@ -323,11 +319,10 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 loop {
                     if !node_stack.last().unwrap().contains_target_center()
                         || (self.nodes.key_is_valid(target_child_key as usize)
-                            && match self.nodes.get(target_child_key as usize) {
-                                NodeContent::Nothing => false,
-                                NodeContent::Internal(count) => 0 < *count,
-                                _ => true,
-                            })
+                            && is_bitmask_occupied_at_octant(
+                                node_stack.last().unwrap().occupied_bits,
+                                target_octant,
+                            ))
                     {
                         // stop advancing because current target is OOB or not empty while inside bounds
                         break;

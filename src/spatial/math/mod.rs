@@ -34,6 +34,20 @@ pub fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
         + (offset.y >= half_size) as u8 * 4
 }
 
+/// Returns with a bitmask to select the relevant octant based on the relative position
+/// and size of the covered area
+pub(crate) fn position_bitmask(offset: &V3c<f32>, size: f32) -> u8 {
+    0x01 << hash_region(offset, size)
+}
+
+pub(crate) fn octant_bitmask(octant: u8) -> u8 {
+    0x01 << octant
+}
+
+pub(crate) fn is_bitmask_occupied_at_octant(bitmask: u8, octant: u8) -> bool {
+    0 < bitmask & octant_bitmask(octant)
+}
+
 #[allow(dead_code)] // Could be useful either for debugging or new implementations
 #[cfg(feature = "raytracing")]
 /// calculates the distance between the line, and the plane both described by a ray
