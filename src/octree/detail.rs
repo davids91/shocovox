@@ -229,10 +229,6 @@ where
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
-
-    pub(crate) fn is_size_inadequate(size: u32) -> bool {
-        0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0
-    }
 }
 
 impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {

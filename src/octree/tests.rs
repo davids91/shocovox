@@ -4,6 +4,11 @@ mod octree_serialization_tests {
     use crate::octree::V3c;
 
     #[test]
+    fn test_node_children_serialization() {
+        todo!()
+    }
+
+    #[test]
     fn test_octree_file_io() {
         let mut tree = Octree::<u32>::new(4).ok().unwrap();
 

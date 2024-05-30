@@ -30,11 +30,35 @@ pub(crate) struct Voxelement {
 #[cfg(feature = "bevy_wgpu")]
 #[derive(Clone, ShaderType)]
 pub(crate) struct SizedNode {
-    pub(crate) contains_nodes: u32, // it is a leaf if it contains 1 node and has no children
-    pub(crate) children: [u32; 8],  // Either an index or a "none value"
-    pub(crate) voxels_start_at: u32, // index of where the voxel values contained in the node start inside the voxels buffer,
-                                     // or a "none_value". Should the field contain an index, the next voxel_matrix_dim^3 elements
-                                     // inside the voxels buffer count as part of the nodes voxel
+    /// Composite field:
+    /// - Byte 1: Boolean value, true in case node is a leaf
+    /// - In case of internal nodes:
+    ///   - Byte 2: TBD
+    ///   - Byte 3: TBD
+    ///   - Byte 4: Lvl2 Occupancy bitmask
+    /// - In case of leaf nodes:
+    ///   - Byte 2: TBD
+    ///   - Byte 3: TBD
+    ///   - Byte 4: TBD
+    pub(crate) sized_node_meta: u32,
+
+    /// - In case of internal nodes:
+    ///   - Index values of node children
+    /// - In case of leaf nodes:
+    ///   - Byte 1-4: Occupancy bitmask MSB
+    ///   - Byte 5-8: Occupancy bitmask LSB
+    ///   - Byte 9-12: TBD
+    ///   - Byte 13-16: TBD
+    ///   - Byte 17-20: TBD
+    ///   - Byte 21-24: TBD
+    ///   - Byte 25-28: TBD
+    ///   - Byte 29-32: TBD
+    pub(crate) children: [u32; 8],
+
+    /// index of where the voxel values contained in the node start inside the voxels buffer,
+    /// or a "none_value". Should the field contain an index, the next voxel_matrix_dim^3 elements
+    /// inside the @voxels array count as part of the voxels associated with the node
+    pub(crate) voxels_start_at: u32,
 }
 
 #[cfg(feature = "bevy_wgpu")]

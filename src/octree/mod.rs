@@ -49,9 +49,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
     }
 
     /// creates an octree with overall size nodes_dimension * DIM
-    /// * `size` - must be `DIM * (2^x)`, e.g: DIM == 3 --> size can be 3,6,12,24,48 ...
+    /// Generic parameter DIM must be one of `(2^x)`
+    /// * `size` - must be `DIM * (2^x)`, e.g: DIM == 2 --> size can be 2,4,8,16,32...
     pub fn new(size: u32) -> Result<Self, OctreeError> {
-        if Self::is_size_inadequate(size) {
+        if DIM != 1 && 0 != DIM % 4 {
+            return Err(OctreeError::InvalidBrickDimension(DIM as u32));
+        }
+        if 0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidNodeSize(size));
         }
         let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(size.pow(3) as usize);

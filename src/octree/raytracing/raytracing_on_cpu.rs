@@ -234,6 +234,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             if !node_stack_top.contains_target_center() // If current target is OOB
                 // No need to go into the Node if it's empty
                 || node_stack_top.occupied_bits == 0
+            // Occupancy bitmask being 0 essentially means the node is empty
             {
                 // POP
                 let popped_target = node_stack.pop().unwrap();

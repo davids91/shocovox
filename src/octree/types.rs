@@ -16,6 +16,7 @@ pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
 #[derive(Debug)]
 pub enum OctreeError {
     InvalidNodeSize(u32),
+    InvalidBrickDimension(u32),
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
@@ -25,6 +26,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
+    OccupancyBitmask(u64), // In case of leaf nodes
 }
 
 #[derive(Debug, Copy, Clone)]

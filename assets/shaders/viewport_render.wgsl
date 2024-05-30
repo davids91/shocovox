@@ -181,16 +181,24 @@ struct NodeStackItem {
     bounds_intersection: CubeRayIntersection,
     bounds: Cube,
     node: u32,
+    sized_node_meta: u32,
     target_octant: u32,
     child_center: vec3f,
 }
 
 //crate::octree:raytracing::NodeStackItem::new
-fn new_node_stack_item(bounds: Cube, cube_intersection: CubeRayIntersection, node: u32, target_octant: u32) -> NodeStackItem {
+fn new_node_stack_item(
+    bounds: Cube,
+    cube_intersection: CubeRayIntersection,
+    node: u32,
+    sized_node_meta: u32,
+    target_octant: u32
+) -> NodeStackItem {
     var result: NodeStackItem;
     result.bounds = bounds;
     result.bounds_intersection = cube_intersection;
     result.node = node;
+    result.sized_node_meta = sized_node_meta;
     result.target_octant = target_octant;
     result.child_center = (
         bounds.min_position + (bounds.size / 4.)
@@ -268,25 +276,31 @@ fn dda_step_to_next_sibling(
 
 const key_none_value : u32 = 4294967295u;
 
-//Unique to this implementation, not adapted from rust code
-fn is_leaf(node: SizedNode, dimension: u32) -> bool{
-    if node.children[0] != key_none_value
-    || node.children[1] != key_none_value
-    || node.children[2] != key_none_value
-    || node.children[3] != key_none_value
-    || node.children[4] != key_none_value
-    || node.children[5] != key_none_value
-    || node.children[6] != key_none_value
-    || node.children[7] != key_none_value {
-        return false;
-    }
-    return node.contains_nodes <= (
-        dimension * dimension * dimension
-    );
+// Unique to this implementation, not adapted from rust code, corresponds to:
+// crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_is_leaf
+fn is_leaf(sized_node_meta: u32) -> bool {
+    return 0 < (0x01000000 & sized_node_meta);
 }
 
+// Unique to this implementation, not adapted from rust code, corresponds to:
+// crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_lvl2_occupancy_bitmask
+fn get_lvl2_occupancy_bitmask(sized_node_meta: u32) -> u32 {
+    return (0x000000FF & sized_node_meta);
+}
+
+// Unique to this implementation, not adapted from rust code
 fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
+}
+
+// crate::spatial::math::is_bitmask_occupied_at_octant
+fn is_bitmask_occupied_at_octant(bitmask: u32, octant: u32) -> bool {
+    return 0 < (
+        ( bitmask & 0x000000FF )
+        & ( // crate::spatial::math::octant_bitmask
+            0x00000001u << (octant & 0x000000FF)
+        )
+    );
 }
 
 struct MatrixHit{
@@ -397,7 +411,9 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         );
         node_stack[0] = new_node_stack_item(
             root_bounds, root_intersection,
-            OCTREE_ROOT_NODE_KEY, target_octant
+            OCTREE_ROOT_NODE_KEY,
+            nodes[OCTREE_ROOT_NODE_KEY].sized_node_meta,
+            target_octant
         );
         node_stack_i = 1;
     }
@@ -408,7 +424,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         let current_bounds_ray_intersection = node_stack[node_stack_i - 1].bounds_intersection;
         var current_node = nodes[node_stack[node_stack_i - 1].node];
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
-            || current_node.contains_nodes == 0u
+            || get_lvl2_occupancy_bitmask(current_node.sized_node_meta) == 0u
         ){
             // POP
             let popped_target = node_stack[node_stack_i - 1];
@@ -426,7 +442,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             continue;
         }
 
-        if is_leaf(current_node, dimension) {
+        if is_leaf(current_node.sized_node_meta) {
             let leaf_matrix_hit = traverse_matrix(
                 ray, &current_d, ray_scale_factors,
                 current_node.voxels_start_at,
@@ -484,7 +500,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         var target_child_key = current_node.children[target_octant];
         let target_is_empty = (
             target_child_key >= voxelement_count //!crate::object_pool::key_is_valid
-            || nodes[target_child_key].contains_nodes == 0u
+            || !is_bitmask_occupied_at_octant(current_node.sized_node_meta, target_octant)
         );
 
         let target_hit = cube_intersect_ray(target_bounds, ray);
@@ -496,7 +512,10 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 target_bounds.size
             );
             node_stack[node_stack_i] = new_node_stack_item(
-                target_bounds, target_hit, target_child_key, child_target_octant
+                target_bounds, target_hit,
+                target_child_key,
+                nodes[target_child_key].sized_node_meta,
+                child_target_octant
             );
             node_stack_i += 1;
         } else {
@@ -505,7 +524,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 if ((!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
                  || (
                     target_child_key < voxelement_count //crate::object_pool::key_is_valid
-                    && 0u < nodes[target_child_key].contains_nodes
+                    && is_bitmask_occupied_at_octant(current_node.sized_node_meta, target_octant)
                 )) {
                     break;
                 }
@@ -549,7 +568,7 @@ fn is_empty(e: Voxelement) -> bool {
 }
 
 struct SizedNode {
-    contains_nodes: u32,
+    sized_node_meta: u32,
     children: array<u32, 8>,
     voxels_start_at: u32,
 }
@@ -583,21 +602,22 @@ var<storage, read_write> voxels: array<Voxelement>;
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
+    let viewport_ = viewport; //Read only once from global RAM
     let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
-        viewport_up_direction, viewport.direction
+        viewport_up_direction, viewport_.direction
     ));
     let 
-    viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.fov)
-        - (viewport_right_direction * (viewport.size.x / 2.))
-        - (viewport_up_direction * (viewport.size.y / 2.))
+    viewport_bottom_left = viewport_.origin 
+        + (viewport_.direction * viewport_.fov)
+        - (viewport_right_direction * (viewport_.size.x / 2.))
+        - (viewport_up_direction * (viewport_.size.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * mesh.uv.x
-        + viewport_up_direction * viewport.size.y * (1. - mesh.uv.y)
+        + viewport_right_direction * viewport_.size.x * mesh.uv.x
+        + viewport_up_direction * viewport_.size.y * (1. - mesh.uv.y)
         ;
-    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
+    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport_.origin));
 
     var ray_result = get_by_ray(ray);
     var rgb_result = vec3f(0.5,0.5,0.5);
