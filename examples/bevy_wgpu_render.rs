@@ -25,7 +25,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OctreeViewMaterial>>,
 ) {
-    use shocovox_rs::octree::raytracing::Viewport;
+    use shocovox_rs::octree::{raytracing::Viewport, types::Albedo};
 
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -52,11 +52,13 @@ fn setup(
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<u32, 16>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, 16>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok().unwrap();
+    tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
+        .ok()
+        .unwrap();
     for x in 0..ARRAY_DIMENSION {
         for y in 0..ARRAY_DIMENSION {
             for z in 0..ARRAY_DIMENSION {
@@ -83,15 +85,17 @@ fn setup(
                     } else {
                         128
                     };
-                    tree.insert(&V3c::new(x, y, z), r | (g << 8) | (b << 16) | 0xFF000000)
-                        .ok()
-                        .unwrap();
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        Albedo::from(r | (g << 8) | (b << 16) | 0xFF000000),
+                    )
+                    .ok()
+                    .unwrap();
                 }
             }
         }
     }
-    let quad_count = 1;
-    let quad_size = 10. / quad_count as f32;
+    let quad_size = 10.;
     let mesh_handle = meshes.add(Mesh::from(Rectangle {
         half_size: Vec2::new(quad_size, quad_size) / 2.,
     }));
@@ -106,14 +110,12 @@ fn setup(
         size: Vec2::new(10., 10.),
         fov: 3.,
     }));
-    for x in 0..quad_count {
-        commands.spawn(MaterialMeshBundle {
-            mesh: mesh_handle.clone(),
-            material: material_handle.clone(),
-            transform: Transform::from_xyz((x as f32 * quad_size) + 0.5, x as f32 / 5., 0.0),
-            ..Default::default()
-        });
-    }
+    commands.spawn(MaterialMeshBundle {
+        mesh: mesh_handle.clone(),
+        material: material_handle.clone(),
+        transform: Transform::from_xyz(quad_size + 0.5, 0.0, 0.0),
+        ..Default::default()
+    });
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -167,4 +169,7 @@ fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut mats: ResMut<Assets<OctreeVi
 }
 
 #[cfg(not(feature = "bevy_wgpu"))]
-fn main() {} //nothing to do when the feature is not enabled
+fn main() {
+    println!("You probably forgot to enable the bevy_wgpu feature!");
+    //nothing to do when the feature is not enabled
+}

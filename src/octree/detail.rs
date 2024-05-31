@@ -39,14 +39,14 @@ where
 
     pub(in crate::octree) fn new(default_key: T) -> Self {
         Self {
-            default_key,
+            no_child_marker_key: default_key,
             content: NodeChildrenArray::default(),
         }
     }
 
     pub(in crate::octree) fn from(default_key: T, children: [T; 8]) -> Self {
         Self {
-            default_key,
+            no_child_marker_key: default_key,
             content: NodeChildrenArray::Children(children),
         }
     }
@@ -61,8 +61,8 @@ where
     pub(in crate::octree) fn clear(&mut self, child_index: usize) {
         debug_assert!(child_index < 8);
         if let NodeChildrenArray::Children(c) = &mut self.content {
-            c[child_index] = self.default_key.clone();
-            if 8 == c.iter().filter(|e| **e == self.default_key).count() {
+            c[child_index] = self.no_child_marker_key.clone();
+            if 8 == c.iter().filter(|e| **e == self.no_child_marker_key).count() {
                 self.content = NodeChildrenArray::NoChildren;
             }
         }
@@ -77,7 +77,7 @@ where
             NodeChildrenArray::Children(c) => {
                 let mut result = 0;
                 for (child_octant, child) in c.iter().enumerate().take(8) {
-                    if *child != self.default_key {
+                    if *child != self.no_child_marker_key {
                         result |= octant_bitmask(child_octant as u8);
                     }
                 }
@@ -92,14 +92,14 @@ where
         match &self.content {
             NodeChildrenArray::Children(c) => c.clone(),
             _ => [
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
+                self.no_child_marker_key.clone(),
             ],
         }
     }
@@ -117,7 +117,7 @@ where
     fn index(&self, index: u32) -> &T {
         match &self.content {
             NodeChildrenArray::Children(c) => &c[index as usize],
-            _ => &self.default_key,
+            _ => &self.no_child_marker_key,
         }
     }
 }
@@ -128,7 +128,7 @@ where
 {
     fn index_mut(&mut self, index: u32) -> &mut T {
         if let NodeChildrenArray::NoChildren = &mut self.content {
-            self.content = NodeChildrenArray::Children([self.default_key; 8]);
+            self.content = NodeChildrenArray::Children([self.no_child_marker_key; 8]);
         }
         match &mut self.content {
             NodeChildrenArray::Children(c) => &mut c[index as usize],
@@ -313,16 +313,16 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 }
             }
             *self.nodes.get_mut(node as usize) = data;
-            self.deallocate_children_of(node); // no need to use this as all the children are leaves, but it's more understanfdable this way
+            self.deallocate_children_of(node); // no need to use this as all the children are leaves, but it's more understandable this way
             true
         } else {
             false
         }
     }
 
-    /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
+    /// Calculates the occupied bits of a Node; For empty nodes(NodeContent::Nothing) as well;
     /// As they might be empty by fault and to correct them the occupied bits is required.
-    /// Leaf nodes are all oocupied by default
+    /// Leaf nodes are all occupied by default
     pub(in crate::octree) fn occupied_bits(&self, node: u32) -> u8 {
         match self.nodes.get(node as usize) {
             NodeContent::Leaf(_) => 0xFF,
@@ -330,3 +330,6 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
     }
 }
+
+#[cfg(test)]
+mod occupied_bits_tests {}
