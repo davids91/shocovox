@@ -1,4 +1,5 @@
 use crate::object_pool::key_none_value;
+use crate::octree::types::NodeChildrenArray;
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
     hash_region,
@@ -6,7 +7,7 @@ use crate::octree::{
     Octree, VoxelData,
 };
 use crate::spatial::{
-    math::{octant_bitmask, offset_region, vector::V3c},
+    math::{octant_bitmask, offset_region, set_occupancy_in_bitmap_64bits, vector::V3c},
     Cube,
 };
 
@@ -124,28 +125,33 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             } else {
                 // current_bounds.size == min_node_size, which is the desired depth
                 let mut mat_index = Self::mat_index(&current_bounds, position);
-                let mut matrix_update_fn = |d: &mut [[[T; DIM]; DIM]; DIM]| {
-                    // In case insert_size does not equal DIM, the matrix needs to be updated
-                    if insert_size == 1 {
-                        d[mat_index.x][mat_index.y][mat_index.z] = data.clone();
-                    } else if insert_size < DIM as u32 {
+                let mut matrix_update_fn =
+                    |d: &mut [[[T; DIM]; DIM]; DIM],
+                     node_children_array: &mut NodeChildrenArray<u32>| {
+                        debug_assert!(insert_size <= DIM as u32);
+                        // In case insert_size does not equal DIM, the matrix needs to be updated
                         // update size is smaller, than the matrix, but > 1
                         // simulate the Nodes layout and update accordingly
                         mat_index.cut_each_component(&(DIM - insert_size as usize));
-                        for x in d.iter_mut().skip(mat_index.x).take(insert_size as usize) {
-                            for y in x.iter_mut().skip(mat_index.x).take(insert_size as usize) {
-                                for item in
-                                    y.iter_mut().skip(mat_index.x).take(insert_size as usize)
-                                {
-                                    *item = data.clone();
+                        if !matches!(node_children_array, NodeChildrenArray::OccupancyBitmask(_)) {
+                            *node_children_array = NodeChildrenArray::OccupancyBitmask(0);
+                        }
+                        for x in mat_index.x..(mat_index.x + insert_size as usize) {
+                            for y in mat_index.y..(mat_index.y + insert_size as usize) {
+                                for z in mat_index.z..(mat_index.z + insert_size as usize) {
+                                    d[x][y][z] = data.clone();
+                                    if let NodeChildrenArray::OccupancyBitmask(bitmask) =
+                                        node_children_array
+                                    {
+                                        set_occupancy_in_bitmap_64bits(x, y, z, DIM, true, bitmask);
+                                    }
                                 }
                             }
                         }
-                    }
-                };
+                    };
                 match self.nodes.get_mut(current_node_key) {
                     NodeContent::Leaf(d) => {
-                        matrix_update_fn(d);
+                        matrix_update_fn(d, &mut self.node_children[current_node_key].content);
                     }
                     // should the current Node be anything other, than a leaf at this point, it is to be converted into one
                     _ => {
@@ -153,11 +159,18 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             // update size equals matrix size, update the whole matrix
                             *self.nodes.get_mut(current_node_key) = NodeContent::leaf_from(data);
                             self.deallocate_children_of(node_stack.last().unwrap().0);
+                            self.node_children[current_node_key] =
+                                NodeChildren::bitmasked(key_none_value(), u64::MAX); // New full leaf node
                             break;
                         } else {
                             *self.nodes.get_mut(current_node_key) =
                                 NodeContent::leaf_from(T::default());
-                            matrix_update_fn(self.nodes.get_mut(current_node_key).mut_leaf_data());
+                            self.node_children[current_node_key] =
+                                NodeChildren::bitmasked(key_none_value(), 0); // New empty leaf node
+                            matrix_update_fn(
+                                self.nodes.get_mut(current_node_key).mut_leaf_data(),
+                                &mut self.node_children[current_node_key].content,
+                            );
                         }
                     }
                 }
@@ -174,13 +187,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             {
                 continue;
             }
-            let previous_occupied_bits = self.occupied_bits(node_key);
-            let occupied_bits = self.occupied_bits(node_key);
+            let previous_occupied_bits = self.occupied_bits_not_leaf(node_key);
+            let occupied_bits = self.occupied_bits_not_leaf(node_key);
             if let NodeContent::Nothing = current_node {
                 // This is incorrect information which needs to be corrected
                 // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
                 *self.nodes.get_mut(node_key as usize) =
-                    NodeContent::Internal(self.occupied_bits(node_key));
+                    NodeContent::Internal(self.occupied_bits_not_leaf(node_key));
             }
             if simplifyable {
                 simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
@@ -267,13 +280,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
                 let mut mat_index = Self::mat_index(&current_bounds, position);
-                if clear_size == 1 {
-                    self.nodes
-                        .get_mut(current_node_key)
-                        .as_mut_leaf_ref()
-                        .unwrap()[mat_index.x][mat_index.y][mat_index.z]
-                        .clear();
-                } else if clear_size < DIM as u32 {
+                if clear_size < DIM as u32 {
                     // update size is smaller, than the matrix, but > 1
                     mat_index.cut_each_component(&(DIM - clear_size as usize));
                     for x in mat_index.x..(mat_index.x + clear_size as usize) {
@@ -284,6 +291,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                                     .as_mut_leaf_ref()
                                     .unwrap()[x][y][z]
                                     .clear();
+
+                                if let NodeChildrenArray::OccupancyBitmask(bitmask) =
+                                    &mut self.node_children[current_node_key].content
+                                {
+                                    set_occupancy_in_bitmap_64bits(x, y, z, DIM, false, bitmask);
+                                } else {
+                                    debug_assert!(false); // Leaf node should have an occupancy bitmask!
+                                }
                             }
                         }
                     }
@@ -297,6 +312,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         self.nodes.free(current_node_key);
                         let parent_key = node_stack[node_stack.len() - 2].0 as usize;
                         self.node_children[parent_key][parent_target as u32] = key_none_value();
+                        let new_occupied_bits = self.occupied_bits_not_leaf(parent_key as u32);
+                        if let NodeContent::Internal(occupied_bits) = self.nodes.get_mut(parent_key)
+                        {
+                            *occupied_bits = new_occupied_bits;
+                        } else {
+                            debug_assert!(false); // Parent Node should be internal by type!
+                        }
                     } else {
                         // If the node doesn't have parents, then it's a root node and should not be deleted
                         *self.nodes.get_mut(current_node_key) = NodeContent::Nothing;
@@ -310,8 +332,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         // post-processing operations
         let mut empty_child: Option<(Cube, usize)> = None;
         if let Some((node_key, node_bounds)) = node_stack.pop() {
+            debug_assert!(
+                !self.nodes.key_is_valid(node_key as usize)
+                    || (self.nodes.get(node_key as usize).is_empty()
+                        == self.node_children[node_key as usize].is_empty())
+            );
             if self.nodes.key_is_valid(node_key as usize)
-                && self.nodes.get(node_key as usize).is_empty()
+                && self.node_children[node_key as usize].is_empty()
             {
                 // If the updated node is empty, mark it as such
                 *self.nodes.get_mut(node_key as usize) = NodeContent::Nothing;
@@ -320,8 +347,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            let previous_occupied_bits = self.occupied_bits(node_key);
-            let occupied_bits = self.occupied_bits(node_key);
+            let previous_occupied_bits = self.occupied_bits_not_leaf(node_key);
+            let occupied_bits = self.occupied_bits_not_leaf(node_key);
             *self.nodes.get_mut(node_key as usize) = if 0 != occupied_bits {
                 NodeContent::Internal(occupied_bits)
             } else {
@@ -351,5 +378,42 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             }
         }
         Ok(())
+    }
+
+    /// Updates the given node recursively to collapse nodes with uniform children into a leaf
+    pub(in crate::octree) fn simplify(&mut self, node: u32) -> bool {
+        let mut data = NodeContent::Nothing;
+        if self.nodes.key_is_valid(node as usize) {
+            match self.nodes.get(node as usize) {
+                NodeContent::Leaf(_) | NodeContent::Nothing => {
+                    return true;
+                }
+                _ => {}
+            }
+            for i in 0..8 {
+                let child_key = self.node_children[node as usize][i];
+                if self.nodes.key_is_valid(child_key as usize) {
+                    if let Some(leaf_data) = self.nodes.get(child_key as usize).as_leaf_ref() {
+                        if !data.is_leaf() {
+                            data = NodeContent::Leaf(leaf_data.clone());
+                        } else if data.leaf_data() != leaf_data {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            self.deallocate_children_of(node);
+            self.node_children[node as usize].content =
+                NodeChildrenArray::OccupancyBitmask(Self::occupancy_bitmask(data.leaf_data()));
+            *self.nodes.get_mut(node as usize) = data;
+
+            true
+        } else {
+            false
+        }
     }
 }

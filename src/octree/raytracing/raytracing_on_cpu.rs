@@ -1,7 +1,11 @@
-use crate::octree::{raytracing::types::NodeStackItem, Cube, Octree, V3c, VoxelData};
+use crate::octree::{
+    raytracing::types::NodeStackItem, types::NodeChildrenArray, Cube, Octree, V3c, VoxelData,
+};
 
 use crate::spatial::{
-    math::{hash_region, is_bitmask_occupied_at_octant, offset_region},
+    math::{
+        get_occupancy_in_bitmap_64bits, hash_region, is_bitmask_occupied_at_octant, offset_region,
+    },
     raytracing::{CubeRayIntersection, Ray},
     FLOAT_ERROR_TOLERANCE,
 };
@@ -114,6 +118,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         ray_current_distance: &mut f32,
         ray_scale_factors: &V3c<f32>,
         matrix: &[[[T; DIM]; DIM]; DIM],
+        matrix_occupied_bits: u64,
         bounds: &Cube,
         intersection: &CubeRayIntersection,
     ) -> Option<V3c<usize>> {
@@ -145,7 +150,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 return None;
             }
 
-            if !matrix[current_index.x as usize][current_index.y as usize][current_index.z as usize]
+            if get_occupancy_in_bitmap_64bits(
+                current_index.x as usize,
+                current_index.y as usize,
+                current_index.z as usize,
+                DIM,
+                matrix_occupied_bits,
+            ) || !matrix[current_index.x as usize][current_index.y as usize]
+                [current_index.z as usize]
                 .is_empty()
             {
                 return Some(V3c::<usize>::from(current_index));
@@ -216,7 +228,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 root_bounds,
                 root_hit,
                 Octree::<T, DIM>::ROOT_NODE_KEY,
-                self.occupied_bits(Octree::<T, DIM>::ROOT_NODE_KEY),
+                self.occupied_bits_not_leaf(Octree::<T, DIM>::ROOT_NODE_KEY),
                 target_octant,
             ));
         }
@@ -227,6 +239,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let current_bounds_ray_intersection = node_stack_top.bounds_intersection;
             let current_node_key = node_stack_top.node as usize;
             let current_node = self.nodes.get(current_node_key);
+
             debug_assert!(self
                 .nodes
                 .key_is_valid(node_stack.last().unwrap().node as usize));
@@ -251,11 +264,19 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 continue; // Re-calculate current_bounds and ray intersection
             }
             if current_node.is_leaf() {
+                debug_assert!(matches!(
+                    self.node_children[current_node_key].content,
+                    NodeChildrenArray::OccupancyBitmask(_)
+                ));
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     &ray,
                     &mut current_d,
                     &ray_scale_factors,
                     current_node.leaf_data(),
+                    match self.node_children[current_node_key].content {
+                        NodeChildrenArray::OccupancyBitmask(bitmask) => bitmask,
+                        _ => panic!("Found Leaf Node without occupancy bitmask!"),
+                    },
                     &current_bounds,
                     &current_bounds_ray_intersection,
                 ) {
@@ -310,7 +331,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     target_bounds,
                     target_hit.unwrap(),
                     target_child_key,
-                    self.occupied_bits(target_child_key),
+                    self.occupied_bits_not_leaf(target_child_key),
                     child_target_octant,
                 ));
             } else {

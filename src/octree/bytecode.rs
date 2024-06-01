@@ -194,12 +194,10 @@ impl FromBencode for NodeChildren<u32> {
                             c.try_into().ok().unwrap(),
                         ))
                     }
-                    "##b##" => Ok(NodeChildren {
-                        default_key: key_none_value(),
-                        content: NodeChildrenArray::OccupancyBitmask(u64::decode_bencode_object(
-                            list.next_object()?.unwrap(),
-                        )?),
-                    }),
+                    "##b##" => Ok(NodeChildren::bitmasked(
+                        key_none_value(),
+                        u64::decode_bencode_object(list.next_object()?.unwrap())?,
+                    )),
                     s => Err(bendy::decoding::Error::unexpected_token(
                         "A NodeChildren marker, either ##b## or ##c##",
                         s,

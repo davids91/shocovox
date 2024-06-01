@@ -1,11 +1,40 @@
 #[cfg(test)]
 mod octree_serialization_tests {
+    use bendy::decoding::FromBencode;
+
+    use crate::object_pool::key_none_value;
+    use crate::octree::types::NodeChildren;
     use crate::octree::Octree;
     use crate::octree::V3c;
 
     #[test]
     fn test_node_children_serialization() {
-        todo!()
+        use bendy::encoding::ToBencode;
+
+        let node_children_empty = NodeChildren::new(key_none_value());
+        let node_children_filled = NodeChildren::from(key_none_value(), [1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_children_bitmask = NodeChildren::bitmasked(key_none_value(), 666);
+
+        let serialized_node_children_empty = node_children_empty.to_bencode();
+        let serialized_node_children_filled = node_children_filled.to_bencode();
+        let serialized_node_children_bitmask = node_children_bitmask.to_bencode();
+
+        let deserialized_node_children_empty =
+            NodeChildren::from_bencode(&serialized_node_children_empty.ok().unwrap())
+                .ok()
+                .unwrap();
+        let deserialized_node_children_filled =
+            NodeChildren::from_bencode(&serialized_node_children_filled.ok().unwrap())
+                .ok()
+                .unwrap();
+        let deserialized_node_children_bitmask =
+            NodeChildren::from_bencode(&serialized_node_children_bitmask.ok().unwrap())
+                .ok()
+                .unwrap();
+
+        assert!(deserialized_node_children_empty == node_children_empty);
+        assert!(deserialized_node_children_filled == node_children_filled);
+        assert!(deserialized_node_children_bitmask == node_children_bitmask);
     }
 
     #[test]
@@ -192,6 +221,41 @@ mod octree_tests {
             }
         }
         assert!(hits == 64);
+    }
+
+    #[test]
+    fn test_case_simplified_insert_separated_by_clear() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 2;
+        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    tree.insert(&V3c::new(x, y, z), 5).ok().unwrap();
+                }
+            }
+        }
+
+        tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
+        let item_at_000 = tree.get(&V3c::new(3, 3, 3));
+        assert!(item_at_000.is_none() || item_at_000.is_some_and(|v| v.is_empty()));
+
+        let mut hits = 0;
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == 5);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(hits == 511);
     }
 
     #[test]
