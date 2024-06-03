@@ -343,17 +343,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 // target child is invalid, or it does not intersect with the ray
                 // Advance iteration to the next sibling
                 loop {
-                    if !node_stack.last().unwrap().contains_target_center()
-                        || (self.nodes.key_is_valid(target_child_key as usize)
-                            && is_bitmask_occupied_at_octant(
-                                node_stack.last().unwrap().occupied_bits,
-                                target_octant,
-                            ))
-                    {
-                        // stop advancing because current target is OOB or not empty while inside bounds
-                        break;
-                    }
-
                     // step the iteration to the next sibling cell!
                     let step_vec = Self::dda_step_to_next_sibling(
                         &ray,
@@ -368,6 +357,17 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     target_octant = node_stack.last().unwrap().target_octant;
                     target_bounds = current_bounds.child_bounds_for(target_octant);
                     target_child_key = self.node_children[current_node_key][target_octant as u32];
+
+                    if !node_stack.last().unwrap().contains_target_center()
+                        || (self.nodes.key_is_valid(target_child_key as usize)
+                            && is_bitmap_occupied_at_octant(
+                                node_stack.last().unwrap().occupied_bits,
+                                target_octant,
+                            ))
+                    {
+                        // stop advancing because current target is OOB or not empty while inside bounds
+                        break;
+                    }
                 }
             }
         }

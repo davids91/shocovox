@@ -196,7 +196,6 @@ mod octree_raytracing_tests {
         }
 
         for p in filled.into_iter() {
-            println!("targeting point: {:?}", p);
             let ray = make_edge_ray_point_to(
                 &V3c::new(p.x as f32 + 0.1, p.y as f32 + 0.1, p.z as f32 + 0.1),
                 &mut rng,
@@ -512,8 +511,6 @@ mod octree_raytracing_tests {
     fn test_edge_case_matrix_undetected() {
         let mut tree = Octree::<u32, 4>::new(4).ok().unwrap();
 
-        println!("Normalized vec: {:?}", V3c::new(1., 0.8, 0.).normalized());
-
         for x in 0..4 {
             for z in 0..4 {
                 tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
@@ -630,7 +627,6 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
-            println!("result is {:?}", v);
             *v.0 == 0xFF000000 && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
     }

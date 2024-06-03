@@ -526,14 +526,6 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         } else {
             // ADVANCE
             loop{
-                if ((!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
-                 || (
-                    target_child_key < voxelement_count //crate::object_pool::key_is_valid
-                    && is_bitmask_occupied_at_octant(current_node.sized_node_meta, target_octant)
-                )) {
-                    break;
-                }
-
                 let step_vec = dda_step_to_next_sibling(
                     ray,
                     &current_d,
@@ -550,6 +542,17 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                     node_stack[node_stack_i - 1].target_octant
                 );
                 target_child_key = current_node.children[target_octant];
+
+                if (
+                    (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
+                    || (
+                      target_child_key < voxelement_count //crate::object_pool::key_is_valid
+                      &&
+                      is_bitmap_occupied_at_octant(current_node.sized_node_meta, target_octant)
+                    )
+                ){
+                    break;
+                }
             }
         }
     }
