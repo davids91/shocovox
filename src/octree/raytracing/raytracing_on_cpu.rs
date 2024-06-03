@@ -42,6 +42,12 @@ impl NodeStackItem {
     pub(crate) fn contains_target_center(&self) -> bool {
         self.bounds.contains_point(&self.child_center)
     }
+
+    /// Returns true if the Node represented by this item is empty
+    /// Occupancy bitmask being 0 essentially means the node is empty
+    pub(crate) fn is_empty(&self) -> bool {
+        self.occupied_bits == 0
+    }
 }
 
 impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: usize>
@@ -245,9 +251,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 .key_is_valid(node_stack.last().unwrap().node as usize));
 
             if !node_stack_top.contains_target_center() // If current target is OOB
-                // No need to go into the Node if it's empty
-                || node_stack_top.occupied_bits == 0
-            // Occupancy bitmask being 0 essentially means the node is empty
+                || node_stack_top.is_empty()
             {
                 // POP
                 let popped_target = node_stack.pop().unwrap();

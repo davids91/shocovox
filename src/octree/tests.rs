@@ -2,7 +2,7 @@
 mod octree_serialization_tests {
     use bendy::decoding::FromBencode;
 
-    use crate::object_pool::key_none_value;
+    use crate::object_pool::empty_marker;
     use crate::octree::types::NodeChildren;
     use crate::octree::Octree;
     use crate::octree::V3c;
@@ -11,9 +11,9 @@ mod octree_serialization_tests {
     fn test_node_children_serialization() {
         use bendy::encoding::ToBencode;
 
-        let node_children_empty = NodeChildren::new(key_none_value());
-        let node_children_filled = NodeChildren::from(key_none_value(), [1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_children_bitmask = NodeChildren::bitmasked(key_none_value(), 666);
+        let node_children_empty = NodeChildren::new(empty_marker());
+        let node_children_filled = NodeChildren::from(empty_marker(), [1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_children_bitmask = NodeChildren::bitmasked(empty_marker(), 666);
 
         let serialized_node_children_empty = node_children_empty.to_bencode();
         let serialized_node_children_filled = node_children_filled.to_bencode();

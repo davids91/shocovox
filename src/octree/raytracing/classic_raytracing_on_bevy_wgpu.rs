@@ -1,4 +1,4 @@
-use crate::object_pool::key_none_value;
+use crate::object_pool::empty_marker;
 use crate::octree::{
     raytracing::types::{OctreeMetaData, OctreeViewMaterial, SizedNode, Viewport, Voxelement},
     NodeContent,
@@ -67,7 +67,7 @@ where
             let mut sized_node = SizedNode {
                 sized_node_meta: self.create_meta(i),
                 children: self.node_children[i].get_full(),
-                voxels_start_at: key_none_value(),
+                voxels_start_at: empty_marker(),
             };
             if let NodeContent::Leaf(data) = self.nodes.get(i) {
                 sized_node.voxels_start_at = voxels.len() as u32;

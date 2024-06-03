@@ -1,4 +1,4 @@
-use crate::object_pool::key_none_value;
+use crate::object_pool::empty_marker;
 use crate::octree::types::NodeChildrenArray;
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
@@ -108,7 +108,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         // loop of the depth iteration
                         let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
                         self.node_children
-                            .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
+                            .resize(self.nodes.len(), NodeChildren::new(empty_marker()));
 
                         node_stack.push((
                             child_key,
@@ -160,13 +160,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             *self.nodes.get_mut(current_node_key) = NodeContent::leaf_from(data);
                             self.deallocate_children_of(node_stack.last().unwrap().0);
                             self.node_children[current_node_key] =
-                                NodeChildren::bitmasked(key_none_value(), u64::MAX); // New full leaf node
+                                NodeChildren::bitmasked(empty_marker(), u64::MAX); // New full leaf node
                             break;
                         } else {
                             *self.nodes.get_mut(current_node_key) =
                                 NodeContent::leaf_from(T::default());
                             self.node_children[current_node_key] =
-                                NodeChildren::bitmasked(key_none_value(), 0); // New empty leaf node
+                                NodeChildren::bitmasked(empty_marker(), 0); // New empty leaf node
                             matrix_update_fn(
                                 self.nodes.get_mut(current_node_key).mut_leaf_data(),
                                 &mut self.node_children[current_node_key].content,
@@ -311,7 +311,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     if node_stack.len() >= 2 {
                         self.nodes.free(current_node_key);
                         let parent_key = node_stack[node_stack.len() - 2].0 as usize;
-                        self.node_children[parent_key][parent_target as u32] = key_none_value();
+                        self.node_children[parent_key][parent_target as u32] = empty_marker();
                         let new_occupied_bits = self.occupied_bits_not_leaf(parent_key as u32);
                         if let NodeContent::Internal(occupied_bits) = self.nodes.get_mut(parent_key)
                         {

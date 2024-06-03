@@ -207,6 +207,11 @@ fn new_node_stack_item(
     return result;
 }
 
+//crate::octree:raytracing::NodeStackItem::is_empty
+fn node_is_empty(item: NodeStackItem) -> bool {
+    return get_lvl2_occupancy_bitmask(item.sized_node_meta) == 0u;
+}
+
 //crate::octree:raytracing::NodeStackItem::add_point
 fn add_point_to(item: NodeStackItem, point: vec3f) -> NodeStackItem {
     var result: NodeStackItem = item;
@@ -424,7 +429,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         let current_bounds_ray_intersection = node_stack[node_stack_i - 1].bounds_intersection;
         var current_node = nodes[node_stack[node_stack_i - 1].node];
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
-            || get_lvl2_occupancy_bitmask(current_node.sized_node_meta) == 0u
+            || node_is_empty(node_stack[node_stack_i - 1])
         ){
             // POP
             let popped_target = node_stack[node_stack_i - 1];

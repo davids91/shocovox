@@ -10,7 +10,7 @@ pub mod raytracing;
 pub use crate::spatial::math::vector::V3c;
 pub use types::{Octree, VoxelData};
 
-use crate::object_pool::{key_none_value, ObjectPool};
+use crate::object_pool::{empty_marker, ObjectPool};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
     types::{NodeChildren, NodeContent, OctreeError},
@@ -60,7 +60,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
         let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(size.pow(3) as usize);
         let mut node_children = Vec::with_capacity(size.pow(3) as usize);
-        node_children.push(NodeChildren::new(key_none_value()));
+        node_children.push(NodeChildren::new(empty_marker()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {

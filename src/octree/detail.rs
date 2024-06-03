@@ -1,4 +1,4 @@
-use crate::object_pool::key_none_value;
+use crate::object_pool::empty_marker;
 use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
 use crate::octree::{hash_region, Cube, V3c};
 use crate::spatial::math::{octant_bitmask, set_occupancy_in_bitmap_64bits};
@@ -41,22 +41,22 @@ where
         }
     }
 
-    pub(in crate::octree) fn new(default_key: T) -> Self {
+    pub(in crate::octree) fn new(empty_marker: T) -> Self {
         Self {
-            default_key,
+            empty_marker,
             content: NodeChildrenArray::default(),
         }
     }
 
-    pub(in crate::octree) fn from(default_key: T, children: [T; 8]) -> Self {
+    pub(in crate::octree) fn from(empty_marker: T, children: [T; 8]) -> Self {
         Self {
-            default_key,
+            empty_marker,
             content: NodeChildrenArray::Children(children),
         }
     }
-    pub(in crate::octree) fn bitmasked(default_key: T, bitmask: u64) -> Self {
+    pub(in crate::octree) fn bitmasked(empty_marker: T, bitmask: u64) -> Self {
         Self {
-            default_key,
+            empty_marker,
             content: NodeChildrenArray::OccupancyBitmask(bitmask),
         }
     }
@@ -71,8 +71,8 @@ where
     pub(in crate::octree) fn clear(&mut self, child_index: usize) {
         debug_assert!(child_index < 8);
         if let NodeChildrenArray::Children(c) = &mut self.content {
-            c[child_index] = self.default_key.clone();
-            if 8 == c.iter().filter(|e| **e == self.default_key).count() {
+            c[child_index] = self.empty_marker.clone();
+            if 8 == c.iter().filter(|e| **e == self.empty_marker).count() {
                 self.content = NodeChildrenArray::NoChildren;
             }
         }
@@ -87,7 +87,7 @@ where
             NodeChildrenArray::Children(c) => {
                 let mut result = 0;
                 for (child_octant, child) in c.iter().enumerate().take(8) {
-                    if *child != self.default_key {
+                    if *child != self.empty_marker {
                         result |= octant_bitmask(child_octant as u8);
                     }
                 }
@@ -102,14 +102,14 @@ where
         match &self.content {
             NodeChildrenArray::Children(c) => c.clone(),
             _ => [
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
-                self.default_key.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
+                self.empty_marker.clone(),
             ],
         }
     }
@@ -127,7 +127,7 @@ where
     fn index(&self, index: u32) -> &T {
         match &self.content {
             NodeChildrenArray::Children(c) => &c[index as usize],
-            _ => &self.default_key,
+            _ => &self.empty_marker,
         }
     }
 }
@@ -138,7 +138,7 @@ where
 {
     fn index_mut(&mut self, index: u32) -> &mut T {
         if let NodeChildrenArray::NoChildren = &mut self.content {
-            self.content = NodeChildrenArray::Children([self.default_key; 8]);
+            self.content = NodeChildrenArray::Children([self.empty_marker; 8]);
         }
         match &mut self.content {
             NodeChildrenArray::Children(c) => &mut c[index as usize],
@@ -295,12 +295,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
         // node_children array needs to be resized to fit the new children
         self.node_children
-            .resize(self.nodes.len(), NodeChildren::new(key_none_value()));
+            .resize(self.nodes.len(), NodeChildren::new(empty_marker()));
 
         // each new children is a leaf, so node_children needs to be adapted to that
         for c in children {
             self.node_children[c as usize] =
-                NodeChildren::bitmasked(key_none_value(), occupancy_bitmask);
+                NodeChildren::bitmasked(empty_marker(), occupancy_bitmask);
         }
         children
     }

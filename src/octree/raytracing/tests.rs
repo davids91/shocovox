@@ -3,7 +3,7 @@ mod wgpu_tests {
     #[test]
     fn test_special_key_values() {
         // assumptions in shader needs to be compared to factual values
-        assert!(crate::object_pool::key_none_value() == 4294967295u32);
+        assert!(crate::object_pool::empty_marker() == 4294967295u32);
     }
 }
 

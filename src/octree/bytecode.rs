@@ -175,7 +175,7 @@ impl ToBencode for NodeChildren<u32> {
 
 impl FromBencode for NodeChildren<u32> {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
-        use crate::object_pool::key_none_value;
+        use crate::object_pool::empty_marker;
         match data {
             Object::List(mut list) => {
                 let marker = String::decode_bencode_object(list.next_object()?.unwrap())?;
@@ -190,12 +190,12 @@ impl FromBencode for NodeChildren<u32> {
                             );
                         }
                         Ok(NodeChildren::from(
-                            key_none_value(),
+                            empty_marker(),
                             c.try_into().ok().unwrap(),
                         ))
                     }
                     "##b##" => Ok(NodeChildren::bitmasked(
-                        key_none_value(),
+                        empty_marker(),
                         u64::decode_bencode_object(list.next_object()?.unwrap())?,
                     )),
                     s => Err(bendy::decoding::Error::unexpected_token(
@@ -207,7 +207,7 @@ impl FromBencode for NodeChildren<u32> {
             Object::Bytes(_b) =>
             // Should be "##x##"
             {
-                Ok(NodeChildren::new(key_none_value()))
+                Ok(NodeChildren::new(empty_marker()))
             }
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "A NodeChildren Object, Either a List or a ByteString",

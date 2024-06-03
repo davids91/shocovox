@@ -35,7 +35,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     /// The key value to signify "no child" at a given slot
-    pub(in crate::octree) default_key: T,
+    pub(in crate::octree) empty_marker: T,
 
     /// The contained child key values
     pub(in crate::octree) content: NodeChildrenArray<T>,
