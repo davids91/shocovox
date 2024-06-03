@@ -34,22 +34,29 @@ pub fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
         + (offset.y >= half_size) as u8 * 4
 }
 
-fn bitmask_mapping_64bits(x: usize, y: usize, z: usize, size: usize) -> usize {
+/// Maps 3 dimensional space limited by `size` to 1 dimension
+/// This mapping function supposes that the coordinates are bound inside
+/// a cube, each dimension `size` long.
+/// * `x` - x coordinate of position
+/// * `y` - y coordinate of position
+/// * `z` - z coordinate of position
+/// * `size` - Range of the given coordinate space
+fn bitmask_mapping(x: usize, y: usize, z: usize, size: usize) -> usize {
     x + (y * size) + (z * size * size)
 }
 
 /// Returns with a bitmask to select the relevant octant based on the relative position
 /// and size of the covered area
 fn position_in_bitmask_64bits(x: usize, y: usize, z: usize, size: usize) -> u8 {
-    let pos_inside_bitmask = (V3c::new(x, y, z) * 4) / size;
-    debug_assert!(pos_inside_bitmask.x < 4);
-    debug_assert!(pos_inside_bitmask.y < 4);
-    debug_assert!(pos_inside_bitmask.z < 4);
-    let pos_inside_bitmask = bitmask_mapping_64bits(
-        pos_inside_bitmask.x,
-        pos_inside_bitmask.y,
-        pos_inside_bitmask.z,
-        size,
+    let pos_inside_bitmask_space = (V3c::new(x, y, z) * 4) / size;
+    debug_assert!(pos_inside_bitmask_space.x < 4);
+    debug_assert!(pos_inside_bitmask_space.y < 4);
+    debug_assert!(pos_inside_bitmask_space.z < 4);
+    let pos_inside_bitmask = bitmask_mapping(
+        pos_inside_bitmask_space.x,
+        pos_inside_bitmask_space.y,
+        pos_inside_bitmask_space.z,
+        4,
     );
     debug_assert!(pos_inside_bitmask < 64);
     pos_inside_bitmask as u8
@@ -59,7 +66,7 @@ fn position_in_bitmask_64bits(x: usize, y: usize, z: usize, size: usize) -> u8 {
 /// * `x` - x coordinate of position
 /// * `y` - y coordinate of position
 /// * `z` - z coordinate of position
-/// * `size` - x coordinate of position
+/// * `size` - range of the given coordinate space
 /// * `occupied` - the value to set the bitmask at the given position
 /// * `mask` - The bitmask to query
 pub(crate) fn set_occupancy_in_bitmap_64bits(
@@ -102,7 +109,7 @@ pub(crate) fn octant_bitmask(octant: u8) -> u8 {
 }
 
 /// Queries a bitmask for a single octant position in an 8bit bitmask
-pub(crate) fn is_bitmask_occupied_at_octant(bitmask: u8, octant: u8) -> bool {
+pub(crate) fn is_bitmap_occupied_at_octant(bitmask: u8, octant: u8) -> bool {
     0 < bitmask & octant_bitmask(octant)
 }
 
@@ -129,4 +136,76 @@ pub fn plane_line_intersection(
         return None;
     }
     Some(plane_line_dot_to_plane / directions_dot)
+}
+
+#[cfg(test)]
+mod bitmask_tests {
+
+    use std::collections::HashSet;
+
+    use super::bitmask_mapping;
+    use super::octant_bitmask;
+    use super::position_in_bitmask_64bits;
+
+    #[test]
+    fn test_lvl2_bitmask_mapping() {
+        for octant in 0..8 {
+            let bitmask = octant_bitmask(octant);
+            for compare_octant in 0..8 {
+                assert!(compare_octant == octant || 0 == bitmask & octant_bitmask(compare_octant));
+            }
+        }
+    }
+
+    #[test]
+    fn test_bitmask_mapping() {
+        const DIMENSION: usize = 10;
+        assert!(0 == bitmask_mapping(0, 0, 0, DIMENSION));
+        assert!(DIMENSION == bitmask_mapping(10, 0, 0, DIMENSION));
+        assert!(DIMENSION == bitmask_mapping(0, 1, 0, DIMENSION));
+        assert!(DIMENSION * DIMENSION == bitmask_mapping(0, 0, 1, DIMENSION));
+        assert!(DIMENSION * DIMENSION * 4 == bitmask_mapping(0, 0, 4, DIMENSION));
+        assert!((DIMENSION * DIMENSION * 4) + 3 == bitmask_mapping(3, 0, 4, DIMENSION));
+        assert!(
+            (DIMENSION * DIMENSION * 4) + (DIMENSION * 2) + 3
+                == bitmask_mapping(3, 2, 4, DIMENSION)
+        );
+
+        let mut number_coverage = HashSet::new();
+        for x in 0..DIMENSION {
+            for y in 0..DIMENSION {
+                for z in 0..DIMENSION {
+                    let address = bitmask_mapping(x, y, z, DIMENSION);
+                    assert!(!number_coverage.contains(&address));
+                    number_coverage.insert(address);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_lvl1_bitmask_mapping_exact_size_match() {
+        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 4));
+        assert!(32 == position_in_bitmask_64bits(0, 0, 2, 4));
+        assert!(63 == position_in_bitmask_64bits(3, 3, 3, 4));
+    }
+
+    #[test]
+    fn test_lvl1_bitmask_mapping_greater_dimension() {
+        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 10));
+        assert!(32 == position_in_bitmask_64bits(0, 0, 5, 10));
+        assert!(42 == position_in_bitmask_64bits(5, 5, 5, 10));
+        assert!(63 == position_in_bitmask_64bits(9, 9, 9, 10));
+    }
+    #[test]
+    fn test_lvl1_bitmask_mapping_smaller_dimension() {
+        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 2));
+        assert!(2 == position_in_bitmask_64bits(1, 0, 0, 2));
+        assert!(8 == position_in_bitmask_64bits(0, 1, 0, 2));
+        assert!(10 == position_in_bitmask_64bits(1, 1, 0, 2));
+        assert!(32 == position_in_bitmask_64bits(0, 0, 1, 2));
+        assert!(34 == position_in_bitmask_64bits(1, 0, 1, 2));
+        assert!(40 == position_in_bitmask_64bits(0, 1, 1, 2));
+        assert!(42 == position_in_bitmask_64bits(1, 1, 1, 2));
+    }
 }

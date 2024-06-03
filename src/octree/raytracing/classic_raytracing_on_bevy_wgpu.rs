@@ -1,7 +1,7 @@
 use crate::object_pool::empty_marker;
 use crate::octree::{
     raytracing::types::{OctreeMetaData, OctreeViewMaterial, SizedNode, Viewport, Voxelement},
-    NodeContent,
+    types::{NodeChildrenArray, NodeContent},
 };
 
 use bevy::{
@@ -28,6 +28,14 @@ where
 
     fn meta_set_lvl2_occupancy_bitmask(sized_node_meta: &mut u32, bitmask: u8) {
         *sized_node_meta = (*sized_node_meta & 0xFFFFFF00) | bitmask as u32;
+    }
+
+    pub(in crate::octree) fn meta_set_lvvl1_occupancy_bitmask(
+        bitmap_target: &mut [u32; 8],
+        source: u64,
+    ) {
+        bitmap_target[0] = (source & 0x00000000FFFFFFFF) as u32;
+        bitmap_target[1] = ((source & 0xFFFFFFFF00000000) >> 32) as u32;
     }
 
     fn create_meta(&self, node_key: usize) -> u32 {
@@ -64,12 +72,26 @@ where
         let mut nodes = Vec::new();
         let mut voxels = Vec::new();
         for i in 0..self.nodes.len() {
+            if !self.nodes.key_is_valid(i) {
+                continue;
+            }
             let mut sized_node = SizedNode {
                 sized_node_meta: self.create_meta(i),
                 children: self.node_children[i].get_full(),
                 voxels_start_at: empty_marker(),
             };
             if let NodeContent::Leaf(data) = self.nodes.get(i) {
+                debug_assert!(matches!(
+                    self.node_children[i].content,
+                    NodeChildrenArray::OccupancyBitmask(_)
+                ));
+                Self::meta_set_lvvl1_occupancy_bitmask(
+                    &mut sized_node.children,
+                    match self.node_children[i].content {
+                        NodeChildrenArray::OccupancyBitmask(bitmask) => bitmask,
+                        _ => panic!("Found Leaf Node without occupancy bitmask!"),
+                    },
+                );
                 sized_node.voxels_start_at = voxels.len() as u32;
                 for x in 0..DIM {
                     for y in 0..DIM {

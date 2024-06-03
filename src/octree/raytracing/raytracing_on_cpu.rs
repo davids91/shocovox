@@ -4,7 +4,7 @@ use crate::octree::{
 
 use crate::spatial::{
     math::{
-        get_occupancy_in_bitmap_64bits, hash_region, is_bitmask_occupied_at_octant, offset_region,
+        get_occupancy_in_bitmap_64bits, hash_region, is_bitmap_occupied_at_octant, offset_region,
     },
     raytracing::{CubeRayIntersection, Ray},
     FLOAT_ERROR_TOLERANCE,
@@ -145,6 +145,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             min_position: bounds.min_position + V3c::<u32>::from(current_index) * matrix_unit,
             size: matrix_unit,
         };
+
         loop {
             if current_index.x < 0
                 || current_index.x >= DIM as i32
@@ -162,7 +163,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 current_index.z as usize,
                 DIM,
                 matrix_occupied_bits,
-            ) || !matrix[current_index.x as usize][current_index.y as usize]
+            ) && !matrix[current_index.x as usize][current_index.y as usize]
                 [current_index.z as usize]
                 .is_empty()
             {
@@ -322,7 +323,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let mut target_bounds = current_bounds.child_bounds_for(target_octant);
             let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
             let target_is_empty = !self.nodes.key_is_valid(target_child_key as usize)
-                || !is_bitmask_occupied_at_octant(node_stack_top.occupied_bits, target_octant);
+                || !is_bitmap_occupied_at_octant(node_stack_top.occupied_bits, target_octant);
             let target_hit = target_bounds.intersect_ray(&ray);
             if !target_is_empty && target_hit.is_some() {
                 // PUSH

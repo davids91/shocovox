@@ -279,33 +279,60 @@ fn dda_step_to_next_sibling(
     return result;
 }
 
-const key_none_value : u32 = 4294967295u;
-
 // Unique to this implementation, not adapted from rust code, corresponds to:
-// crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_is_leaf
+//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_is_leaf
 fn is_leaf(sized_node_meta: u32) -> bool {
     return 0 < (0x01000000 & sized_node_meta);
 }
 
 // Unique to this implementation, not adapted from rust code, corresponds to:
-// crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_lvl2_occupancy_bitmask
+//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_lvl2_occupancy_bitmask
 fn get_lvl2_occupancy_bitmask(sized_node_meta: u32) -> u32 {
     return (0x000000FF & sized_node_meta);
 }
 
-// Unique to this implementation, not adapted from rust code
+// Functionality-wise this function is more generic, than its coutnerpart
+// and is used in voxel matrix mapping too
+//crate::spatial::math::bitmask_mapping
 fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
 }
 
-// crate::spatial::math::is_bitmask_occupied_at_octant
-fn is_bitmask_occupied_at_octant(bitmask: u32, octant: u32) -> bool {
+//crate::spatial::math::is_bitmap_occupied_at_octant
+fn is_bitmap_occupied_at_octant(bitmask: u32, octant: u32) -> bool {
     return 0 < (
         ( bitmask & 0x000000FF )
         & ( // crate::spatial::math::octant_bitmask
             0x00000001u << (octant & 0x000000FF)
         )
     );
+}
+
+//crate::spatial::math::position_in_bitmask_64bits
+fn position_in_bitmask_64bits(i: vec3u, dimension: u32) -> u32{
+    let pos_inside_bitmask_space = i * 4 / dimension;
+    //let pos_inside_bitmask_space = vec3u((vec3f(i) * 4.) / f32(dimension));
+    let pos_inside_bitmask = voxel_matrix_index_mapping(
+        pos_inside_bitmask_space, vec2u(4, 4)
+    );
+    return pos_inside_bitmask;
+}
+
+//crate::spatial::math::get_occupancy_in_bitmap_64bits
+fn get_occupancy_in_bitmap_64bits(
+    index: vec3u,
+    dimension: u32,
+    bitmap_lsb: u32,
+    bitmap_msb: u32
+) -> bool {
+    let bit_position = position_in_bitmask_64bits(index, dimension);
+    // not possible to create a position mask directly, because of missing u64 type
+    if bit_position < 32 {
+        let pos_mask = u32(0x01u << bit_position);
+        return 0 < (bitmap_lsb & pos_mask);
+    }
+    let pos_mask = u32(0x01u << (bit_position - 32));
+    return 0 < (bitmap_msb & pos_mask);
 }
 
 struct MatrixHit{
@@ -318,6 +345,8 @@ fn traverse_matrix(
     ray_current_distance: ptr<function,f32>,
     ray_scale_factors: vec3f,
     matrix_index_start: u32,
+    occupancy_bitmap_lsb: u32,
+    occupancy_bitmap_msb: u32,
     bounds: Cube,
     intersection: CubeRayIntersection,
     dimension: u32
@@ -356,7 +385,11 @@ fn traverse_matrix(
             vec3u(current_index),
             vec2u(dimension, dimension)
         ));
-        if !is_empty(voxels[matrix_index_start + voxel_matrix_index]) {
+        if get_occupancy_in_bitmap_64bits(
+            vec3u(current_index), dimension,
+            occupancy_bitmap_lsb, occupancy_bitmap_msb
+        ) && !is_empty(voxels[matrix_index_start + voxel_matrix_index])
+        {
             result.hit = true;
             result.index = vec3u(current_index);
             return result;
@@ -451,6 +484,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             let leaf_matrix_hit = traverse_matrix(
                 ray, &current_d, ray_scale_factors,
                 current_node.voxels_start_at,
+                current_node.children[0], current_node.children[1],
                 current_bounds, current_bounds_ray_intersection,
                 dimension
             );
@@ -505,7 +539,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         var target_child_key = current_node.children[target_octant];
         let target_is_empty = (
             target_child_key >= voxelement_count //!crate::object_pool::key_is_valid
-            || !is_bitmask_occupied_at_octant(current_node.sized_node_meta, target_octant)
+            || !is_bitmap_occupied_at_octant(current_node.sized_node_meta, target_octant)
         );
 
         let target_hit = cube_intersect_ray(target_bounds, ray);
