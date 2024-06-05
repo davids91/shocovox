@@ -231,6 +231,7 @@ mod octree_raytracing_tests {
         }
     }
 
+    #[cfg(feature = "bevy_wgpu")]
     #[test]
     fn test_lvl1_occupancy_bitmask() {
         let original_bitmap: u64 = 0xFA17EDBEEF15DEAD;
