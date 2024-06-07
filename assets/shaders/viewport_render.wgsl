@@ -368,7 +368,8 @@ const max_depth = 20; // the depth for an octree the size of 1048576
 fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
     let dimension = octreeMetaData.voxel_matrix_dim;
-    let voxelement_count = arrayLength(&nodes);
+    let voxelement_count = arrayLength(&voxels);
+    let node_count = arrayLength(&nodes);
 
     // Eliminate all zeroes within the direction of the ray
     var ray = ray_;
@@ -483,7 +484,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         var target_bounds = child_bounds_for(current_bounds, target_octant);
         var target_child_key = current_node.children[target_octant];
         let target_is_empty = (
-            target_child_key >= voxelement_count //!crate::object_pool::key_is_valid
+            target_child_key >= node_count //!crate::object_pool::key_is_valid
             || nodes[target_child_key].contains_nodes == 0u
         );
 
@@ -504,7 +505,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             loop{
                 if ((!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
                  || (
-                    target_child_key < voxelement_count //crate::object_pool::key_is_valid
+                    target_child_key < node_count //crate::object_pool::key_is_valid
                     && 0u < nodes[target_child_key].contains_nodes
                 )) {
                     break;
