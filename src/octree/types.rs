@@ -16,22 +16,26 @@ pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
 #[derive(Debug)]
 pub enum OctreeError {
     InvalidNodeSize(u32),
+    InvalidBrickDimension(u32),
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
 #[derive(Debug, Default, Copy, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
+    OccupancyBitmap(u64), // In case of leaf nodes
 }
 
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     /// The key value to signify "no child" at a given slot
-    pub(in crate::octree) default_key: T,
+    pub(in crate::octree) empty_marker: T,
 
     /// The contained child key values
     pub(in crate::octree) content: NodeChildrenArray<T>,

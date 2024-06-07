@@ -3,7 +3,7 @@ mod wgpu_tests {
     #[test]
     fn test_special_key_values() {
         // assumptions in shader needs to be compared to factual values
-        assert!(crate::object_pool::key_none_value() == 4294967295u32);
+        assert!(crate::object_pool::empty_marker() == 4294967295u32);
     }
 }
 
@@ -196,7 +196,6 @@ mod octree_raytracing_tests {
         }
 
         for p in filled.into_iter() {
-            println!("targeting point: {:?}", p);
             let ray = make_edge_ray_point_to(
                 &V3c::new(p.x as f32 + 0.1, p.y as f32 + 0.1, p.z as f32 + 0.1),
                 &mut rng,
@@ -230,6 +229,16 @@ mod octree_raytracing_tests {
             assert!(tree.get_by_ray(&ray).is_some());
             assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
         }
+    }
+
+    #[cfg(feature = "bevy_wgpu")]
+    #[test]
+    fn test_lvl1_occupancy_bitmap() {
+        let original_bitmap: u64 = 0xFA17EDBEEF15DEAD;
+        let mut bitmap_target = [0; 8];
+        Octree::<u32, 1>::meta_set_leaf_occupancy_bitmap(&mut bitmap_target, original_bitmap);
+        let reconstructed_bitmap: u64 = bitmap_target[0] as u64 | (bitmap_target[1] as u64) << 32;
+        assert!(reconstructed_bitmap == original_bitmap);
     }
 
     #[test]
@@ -512,8 +521,6 @@ mod octree_raytracing_tests {
     fn test_edge_case_matrix_undetected() {
         let mut tree = Octree::<u32, 4>::new(4).ok().unwrap();
 
-        println!("Normalized vec: {:?}", V3c::new(1., 0.8, 0.).normalized());
-
         for x in 0..4 {
             for z in 0..4 {
                 tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
@@ -630,7 +637,6 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
-            println!("result is {:?}", v);
             *v.0 == 0xFF000000 && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
     }
