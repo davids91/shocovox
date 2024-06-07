@@ -73,7 +73,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             self.make_uniform_children(current_node.leaf_data().clone());
 
                         // Set node type as internal; Since this node in this function will only have
-                        // at most 1 child node( the currently inserted node ), so the occupancy bitmask
+                        // at most 1 child node( the currently inserted node ), so the occupancy bitmap
                         // is known at this point: as the node was a leaf, it's fully occupied
                         *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0xFF);
 
@@ -97,14 +97,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             }
                             NodeContent::Internal(occupied_bits) => {
                                 // the node has pre-existing children and a new child node is inserted
-                                // occupancy bitmask needs to employ that
+                                // occupancy bitmap needs to employ that
                                 *self.nodes.get_mut(current_node_key) =
                                     NodeContent::Internal(occupied_bits | target_child_occupies);
                             }
                             _ => {}
                         }
 
-                        // The occupancy bitmask of the newly inserted child will be updated in the next
+                        // The occupancy bitmap of the newly inserted child will be updated in the next
                         // loop of the depth iteration
                         let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
                         self.node_children
@@ -133,17 +133,17 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         // update size is smaller, than the matrix, but > 1
                         // simulate the Nodes layout and update accordingly
                         mat_index.cut_each_component(&(DIM - insert_size as usize));
-                        if !matches!(node_children_array, NodeChildrenArray::OccupancyBitmask(_)) {
-                            *node_children_array = NodeChildrenArray::OccupancyBitmask(0);
+                        if !matches!(node_children_array, NodeChildrenArray::OccupancyBitmap(_)) {
+                            *node_children_array = NodeChildrenArray::OccupancyBitmap(0);
                         }
                         for x in mat_index.x..(mat_index.x + insert_size as usize) {
                             for y in mat_index.y..(mat_index.y + insert_size as usize) {
                                 for z in mat_index.z..(mat_index.z + insert_size as usize) {
                                     d[x][y][z] = data.clone();
-                                    if let NodeChildrenArray::OccupancyBitmask(bitmask) =
+                                    if let NodeChildrenArray::OccupancyBitmap(bitmap) =
                                         node_children_array
                                     {
-                                        set_occupancy_in_bitmap_64bits(x, y, z, DIM, true, bitmask);
+                                        set_occupancy_in_bitmap_64bits(x, y, z, DIM, true, bitmap);
                                     }
                                 }
                             }
@@ -257,7 +257,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     if current_node.is_leaf() {
                         // The current Node is a leaf, which essentially represents an area where all the contained space have the same data.
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
-                        // as separate Nodes with the same data as their parent to keep integrity, the cleared node will update occupancy bitmask correctly
+                        // as separate Nodes with the same data as their parent to keep integrity, the cleared node will update occupancy bitmap correctly
                         let current_data = current_node.leaf_data().clone();
                         let new_children = self.make_uniform_children(current_data);
                         *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0xFF);
@@ -292,12 +292,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                                     .unwrap()[x][y][z]
                                     .clear();
 
-                                if let NodeChildrenArray::OccupancyBitmask(bitmask) =
+                                if let NodeChildrenArray::OccupancyBitmap(bitmap) =
                                     &mut self.node_children[current_node_key].content
                                 {
-                                    set_occupancy_in_bitmap_64bits(x, y, z, DIM, false, bitmask);
+                                    set_occupancy_in_bitmap_64bits(x, y, z, DIM, false, bitmap);
                                 } else {
-                                    debug_assert!(false); // Leaf node should have an occupancy bitmask!
+                                    debug_assert!(false); // Leaf node should have an occupancy bitmap!
                                 }
                             }
                         }
@@ -408,7 +408,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             }
             self.deallocate_children_of(node);
             self.node_children[node as usize].content =
-                NodeChildrenArray::OccupancyBitmask(Self::occupancy_bitmask(data.leaf_data()));
+                NodeChildrenArray::OccupancyBitmap(Self::occupancy_bitmask(data.leaf_data()));
             *self.nodes.get_mut(node as usize) = data;
 
             true

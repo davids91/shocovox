@@ -27,7 +27,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
-    OccupancyBitmask(u64), // In case of leaf nodes
+    OccupancyBitmap(u64), // In case of leaf nodes
 }
 
 #[derive(Debug, Copy, Clone)]

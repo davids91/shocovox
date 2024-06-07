@@ -233,10 +233,10 @@ mod octree_raytracing_tests {
 
     #[cfg(feature = "bevy_wgpu")]
     #[test]
-    fn test_lvl1_occupancy_bitmask() {
+    fn test_lvl1_occupancy_bitmap() {
         let original_bitmap: u64 = 0xFA17EDBEEF15DEAD;
         let mut bitmap_target = [0; 8];
-        Octree::<u32, 1>::meta_set_lvvl1_occupancy_bitmask(&mut bitmap_target, original_bitmap);
+        Octree::<u32, 1>::meta_set_leaf_occupancy_bitmap(&mut bitmap_target, original_bitmap);
         let reconstructed_bitmap: u64 = bitmap_target[0] as u64 | (bitmap_target[1] as u64) << 32;
         assert!(reconstructed_bitmap == original_bitmap);
     }

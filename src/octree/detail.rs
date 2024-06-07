@@ -37,7 +37,7 @@ where
         match &self.content {
             NodeChildrenArray::NoChildren => true,
             NodeChildrenArray::Children(_) => false,
-            NodeChildrenArray::OccupancyBitmask(mask) => 0 == *mask,
+            NodeChildrenArray::OccupancyBitmap(mask) => 0 == *mask,
         }
     }
 
@@ -54,10 +54,10 @@ where
             content: NodeChildrenArray::Children(children),
         }
     }
-    pub(in crate::octree) fn bitmasked(empty_marker: T, bitmask: u64) -> Self {
+    pub(in crate::octree) fn bitmasked(empty_marker: T, bitmap: u64) -> Self {
         Self {
             empty_marker,
-            content: NodeChildrenArray::OccupancyBitmask(bitmask),
+            content: NodeChildrenArray::OccupancyBitmap(bitmap),
         }
     }
 
@@ -281,7 +281,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         content: [[[T; DIM]; DIM]; DIM],
     ) -> [u32; 8] {
         // Create new children leaf nodes based on the provided content
-        let occupancy_bitmask = Self::occupancy_bitmask(&content);
+        let occupancy_bitmap = Self::occupancy_bitmask(&content);
         let children = [
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
@@ -300,7 +300,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         // each new children is a leaf, so node_children needs to be adapted to that
         for c in children {
             self.node_children[c as usize] =
-                NodeChildren::bitmasked(empty_marker(), occupancy_bitmask);
+                NodeChildren::bitmasked(empty_marker(), occupancy_bitmap);
         }
         children
     }
@@ -323,7 +323,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
     /// As they might be empty by fault and to correct them the occupied bits is required.
-    /// Leaf node occupancy bitmask should not be calculated by this function
+    /// Leaf node occupancy bitmap should not be calculated by this function
     pub(in crate::octree) fn occupied_bits_not_leaf(&self, node: u32) -> u8 {
         match self.nodes.get(node as usize) {
             NodeContent::Leaf(_) => 0xFF,

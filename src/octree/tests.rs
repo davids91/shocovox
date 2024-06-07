@@ -13,11 +13,11 @@ mod octree_serialization_tests {
 
         let node_children_empty = NodeChildren::new(empty_marker());
         let node_children_filled = NodeChildren::from(empty_marker(), [1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_children_bitmask = NodeChildren::bitmasked(empty_marker(), 666);
+        let node_children_bitmap = NodeChildren::bitmasked(empty_marker(), 666);
 
         let serialized_node_children_empty = node_children_empty.to_bencode();
         let serialized_node_children_filled = node_children_filled.to_bencode();
-        let serialized_node_children_bitmask = node_children_bitmask.to_bencode();
+        let serialized_node_children_bitmap = node_children_bitmap.to_bencode();
 
         let deserialized_node_children_empty =
             NodeChildren::from_bencode(&serialized_node_children_empty.ok().unwrap())
@@ -27,14 +27,14 @@ mod octree_serialization_tests {
             NodeChildren::from_bencode(&serialized_node_children_filled.ok().unwrap())
                 .ok()
                 .unwrap();
-        let deserialized_node_children_bitmask =
-            NodeChildren::from_bencode(&serialized_node_children_bitmask.ok().unwrap())
+        let deserialized_node_children_bitmap =
+            NodeChildren::from_bencode(&serialized_node_children_bitmap.ok().unwrap())
                 .ok()
                 .unwrap();
 
         assert!(deserialized_node_children_empty == node_children_empty);
         assert!(deserialized_node_children_filled == node_children_filled);
-        assert!(deserialized_node_children_bitmask == node_children_bitmask);
+        assert!(deserialized_node_children_bitmap == node_children_bitmap);
     }
 
     #[test]

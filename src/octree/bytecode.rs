@@ -165,7 +165,7 @@ impl ToBencode for NodeChildren<u32> {
                 e.emit(c[7])
             }),
             NodeChildrenArray::NoChildren => encoder.emit_str("##x##"),
-            NodeChildrenArray::OccupancyBitmask(mask) => encoder.emit_list(|e| {
+            NodeChildrenArray::OccupancyBitmap(mask) => encoder.emit_list(|e| {
                 e.emit_str("##b##")?;
                 e.emit(mask)
             }),

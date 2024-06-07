@@ -209,7 +209,7 @@ fn new_node_stack_item(
 
 //crate::octree:raytracing::NodeStackItem::is_empty
 fn node_is_empty(item: NodeStackItem) -> bool {
-    return get_node_occupancy_bitmask(item.sized_node_meta) == 0u;
+    return get_node_occupancy_bitmap(item.sized_node_meta) == 0u;
 }
 
 //crate::octree:raytracing::NodeStackItem::add_point
@@ -286,14 +286,14 @@ fn is_leaf(sized_node_meta: u32) -> bool {
 }
 
 // Unique to this implementation, not adapted from rust code, corresponds to:
-//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_lvl2_occupancy_bitmask
-fn get_node_occupancy_bitmask(sized_node_meta: u32) -> u32 {
+//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_node_occupancy_bitmap
+fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
     return (0x000000FF & sized_node_meta);
 }
 
 // Functionality-wise this function is more generic, than its coutnerpart
 // and is used in voxel matrix mapping too
-//crate::spatial::math::bitmask_mapping
+//crate::spatial::math::flat_projection
 fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
 }
@@ -301,21 +301,21 @@ fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
 //crate::spatial::math::is_bitmap_occupied_at_octant
 fn is_bitmap_occupied_at_octant(sized_node_meta: u32, octant: u32) -> bool {
     return 0 < (
-        get_node_occupancy_bitmask( sized_node_meta )
+        get_node_occupancy_bitmap( sized_node_meta )
         & ( // crate::spatial::math::octant_bitmask
             0x00000001u << (octant & 0x000000FF)
         )
     );
 }
 
-//crate::spatial::math::position_in_bitmask_64bits
-fn position_in_bitmask_64bits(i: vec3u, dimension: u32) -> u32{
-    let pos_inside_bitmask_space = i * 4 / dimension;
-    //let pos_inside_bitmask_space = vec3u((vec3f(i) * 4.) / f32(dimension));
-    let pos_inside_bitmask = voxel_matrix_index_mapping(
-        pos_inside_bitmask_space, vec2u(4, 4)
+//crate::spatial::math::position_in_bitmap_64bits
+fn position_in_bitmap_64bits(i: vec3u, dimension: u32) -> u32{
+    let pos_inside_bitmap_space = i * 4 / dimension;
+    //let pos_inside_bitmap_space = vec3u((vec3f(i) * 4.) / f32(dimension));
+    let pos_inside_bitmap = voxel_matrix_index_mapping(
+        pos_inside_bitmap_space, vec2u(4, 4)
     );
-    return pos_inside_bitmask;
+    return pos_inside_bitmap;
 }
 
 // Unique to this implementation, not adapted from rust code
@@ -375,11 +375,11 @@ fn traverse_matrix(
         matrix_unit
     );
 
-    let start_pos_in_bitmask = position_in_bitmask_64bits(vec3u(current_index), dimension);
+    let start_pos_in_bitmap = position_in_bitmap_64bits(vec3u(current_index), dimension);
     if (
-        0 == (RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT[start_pos_in_bitmask][direction_lut_index * 2]
+        0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2]
             & occupancy_bitmap_lsb)
-        && 0 == (RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT[start_pos_in_bitmask][direction_lut_index * 2 + 1]
+        && 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2 + 1]
             & occupancy_bitmap_msb)
     ){
         result.hit = false;
@@ -480,8 +480,8 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 
         if( (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
             || ( 0 == (
-                get_node_occupancy_bitmask(current_node.sized_node_meta)
-                | RAY_TO_NODE_OCCUPANCY_BITMAP_LUT[target_octant][direction_lut_index]
+                get_node_occupancy_bitmap(current_node.sized_node_meta)
+                | RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant][direction_lut_index]
             ))
             || node_is_empty(node_stack[node_stack_i - 1])
         ){
@@ -694,7 +694,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // Note: should be const
-var<private> RAY_TO_NODE_OCCUPANCY_BITMAP_LUT: array<array<u32, 8>, 8> = array<array<u32, 8>, 8>(
+var<private> RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: array<array<u32, 8>, 8> = array<array<u32, 8>, 8>(
     array<u32, 8>(1, 3, 5, 15, 17, 51, 85, 255),
     array<u32, 8>(3, 2, 15, 10, 51, 34, 255, 170),
     array<u32, 8>(5, 15, 4, 12, 85, 255, 68, 204),
@@ -706,7 +706,7 @@ var<private> RAY_TO_NODE_OCCUPANCY_BITMAP_LUT: array<array<u32, 8>, 8> = array<a
 );
 
 // Note: should be const
-var<private> RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT: array<array<u32, 16>, 64> = array<array<u32, 16>, 64>(
+var<private> RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT: array<array<u32, 16>, 64> = array<array<u32, 16>, 64>(
     array<u32, 16>(1,0,15,0,65537,65537,983055,983055,4369,0,65535,0,286331153,286331153,4294967295,4294967295,),
     array<u32, 16>(3,0,14,0,196611,196611,917518,917518,13107,0,61166,0,858993459,858993459,4008636142,4008636142,),
     array<u32, 16>(7,0,12,0,458759,458759,786444,786444,30583,0,52428,0,2004318071,2004318071,3435973836,3435973836,),

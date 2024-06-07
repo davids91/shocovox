@@ -26,11 +26,11 @@ where
             (*sized_node_meta & 0x00FFFFFF) | if is_leaf { 0x01000000 } else { 0x00000000 };
     }
 
-    fn meta_set_lvl2_occupancy_bitmask(sized_node_meta: &mut u32, bitmask: u8) {
-        *sized_node_meta = (*sized_node_meta & 0xFFFFFF00) | bitmask as u32;
+    fn meta_set_node_occupancy_bitmap(sized_node_meta: &mut u32, bitmap: u8) {
+        *sized_node_meta = (*sized_node_meta & 0xFFFFFF00) | bitmap as u32;
     }
 
-    pub(in crate::octree) fn meta_set_lvvl1_occupancy_bitmask(
+    pub(in crate::octree) fn meta_set_leaf_occupancy_bitmap(
         bitmap_target: &mut [u32; 8],
         source: u64,
     ) {
@@ -44,15 +44,15 @@ where
         match node {
             NodeContent::Leaf(_) => {
                 Self::meta_set_is_leaf(&mut meta, true);
-                Self::meta_set_lvl2_occupancy_bitmask(&mut meta, 0xFF);
+                Self::meta_set_node_occupancy_bitmap(&mut meta, 0xFF);
             }
             NodeContent::Internal(occupied_bits) => {
                 Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_lvl2_occupancy_bitmask(&mut meta, *occupied_bits);
+                Self::meta_set_node_occupancy_bitmap(&mut meta, *occupied_bits);
             }
             _ => {
                 Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_lvl2_occupancy_bitmask(&mut meta, 0x00);
+                Self::meta_set_node_occupancy_bitmap(&mut meta, 0x00);
             }
         };
         meta
@@ -83,13 +83,13 @@ where
             if let NodeContent::Leaf(data) = self.nodes.get(i) {
                 debug_assert!(matches!(
                     self.node_children[i].content,
-                    NodeChildrenArray::OccupancyBitmask(_)
+                    NodeChildrenArray::OccupancyBitmap(_)
                 ));
-                Self::meta_set_lvvl1_occupancy_bitmask(
+                Self::meta_set_leaf_occupancy_bitmap(
                     &mut sized_node.children,
                     match self.node_children[i].content {
-                        NodeChildrenArray::OccupancyBitmask(bitmask) => bitmask,
-                        _ => panic!("Found Leaf Node without occupancy bitmask!"),
+                        NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
+                        _ => panic!("Found Leaf Node without occupancy bitmap!"),
                     },
                 );
                 sized_node.voxels_start_at = voxels.len() as u32;

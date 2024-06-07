@@ -5,10 +5,10 @@ use crate::octree::{
 use crate::spatial::{
     math::{
         hash_direction, hash_region, is_bitmap_occupied_at_octant, offset_region,
-        position_in_bitmask_64bits,
+        position_in_bitmap_64bits,
     },
     raytracing::{
-        lut::RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT, lut::RAY_TO_NODE_OCCUPANCY_BITMAP_LUT,
+        lut::RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, lut::RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
         CubeRayIntersection, Ray,
     },
     FLOAT_ERROR_TOLERANCE,
@@ -48,7 +48,7 @@ impl NodeStackItem {
     }
 
     /// Returns true if the Node represented by this item is empty
-    /// Occupancy bitmask being 0 essentially means the node is empty
+    /// Occupancy bitmap being 0 essentially means the node is empty
     pub(crate) fn is_empty(&self) -> bool {
         self.occupied_bits == 0
     }
@@ -150,14 +150,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             min_position: bounds.min_position + V3c::<u32>::from(current_index) * matrix_unit,
             size: matrix_unit,
         };
-        let start_pos_in_bitmask = position_in_bitmask_64bits(
+        let start_pos_in_bitmap = position_in_bitmap_64bits(
             current_index.x as usize,
             current_index.y as usize,
             current_index.z as usize,
             DIM,
         );
 
-        if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT[start_pos_in_bitmask][direction_lut_index]
+        if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index]
             & matrix_occupied_bits)
         {
             return None;
@@ -267,7 +267,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
             if !node_stack_top.contains_target_center() // If current target is OOB
                 // In case there is no overlap between the node occupancy and the potential slots the ray would hit
-                || 0 == (node_stack.last().unwrap().occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMAP_LUT[target_octant as usize][direction_lut_index as usize])
+                || 0 == (node_stack.last().unwrap().occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant as usize][direction_lut_index as usize])
                 || node_stack_top.is_empty()
             {
                 // POP
@@ -287,7 +287,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             if current_node.is_leaf() {
                 debug_assert!(matches!(
                     self.node_children[current_node_key].content,
-                    NodeChildrenArray::OccupancyBitmask(_)
+                    NodeChildrenArray::OccupancyBitmap(_)
                 ));
                 if let Some(leaf_matrix_hit) = Self::traverse_matrix(
                     &ray,
@@ -296,7 +296,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     direction_lut_index,
                     current_node.leaf_data(),
                     match self.node_children[current_node_key].content {
-                        NodeChildrenArray::OccupancyBitmask(bitmask) => bitmask,
+                        NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
                         _ => {
                             debug_assert!(false);
                             0

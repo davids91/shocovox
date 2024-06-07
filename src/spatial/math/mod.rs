@@ -48,41 +48,50 @@ pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
 /// * `y` - y coordinate of position
 /// * `z` - z coordinate of position
 /// * `size` - Range of the given coordinate space
-fn bitmask_mapping(x: usize, y: usize, z: usize, size: usize) -> usize {
+fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usize {
     x + (y * size) + (z * size * size)
 }
 
 /// Returns with a bitmask to select the relevant octant based on the relative position
 /// and size of the covered area
-pub(crate) fn position_in_bitmask_64bits(x: usize, y: usize, z: usize, size: usize) -> usize {
-    debug_assert!((x * 4 / size) < 4);
-    debug_assert!((y * 4 / size) < 4);
-    debug_assert!((z * 4 / size) < 4);
-    let pos_inside_bitmask = bitmask_mapping(x * 4 / size, y * 4 / size, z * 4 / size, 4);
-    debug_assert!(pos_inside_bitmask < 64);
-    pos_inside_bitmask
+pub(crate) fn position_in_bitmap_64bits(x: usize, y: usize, z: usize, size: usize) -> usize {
+    const BITMAP_SPACE_DIMENSION: usize = 4;
+    debug_assert!((x * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
+    debug_assert!((y * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
+    debug_assert!((z * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
+    let pos_inside_bitmap = flat_projection(
+        x * BITMAP_SPACE_DIMENSION / size,
+        y * BITMAP_SPACE_DIMENSION / size,
+        z * BITMAP_SPACE_DIMENSION / size,
+        BITMAP_SPACE_DIMENSION,
+    );
+    debug_assert!(
+        pos_inside_bitmap
+            < (BITMAP_SPACE_DIMENSION * BITMAP_SPACE_DIMENSION * BITMAP_SPACE_DIMENSION)
+    );
+    pos_inside_bitmap
 }
 
-/// Updates the given bitmask based on the position and whether or not it's occupied
+/// Updates the given bitmap based on the position and whether or not it's occupied
 /// * `x` - x coordinate of position
 /// * `y` - y coordinate of position
 /// * `z` - z coordinate of position
 /// * `size` - range of the given coordinate space
 /// * `occupied` - the value to set the bitmask at the given position
-/// * `mask` - The bitmask to query
+/// * `bitmap` - The bitmap to update
 pub(crate) fn set_occupancy_in_bitmap_64bits(
     x: usize,
     y: usize,
     z: usize,
     size: usize,
     occupied: bool,
-    bitmask: &mut u64,
+    bitmap: &mut u64,
 ) {
-    let pos_mask = 0x01 << position_in_bitmask_64bits(x, y, z, size);
+    let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, size);
     if occupied {
-        *bitmask |= pos_mask;
+        *bitmap |= pos_mask;
     } else {
-        *bitmask &= !pos_mask
+        *bitmap &= !pos_mask
     }
 }
 
@@ -92,8 +101,8 @@ pub(crate) fn octant_bitmask(octant: u8) -> u8 {
 }
 
 /// Queries a bitmask for a single octant position in an 8bit bitmask
-pub(crate) fn is_bitmap_occupied_at_octant(bitmask: u8, octant: u8) -> bool {
-    0 < bitmask & octant_bitmask(octant)
+pub(crate) fn is_bitmap_occupied_at_octant(bitmap: u8, octant: u8) -> bool {
+    0 < bitmap & octant_bitmask(octant)
 }
 
 #[allow(dead_code)] // Could be useful either for debugging or new implementations
@@ -126,12 +135,12 @@ mod bitmask_tests {
 
     use std::collections::HashSet;
 
-    use super::bitmask_mapping;
+    use super::flat_projection;
     use super::octant_bitmask;
-    use super::position_in_bitmask_64bits;
+    use super::position_in_bitmap_64bits;
 
     #[test]
-    fn test_lvl2_bitmask_mapping() {
+    fn test_lvl2_flat_projection() {
         for octant in 0..8 {
             let bitmask = octant_bitmask(octant);
             for compare_octant in 0..8 {
@@ -141,24 +150,24 @@ mod bitmask_tests {
     }
 
     #[test]
-    fn test_bitmask_mapping() {
+    fn test_flat_projection() {
         const DIMENSION: usize = 10;
-        assert!(0 == bitmask_mapping(0, 0, 0, DIMENSION));
-        assert!(DIMENSION == bitmask_mapping(10, 0, 0, DIMENSION));
-        assert!(DIMENSION == bitmask_mapping(0, 1, 0, DIMENSION));
-        assert!(DIMENSION * DIMENSION == bitmask_mapping(0, 0, 1, DIMENSION));
-        assert!(DIMENSION * DIMENSION * 4 == bitmask_mapping(0, 0, 4, DIMENSION));
-        assert!((DIMENSION * DIMENSION * 4) + 3 == bitmask_mapping(3, 0, 4, DIMENSION));
+        assert!(0 == flat_projection(0, 0, 0, DIMENSION));
+        assert!(DIMENSION == flat_projection(10, 0, 0, DIMENSION));
+        assert!(DIMENSION == flat_projection(0, 1, 0, DIMENSION));
+        assert!(DIMENSION * DIMENSION == flat_projection(0, 0, 1, DIMENSION));
+        assert!(DIMENSION * DIMENSION * 4 == flat_projection(0, 0, 4, DIMENSION));
+        assert!((DIMENSION * DIMENSION * 4) + 3 == flat_projection(3, 0, 4, DIMENSION));
         assert!(
             (DIMENSION * DIMENSION * 4) + (DIMENSION * 2) + 3
-                == bitmask_mapping(3, 2, 4, DIMENSION)
+                == flat_projection(3, 2, 4, DIMENSION)
         );
 
         let mut number_coverage = HashSet::new();
         for x in 0..DIMENSION {
             for y in 0..DIMENSION {
                 for z in 0..DIMENSION {
-                    let address = bitmask_mapping(x, y, z, DIMENSION);
+                    let address = flat_projection(x, y, z, DIMENSION);
                     assert!(!number_coverage.contains(&address));
                     number_coverage.insert(address);
                 }
@@ -167,28 +176,28 @@ mod bitmask_tests {
     }
 
     #[test]
-    fn test_lvl1_bitmask_mapping_exact_size_match() {
-        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 4));
-        assert!(32 == position_in_bitmask_64bits(0, 0, 2, 4));
-        assert!(63 == position_in_bitmask_64bits(3, 3, 3, 4));
+    fn test_lvl1_flat_projection_exact_size_match() {
+        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 4));
+        assert!(32 == position_in_bitmap_64bits(0, 0, 2, 4));
+        assert!(63 == position_in_bitmap_64bits(3, 3, 3, 4));
     }
 
     #[test]
-    fn test_lvl1_bitmask_mapping_greater_dimension() {
-        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 10));
-        assert!(32 == position_in_bitmask_64bits(0, 0, 5, 10));
-        assert!(42 == position_in_bitmask_64bits(5, 5, 5, 10));
-        assert!(63 == position_in_bitmask_64bits(9, 9, 9, 10));
+    fn test_lvl1_flat_projection_greater_dimension() {
+        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 10));
+        assert!(32 == position_in_bitmap_64bits(0, 0, 5, 10));
+        assert!(42 == position_in_bitmap_64bits(5, 5, 5, 10));
+        assert!(63 == position_in_bitmap_64bits(9, 9, 9, 10));
     }
     #[test]
-    fn test_lvl1_bitmask_mapping_smaller_dimension() {
-        assert!(0 == position_in_bitmask_64bits(0, 0, 0, 2));
-        assert!(2 == position_in_bitmask_64bits(1, 0, 0, 2));
-        assert!(8 == position_in_bitmask_64bits(0, 1, 0, 2));
-        assert!(10 == position_in_bitmask_64bits(1, 1, 0, 2));
-        assert!(32 == position_in_bitmask_64bits(0, 0, 1, 2));
-        assert!(34 == position_in_bitmask_64bits(1, 0, 1, 2));
-        assert!(40 == position_in_bitmask_64bits(0, 1, 1, 2));
-        assert!(42 == position_in_bitmask_64bits(1, 1, 1, 2));
+    fn test_lvl1_flat_projection_smaller_dimension() {
+        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 2));
+        assert!(2 == position_in_bitmap_64bits(1, 0, 0, 2));
+        assert!(8 == position_in_bitmap_64bits(0, 1, 0, 2));
+        assert!(10 == position_in_bitmap_64bits(1, 1, 0, 2));
+        assert!(32 == position_in_bitmap_64bits(0, 0, 1, 2));
+        assert!(34 == position_in_bitmap_64bits(1, 0, 1, 2));
+        assert!(40 == position_in_bitmap_64bits(0, 1, 1, 2));
+        assert!(42 == position_in_bitmap_64bits(1, 1, 1, 2));
     }
 }

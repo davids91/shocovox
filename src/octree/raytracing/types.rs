@@ -35,7 +35,7 @@ pub(crate) struct SizedNode {
     /// - In case of internal nodes:
     ///   - Byte 2: TBD
     ///   - Byte 3: TBD
-    ///   - Byte 4: Lvl2 Occupancy bitmask
+    ///   - Byte 4: Lvl2 Occupancy bitmap
     /// - In case of leaf nodes:
     ///   - Byte 2: TBD
     ///   - Byte 3: TBD
@@ -45,8 +45,8 @@ pub(crate) struct SizedNode {
     /// - In case of internal nodes:
     ///   - Index values of node children
     /// - In case of leaf nodes:
-    ///   - Byte 1-4: Occupancy bitmask MSB
-    ///   - Byte 5-8: Occupancy bitmask LSB
+    ///   - Byte 1-4: Occupancy bitmap MSB
+    ///   - Byte 5-8: Occupancy bitmap LSB
     ///   - Byte 9-12: TBD
     ///   - Byte 13-16: TBD
     ///   - Byte 17-20: TBD

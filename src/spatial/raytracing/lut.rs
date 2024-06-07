@@ -1,6 +1,6 @@
 use crate::octree::V3c;
 use crate::spatial::math::{
-    hash_direction, hash_region, octant_bitmask, position_in_bitmask_64bits,
+    hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
     set_occupancy_in_bitmap_64bits,
 };
 
@@ -14,7 +14,7 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
         for y in 0i32..4 {
             for z in 0i32..4 {
                 let bitmask_position =
-                    position_in_bitmask_64bits(x as usize, y as usize, z as usize, 4);
+                    position_in_bitmap_64bits(x as usize, y as usize, z as usize, 4);
                 //direction
                 for dx in -1i32..=1 {
                     for dy in -1i32..=1 {
@@ -113,7 +113,7 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
     bitmap_lut
 }
 
-pub const RAY_TO_NODE_OCCUPANCY_BITMAP_LUT: [[u8; 8]; 8] = [
+pub const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
     [1, 3, 5, 15, 17, 51, 85, 255],
     [3, 2, 15, 10, 51, 34, 255, 170],
     [5, 15, 4, 12, 85, 255, 68, 204],
@@ -124,7 +124,7 @@ pub const RAY_TO_NODE_OCCUPANCY_BITMAP_LUT: [[u8; 8]; 8] = [
     [255, 170, 204, 136, 240, 160, 192, 128],
 ];
 
-pub const RAY_TO_LEAF_OCCUPANCY_BITMAP_LUT: [[u64; 8]; 64] = [
+pub const RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
     [
         1,
         15,
