@@ -93,9 +93,9 @@ where
                     },
                 );
                 sized_node.voxels_start_at = voxels.len() as u32;
-                for x in 0..DIM {
+                for z in 0..DIM {
                     for y in 0..DIM {
-                        for z in 0..DIM {
+                        for x in 0..DIM {
                             let albedo = data[x][y][z].albedo();
                             let content = data[x][y][z].user_data();
                             voxels.push(Voxelement {
