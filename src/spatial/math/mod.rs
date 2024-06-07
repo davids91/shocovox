@@ -48,7 +48,7 @@ pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
 /// * `y` - y coordinate of position
 /// * `z` - z coordinate of position
 /// * `size` - Range of the given coordinate space
-fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usize {
+pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usize {
     x + (y * size) + (z * size * size)
 }
 

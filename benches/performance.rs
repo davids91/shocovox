@@ -10,16 +10,16 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
 
     #[cfg(feature = "raytracing")]
     {
-        let tree_size = 8;
+        let tree_size = 512;
         let mut tree = shocovox_rs::octree::Octree::<u32, 8>::new(tree_size)
             .ok()
             .unwrap();
         tree.insert(&V3c::new(1, 3, 3), rng.gen_range(0..500))
             .ok()
             .unwrap();
-        for x in 0..tree_size {
-            for y in 0..tree_size {
-                for z in 0..tree_size {
+        for x in 0..100 {
+            for y in 0..100 {
+                for z in 0..100 {
                     if x < (tree_size / 4)
                         || y < (tree_size / 4)
                         || z < (tree_size / 4)

@@ -4,7 +4,7 @@ use crate::octree::{
 
 use crate::spatial::{
     math::{
-        hash_direction, hash_region, is_bitmap_occupied_at_octant, offset_region,
+        flat_projection, hash_direction, hash_region, is_bitmap_occupied_at_octant, offset_region,
         position_in_bitmap_64bits,
     },
     raytracing::{
@@ -122,6 +122,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         )
     }
 
+    const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32;
     /// Iterates on the given ray and matrix to find a potential intersection in 3D space
     fn traverse_matrix(
         ray: &Ray,
@@ -163,6 +164,11 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             return None;
         }
 
+        let mut prev_bitmap_position_full_resolution = V3c::new(
+            (current_index.x as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+            (current_index.y as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+            (current_index.z as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+        );
         loop {
             if current_index.x < 0
                 || current_index.x >= DIM as i32
@@ -172,6 +178,27 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 || current_index.z >= DIM as i32
             {
                 return None;
+            }
+
+            let bitmap_position_full_resolution = V3c::new(
+                (current_index.x as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+                (current_index.y as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+                (current_index.z as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
+            );
+            if bitmap_position_full_resolution != prev_bitmap_position_full_resolution {
+                prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
+                let start_pos_in_bitmap = flat_projection(
+                    bitmap_position_full_resolution.x as usize,
+                    bitmap_position_full_resolution.y as usize,
+                    bitmap_position_full_resolution.z as usize,
+                    4,
+                );
+                if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap]
+                    [direction_lut_index]
+                    & matrix_occupied_bits)
+                {
+                    return None;
+                }
             }
 
             if !matrix[current_index.x as usize][current_index.y as usize][current_index.z as usize]

@@ -294,7 +294,7 @@ fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
 // Functionality-wise this function is more generic, than its coutnerpart
 // and is used in voxel matrix mapping too
 //crate::spatial::math::flat_projection
-fn voxel_matrix_index_mapping(i: vec3u, dimensions: vec2u) -> u32 {
+fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
 }
 
@@ -312,7 +312,7 @@ fn is_bitmap_occupied_at_octant(sized_node_meta: u32, octant: u32) -> bool {
 fn position_in_bitmap_64bits(i: vec3u, dimension: u32) -> u32{
     let pos_inside_bitmap_space = i * 4 / dimension;
     //let pos_inside_bitmap_space = vec3u((vec3f(i) * 4.) / f32(dimension));
-    let pos_inside_bitmap = voxel_matrix_index_mapping(
+    let pos_inside_bitmap = flat_projection(
         pos_inside_bitmap_space, vec2u(4, 4)
     );
     return pos_inside_bitmap;
@@ -349,6 +349,7 @@ fn traverse_matrix(
     ray_current_distance: ptr<function,f32>,
     ray_scale_factors: vec3f,
     direction_lut_index: u32,
+    unit_in_bitmap_space: f32, 
     matrix_index_start: u32,
     occupancy_bitmap_lsb: u32,
     occupancy_bitmap_msb: u32,
@@ -386,6 +387,7 @@ fn traverse_matrix(
         return result;
     }
 
+    var prev_bitmap_position_full_resolution = vec3u(vec3f(current_index) * unit_in_bitmap_space);
     loop{
         if current_index.x < 0
             || current_index.x >= i32(dimension)
@@ -398,7 +400,25 @@ fn traverse_matrix(
             return result;
         }
 
-        let voxel_matrix_index = u32(voxel_matrix_index_mapping(
+        let bitmap_position_full_resolution = vec3u(vec3f(current_index) * unit_in_bitmap_space);
+        let differs = bitmap_position_full_resolution != prev_bitmap_position_full_resolution;
+        if(differs.x || differs.y || differs.z) {
+            prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
+            let start_pos_in_bitmap = flat_projection(
+                vec3u(bitmap_position_full_resolution), vec2u(4, 4),
+            );
+            if (
+                0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2]
+                    & occupancy_bitmap_lsb)
+                && 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2 + 1]
+                    & occupancy_bitmap_msb)
+            ){
+                result.hit = false;
+                return result;
+            }
+        }
+
+        let voxel_matrix_index = u32(flat_projection(
             vec3u(current_index),
             vec2u(dimension, dimension)
         ));
@@ -453,6 +473,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var node_stack_i: i32 = 0;
     let ray_scale_factors = get_dda_scale_factors(ray);
     let direction_lut_index = hash_direction(ray.direction);
+    let unit_in_bitmap_space = 4. / f32(dimension);
 
     var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersection = cube_intersect_ray(root_bounds, ray);
@@ -504,7 +525,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         if is_leaf(current_node.sized_node_meta) {
             let leaf_matrix_hit = traverse_matrix(
                 ray, &current_d, ray_scale_factors, direction_lut_index,
-                current_node.voxels_start_at,
+                unit_in_bitmap_space, current_node.voxels_start_at,
                 current_node.children[0], current_node.children[1],
                 current_bounds, current_bounds_ray_intersection,
                 dimension
@@ -512,7 +533,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             if leaf_matrix_hit.hit == true {
                 let hit_in_voxels = (
                     current_node.voxels_start_at
-                    + u32(voxel_matrix_index_mapping(
+                    + u32(flat_projection(
                         leaf_matrix_hit.index,
                         vec2u(dimension, dimension)
                     ))
@@ -601,8 +622,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                     (!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
                     || (
                       target_child_key < voxelement_count //crate::object_pool::key_is_valid
-                      &&
-                      is_bitmap_occupied_at_octant(current_node.sized_node_meta, target_octant)
+                      && is_bitmap_occupied_at_octant(current_node.sized_node_meta, target_octant)
                     )
                 ){
                     break;
