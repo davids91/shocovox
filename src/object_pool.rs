@@ -11,7 +11,7 @@ struct ReusableItem<T: Clone> {
     item: T,
 }
 
-pub fn key_none_value() -> u32 {
+pub fn empty_marker() -> u32 {
     u32::MAX
 }
 

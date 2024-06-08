@@ -88,15 +88,6 @@ mod intersection_tests {
         .intersect_ray(&ray)
         .unwrap();
 
-        println!(
-            "2,0,0 * 2 is hit at: {:?}",
-            ray.point_at(t_hit.impact_distance.unwrap_or(0.))
-        );
-        println!(
-            "2,0,0 * 2 hit leaves at: {:?}",
-            ray.point_at(t_hit.exit_distance)
-        );
-
         assert!(t_hit
             .impact_distance
             .is_some_and(|v| (v - 11.077772).abs() < 0.001));

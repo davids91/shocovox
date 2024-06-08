@@ -1,14 +1,13 @@
-#[cfg(feature = "raytracing")]
 use crate::spatial::{math::vector::V3c, Cube, FLOAT_ERROR_TOLERANCE};
 
-#[cfg(feature = "raytracing")]
+pub mod lut;
+
 #[derive(Debug)]
 pub struct Ray {
     pub origin: V3c<f32>,
     pub direction: V3c<f32>,
 }
 
-#[cfg(feature = "raytracing")]
 impl Ray {
     pub fn is_valid(&self) -> bool {
         (1. - self.direction.length()).abs() < 0.000001
@@ -19,7 +18,6 @@ impl Ray {
     }
 }
 
-#[cfg(feature = "raytracing")]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct CubeRayIntersection {
     pub(crate) impact_distance: Option<f32>,
@@ -27,7 +25,6 @@ pub struct CubeRayIntersection {
     pub(crate) impact_normal: V3c<f32>,
 }
 
-#[cfg(feature = "raytracing")]
 impl Cube {
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit

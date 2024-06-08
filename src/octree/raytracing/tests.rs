@@ -3,13 +3,13 @@ mod wgpu_tests {
     #[test]
     fn test_special_key_values() {
         // assumptions in shader needs to be compared to factual values
-        assert!(crate::object_pool::key_none_value() == 4294967295u32);
+        assert!(crate::object_pool::empty_marker() == 4294967295u32);
     }
 }
 
 #[cfg(test)]
 mod octree_raytracing_tests {
-    use crate::octree::{Cube, Octree, V3c};
+    use crate::octree::{types::Albedo, Cube, Octree, V3c};
     use crate::spatial::raytracing::Ray;
     use crate::spatial::{math::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
 
@@ -89,7 +89,7 @@ mod octree_raytracing_tests {
                 &(V3c::from(cube.min_position) + V3c::unit(cube.size as f32) * 0.5),
                 &mut rng,
             );
-            let scale_factors = Octree::<u32>::get_dda_scale_factors(&ray);
+            let scale_factors = Octree::<Albedo>::get_dda_scale_factors(&ray);
             let mut current_d = cube
                 .intersect_ray(&ray)
                 .unwrap()
@@ -99,7 +99,7 @@ mod octree_raytracing_tests {
             assert!(
                 FLOAT_ERROR_TOLERANCE
                     > (get_step_to_next_sibling(&cube, &ray)
-                        - Octree::<u32>::dda_step_to_next_sibling(
+                        - Octree::<Albedo>::dda_step_to_next_sibling(
                             &ray,
                             &mut current_d,
                             &cube,
@@ -125,13 +125,13 @@ mod octree_raytracing_tests {
     #[test]
     fn test_get_by_ray_from_outside() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
                 if 10 > rng.gen_range(0..20) {
                     let pos = V3c::new(x, y, 1);
-                    tree.insert(&pos, 5 | 0xFF000000).ok().unwrap();
+                    tree.insert(&pos, 5.into()).ok().unwrap();
                     filled.push(pos);
                 }
             }
@@ -140,20 +140,20 @@ mod octree_raytracing_tests {
         for p in filled.into_iter() {
             let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
             assert!(tree.get_by_ray(&ray).is_some());
-            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
         }
     }
 
     #[test]
     fn test_get_by_ray_from_outside_where_dim_is_2() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<u32, 2>::new(4).ok().unwrap();
+        let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
                 if 10 > rng.gen_range(0..20) {
                     let pos = V3c::new(x, y, 1);
-                    tree.insert(&pos, 5 | 0xFF000000).ok().unwrap();
+                    tree.insert(&pos, 5.into()).ok().unwrap();
                     filled.push(pos);
                 }
             }
@@ -162,7 +162,7 @@ mod octree_raytracing_tests {
         for p in filled.into_iter() {
             let ray = make_ray_point_to(&V3c::new(p.x as f32, p.y as f32, p.z as f32), &mut rng);
             assert!(tree.get_by_ray(&ray).is_some());
-            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
         }
     }
 
@@ -181,14 +181,14 @@ mod octree_raytracing_tests {
     #[test]
     fn test_get_by_ray_from_edge() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<u32>::new(8).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(8).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
                 for z in 1..4 {
                     if 10 > rng.gen_range(0..20) {
                         let pos = V3c::new(x, y, z);
-                        tree.insert(&pos, 5 | 0xFF000000).ok().unwrap();
+                        tree.insert(&pos, 5.into()).ok().unwrap();
                         filled.push(pos);
                     }
                 }
@@ -196,27 +196,26 @@ mod octree_raytracing_tests {
         }
 
         for p in filled.into_iter() {
-            println!("targeting point: {:?}", p);
             let ray = make_edge_ray_point_to(
                 &V3c::new(p.x as f32 + 0.1, p.y as f32 + 0.1, p.z as f32 + 0.1),
                 &mut rng,
             );
             assert!(tree.get_by_ray(&ray).is_some());
-            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
         }
     }
 
     #[test]
     fn test_get_by_ray_from_inside() {
         let mut rng = rand::thread_rng();
-        let mut tree = Octree::<u32>::new(16).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(16).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
                 for z in 1..4 {
                     if 10 > rng.gen_range(0..20) {
                         let pos = V3c::new(x, y, z);
-                        tree.insert(&pos, 5 | 0xFF000000).ok().unwrap();
+                        tree.insert(&pos, 5.into()).ok().unwrap();
                         filled.push(pos);
                     }
                 }
@@ -228,36 +227,32 @@ mod octree_raytracing_tests {
             let ray = make_ray_point_to(&pos, &mut rng);
             assert!(tree.get(&pos.into()).is_some());
             assert!(tree.get_by_ray(&ray).is_some());
-            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+            assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
         }
+    }
+
+    #[cfg(feature = "bevy_wgpu")]
+    #[test]
+    fn test_lvl1_occupancy_bitmap() {
+        let original_bitmap: u64 = 0xFA17EDBEEF15DEAD;
+        let mut bitmap_target = [0; 8];
+        Octree::<Albedo, 1>::meta_set_leaf_occupancy_bitmap(&mut bitmap_target, original_bitmap);
+        let reconstructed_bitmap: u64 = bitmap_target[0] as u64 | (bitmap_target[1] as u64) << 32;
+        assert!(reconstructed_bitmap == original_bitmap);
     }
 
     #[test]
     fn test_edge_case_unreachable() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(3, 0, 0), 0 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(3, 3, 0), 1 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 2 | 0xFF000000)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.into()).ok().unwrap();
+        tree.insert(&V3c::new(3, 3, 0), 1.into()).ok().unwrap();
+        tree.insert(&V3c::new(0, 3, 0), 2.into()).ok().unwrap();
 
         for y in 0..4 {
-            tree.insert(&V3c::new(0, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(1, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(2, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(3, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
+            tree.insert(&V3c::new(0, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(1, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(2, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(3, y, y), 3.into()).ok().unwrap();
         }
 
         let ray = Ray {
@@ -277,8 +272,8 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_empty_line_in_middle() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(2, 1, 1), 3 | 0xFF000000).ok();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(2, 1, 1), 3.into()).ok();
 
         let ray = Ray {
             origin: V3c {
@@ -297,30 +292,16 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_zero_advance() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(3, 0, 0), 0 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(3, 3, 0), 1 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 2 | 0xFF000000)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.into()).ok().unwrap();
+        tree.insert(&V3c::new(3, 3, 0), 1.into()).ok().unwrap();
+        tree.insert(&V3c::new(0, 3, 0), 2.into()).ok().unwrap();
 
         for y in 0..4 {
-            tree.insert(&V3c::new(0, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(1, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(2, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(3, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
+            tree.insert(&V3c::new(0, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(1, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(2, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(3, y, y), 3.into()).ok().unwrap();
         }
 
         let ray = Ray {
@@ -340,30 +321,24 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_ray_behind_octree() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 5 | 0xFF000000)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(0, 3, 0), 5.into()).ok().unwrap();
         let origin = V3c::new(2., 2., -5.);
         let ray = Ray {
             direction: (V3c::new(0., 3., 0.) - origin).normalized(),
             origin,
         };
         assert!(tree.get(&V3c::new(0, 3, 0)).is_some());
-        assert!(*tree.get(&V3c::new(0, 3, 0)).unwrap() == 5 | 0xFF000000);
+        assert!(*tree.get(&V3c::new(0, 3, 0)).unwrap() == 5.into());
         assert!(tree.get_by_ray(&ray).is_some());
-        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_overlapping_voxels() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(0, 0, 0), 5 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(1, 0, 0), 6 | 0xFF000000)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(0, 0, 0), 5.into()).ok().unwrap();
+        tree.insert(&V3c::new(1, 0, 0), 6.into()).ok().unwrap();
 
         let test_ray = Ray {
             origin: V3c {
@@ -379,18 +354,16 @@ mod octree_raytracing_tests {
         };
         assert!(tree
             .get_by_ray(&test_ray)
-            .is_some_and(|hit| *hit.0 == 6 | 0xFF000000));
+            .is_some_and(|hit| *hit.0 == 6.into()));
     }
 
     #[test]
     fn test_edge_case_edge_raycast() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
-                tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
-                    .ok()
-                    .unwrap();
+                tree.insert(&V3c::new(x, 0, z), 5.into()).ok().unwrap();
             }
         }
         let ray = Ray {
@@ -406,18 +379,16 @@ mod octree_raytracing_tests {
             },
         };
         let result = tree.get_by_ray(&ray);
-        assert!(result.is_none() || *result.unwrap().0 == 5 | 0xFF000000);
+        assert!(result.is_none() || *result.unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_voxel_corner() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
-                tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
-                    .ok()
-                    .unwrap();
+                tree.insert(&V3c::new(x, 0, z), 5.into()).ok().unwrap();
             }
         }
 
@@ -434,18 +405,16 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some());
-        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_bottom_edge() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
-                tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
-                    .ok()
-                    .unwrap();
+                tree.insert(&V3c::new(x, 0, z), 5.into()).ok().unwrap();
             }
         }
 
@@ -462,35 +431,21 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some());
-        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_loop_stuck() {
-        let mut tree = Octree::<u32>::new(4).ok().unwrap();
-        tree.insert(&V3c::new(3, 0, 0), 0 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(3, 3, 0), 1 | 0xFF000000)
-            .ok()
-            .unwrap();
-        tree.insert(&V3c::new(0, 3, 0), 2 | 0xFF000000)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.into()).ok().unwrap();
+        tree.insert(&V3c::new(3, 3, 0), 1.into()).ok().unwrap();
+        tree.insert(&V3c::new(0, 3, 0), 2.into()).ok().unwrap();
 
         for y in 0..4 {
-            tree.insert(&V3c::new(0, y, y), 3 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(1, y, y), 4 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(2, y, y), 5 | 0xFF000000)
-                .ok()
-                .unwrap();
-            tree.insert(&V3c::new(3, y, y), 6 | 0xFF000000)
-                .ok()
-                .unwrap();
+            tree.insert(&V3c::new(0, y, y), 3.into()).ok().unwrap();
+            tree.insert(&V3c::new(1, y, y), 4.into()).ok().unwrap();
+            tree.insert(&V3c::new(2, y, y), 5.into()).ok().unwrap();
+            tree.insert(&V3c::new(3, y, y), 6.into()).ok().unwrap();
         }
 
         let ray = Ray {
@@ -510,15 +465,11 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_matrix_undetected() {
-        let mut tree = Octree::<u32, 4>::new(4).ok().unwrap();
-
-        println!("Normalized vec: {:?}", V3c::new(1., 0.8, 0.).normalized());
+        let mut tree = Octree::<Albedo, 4>::new(4).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
-                tree.insert(&V3c::new(x, 0, z), 5 | 0xFF000000)
-                    .ok()
-                    .unwrap();
+                tree.insert(&V3c::new(x, 0, z), 5.into()).ok().unwrap();
             }
         }
 
@@ -535,23 +486,21 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some());
-        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_detailed_matrix_undetected() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
             .unwrap();
 
         for x in 0..tree_size {
             for y in 0..tree_size {
                 for z in 0..tree_size {
-                    tree.insert(&V3c::new(x, y, z), 5 | 0xFF000000)
-                        .ok()
-                        .unwrap();
+                    tree.insert(&V3c::new(x, y, z), 5.into()).ok().unwrap();
                 }
             }
         }
@@ -569,23 +518,21 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some());
-        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5 | 0xFF000000);
+        assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
     }
 
     #[test]
     fn test_edge_case_detailed_matrix_z_edge_error() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
             .unwrap();
 
         for x in 1..tree_size {
             for y in 1..tree_size {
                 for z in 1..tree_size {
-                    tree.insert(&V3c::new(x, y, z), z | 0xFF000000)
-                        .ok()
-                        .unwrap();
+                    tree.insert(&V3c::new(x, y, z), z.into()).ok().unwrap();
                 }
             }
         }
@@ -604,18 +551,20 @@ mod octree_raytracing_tests {
         };
         assert!(tree
             .get_by_ray(&ray)
-            .is_some_and(|v| *v.0 == 1 | 0xFF000000 && v.2 == V3c::<f32>::new(0., 0., -1.)));
+            .is_some_and(|v| *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)));
     }
 
     #[test]
     fn test_edge_case_matrix_traversal_error() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
             .unwrap();
 
-        tree.insert(&V3c::new(0, 0, 0), 0xFF000000).ok().unwrap();
+        tree.insert(&V3c::new(0, 0, 0), 0xFF000000.into())
+            .ok()
+            .unwrap();
 
         let ray = Ray {
             origin: V3c {
@@ -630,8 +579,7 @@ mod octree_raytracing_tests {
             },
         };
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
-            println!("result is {:?}", v);
-            *v.0 == 0xFF000000 && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
+            *v.0 == 0xFF000000.into() && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
     }
 }
