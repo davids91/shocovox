@@ -35,14 +35,14 @@ mod octant_tests {
 
     #[test]
     fn test_offset_region() {
-        assert!(V3c::new(0, 0, 0) == offset_region(0));
-        assert!(V3c::new(1, 0, 0) == offset_region(1));
-        assert!(V3c::new(0, 0, 1) == offset_region(2));
-        assert!(V3c::new(1, 0, 1) == offset_region(3));
-        assert!(V3c::new(0, 1, 0) == offset_region(4));
-        assert!(V3c::new(1, 1, 0) == offset_region(5));
-        assert!(V3c::new(0, 1, 1) == offset_region(6));
-        assert!(V3c::new(1, 1, 1) == offset_region(7));
+        assert!(V3c::new(0., 0., 0.) == offset_region(0));
+        assert!(V3c::new(1., 0., 0.) == offset_region(1));
+        assert!(V3c::new(0., 0., 1.) == offset_region(2));
+        assert!(V3c::new(1., 0., 1.) == offset_region(3));
+        assert!(V3c::new(0., 1., 0.) == offset_region(4));
+        assert!(V3c::new(1., 1., 0.) == offset_region(5));
+        assert!(V3c::new(0., 1., 1.) == offset_region(6));
+        assert!(V3c::new(1., 1., 1.) == offset_region(7));
     }
 }
 
@@ -82,8 +82,8 @@ mod intersection_tests {
             },
         };
         let t_hit = (Cube {
-            min_position: V3c::new(2, 0, 0),
-            size: 2,
+            min_position: V3c::new(2.0, 0.0, 0.0),
+            size: 2.0,
         })
         .intersect_ray(&ray)
         .unwrap();
@@ -140,56 +140,56 @@ mod raytracing_tests {
     fn test_cube_bounds() {
         let cube = Cube {
             min_position: V3c::default(),
-            size: 10,
+            size: 10.0,
         };
 
         // Test front bottom left
         let bound_fbl = Cube::child_bounds_for(&cube, 0);
-        assert!(bound_fbl.min_position == V3c::unit(0));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::unit(0.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test front bottom right
         let bound_fbl = Cube::child_bounds_for(&cube, 1);
-        assert!(bound_fbl.min_position == V3c::new(5, 0, 0));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(5.0, 0.0, 0.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test back bottom left
         let bound_fbl = Cube::child_bounds_for(&cube, 2);
-        assert!(bound_fbl.min_position == V3c::new(0, 0, 5));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(0.0, 0.0, 5.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test back bottom right
         let bound_fbl = Cube::child_bounds_for(&cube, 3);
-        assert!(bound_fbl.min_position == V3c::new(5, 0, 5));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(5.0, 0.0, 5.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test front top left
         let bound_fbl = Cube::child_bounds_for(&cube, 4);
-        assert!(bound_fbl.min_position == V3c::new(0, 5, 0));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(0.0, 5.0, 0.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test front top right
         let bound_fbl = Cube::child_bounds_for(&cube, 5);
-        assert!(bound_fbl.min_position == V3c::new(5, 5, 0));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(5.0, 5.0, 0.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test back top left
         let bound_fbl = Cube::child_bounds_for(&cube, 6);
-        assert!(bound_fbl.min_position == V3c::new(0, 5, 5));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(0.0, 5.0, 5.0));
+        assert!(bound_fbl.size == 5.0);
 
         // Test back top right
         let bound_fbl = Cube::child_bounds_for(&cube, 7);
-        assert!(bound_fbl.min_position == V3c::new(5, 5, 5));
-        assert!(bound_fbl.size == 5);
+        assert!(bound_fbl.min_position == V3c::new(5.0, 5.0, 5.0));
+        assert!(bound_fbl.size == 5.0);
     }
 
     #[cfg(feature = "raytracing")]
     #[test]
     fn test_cube_contains_ray() {
         let cube = Cube {
-            min_position: V3c::unit(0),
-            size: 4,
+            min_position: V3c::unit(0.0),
+            size: 4.0,
         };
 
         let ray_above = Ray {
@@ -314,8 +314,12 @@ mod raytracing_tests {
             },
         };
         let cube = Cube {
-            min_position: V3c { x: 0, y: 0, z: 0 },
-            size: 8,
+            min_position: V3c {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            size: 8.0,
         };
         let hit = cube.intersect_ray(&ray).unwrap();
         assert!(hit.impact_distance.is_some() && hit.impact_distance.unwrap() == 0.);
@@ -338,8 +342,12 @@ mod raytracing_tests {
             },
         };
         let cube = Cube {
-            min_position: V3c { x: 0, y: 0, z: 0 },
-            size: 16,
+            min_position: V3c {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            size: 16.0,
         };
         let hit = cube.intersect_ray(&ray).unwrap();
         assert!(hit.impact_distance.is_none());
@@ -362,8 +370,12 @@ mod raytracing_tests {
             },
         };
         let cube = Cube {
-            min_position: V3c { x: 0, y: 2, z: 0 },
-            size: 2,
+            min_position: V3c {
+                x: 0.0,
+                y: 2.0,
+                z: 0.0,
+            },
+            size: 2.0,
         };
         let hit = cube.intersect_ray(&ray).unwrap();
         assert!(hit

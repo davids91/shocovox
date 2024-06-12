@@ -73,9 +73,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
-        let mut current_bounds = Cube::root_bounds(self.octree_size);
+        let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
         let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
-        if !bound_contains(&current_bounds, position) {
+        let position = V3c::from(*position);
+        if !bound_contains(&current_bounds, &position) {
             return None;
         }
 
@@ -85,14 +86,14 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     return None;
                 }
                 NodeContent::Leaf(mat) => {
-                    let mat_index = Self::mat_index(&current_bounds, position);
+                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
                     if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
                     }
                     return None;
                 }
                 _ => {
-                    let child_octant_at_position = child_octant_for(&current_bounds, position);
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
                     if self.nodes.key_is_valid(child_at_position as usize) {
@@ -109,9 +110,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
 
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
-        let mut current_bounds = Cube::root_bounds(self.octree_size);
+        let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
         let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
-        if !bound_contains(&current_bounds, position) {
+        let position = V3c::from(*position);
+        if !bound_contains(&current_bounds, &position) {
             return None;
         }
 
@@ -121,7 +123,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     return None;
                 }
                 NodeContent::Leaf(mat) => {
-                    let mat_index = Self::mat_index(&current_bounds, position);
+                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
                     if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return Some(
                             &mut self
@@ -134,7 +136,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     return None;
                 }
                 _ => {
-                    let child_octant_at_position = child_octant_for(&current_bounds, position);
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
                     if self.nodes.key_is_valid(child_at_position as usize) {

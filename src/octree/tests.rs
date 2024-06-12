@@ -226,10 +226,8 @@ mod octree_tests {
     #[test]
     fn test_case_simplified_insert_separated_by_clear() {
         let tree_size = 8;
-        const MATRIX_DIMENSION: usize = 2;
-        let mut tree = Octree::<u32, MATRIX_DIMENSION>::new(tree_size)
-            .ok()
-            .unwrap();
+        const BRICK_DIMENSION: usize = 2;
+        let mut tree = Octree::<u32, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
 
         for x in 0..tree_size {
             for y in 0..tree_size {

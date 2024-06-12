@@ -27,12 +27,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         insert_size: u32,
         data: T,
     ) -> Result<(), OctreeError> {
-        let root_bounds = Cube::root_bounds(self.octree_size);
-        if !bound_contains(&root_bounds, position) {
+        let root_bounds = Cube::root_bounds(self.octree_size as f32);
+        let position = V3c::<f32>::from(*position);
+        if !bound_contains(&root_bounds, &position) {
             return Err(OctreeError::InvalidPosition {
-                x: position.x,
-                y: position.y,
-                z: position.z,
+                x: position.x as u32,
+                y: position.y as u32,
+                z: position.z as u32,
             });
         }
 
@@ -42,10 +43,10 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
             let current_node = self.nodes.get(current_node_key);
-            let target_child_octant = child_octant_for(&current_bounds, position);
+            let target_child_octant = child_octant_for(&current_bounds, &position);
             let target_child_occupies = octant_bitmask(target_child_octant);
 
-            if current_bounds.size > insert_size.max(DIM as u32) {
+            if current_bounds.size > insert_size.max(DIM as u32) as f32 {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested
                 if self.nodes.key_is_valid(
                     self.node_children[current_node_key][target_child_octant as u32] as usize,
@@ -54,8 +55,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         self.node_children[current_node_key][target_child_octant as u32],
                         Cube {
                             min_position: current_bounds.min_position
-                                + offset_region(target_child_octant) * current_bounds.size / 2,
-                            size: current_bounds.size / 2,
+                                + offset_region(target_child_octant) * current_bounds.size / 2.,
+                            size: current_bounds.size / 2.,
                         },
                     ));
                 } else {
@@ -82,8 +83,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             self.node_children[current_node_key][target_child_octant as u32],
                             Cube {
                                 min_position: current_bounds.min_position
-                                    + offset_region(target_child_octant) * current_bounds.size / 2,
-                                size: current_bounds.size / 2,
+                                    + offset_region(target_child_octant) * current_bounds.size / 2.,
+                                size: current_bounds.size / 2.,
                             },
                         ));
                     } else {
@@ -114,8 +115,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             child_key,
                             Cube {
                                 min_position: current_bounds.min_position
-                                    + offset_region(target_child_octant) * current_bounds.size / 2,
-                                size: current_bounds.size / 2,
+                                    + offset_region(target_child_octant) * current_bounds.size / 2.,
+                                size: current_bounds.size / 2.,
                             },
                         ));
                         self.node_children[current_node_key][target_child_octant as u32] =
@@ -124,13 +125,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 }
             } else {
                 // current_bounds.size == min_node_size, which is the desired depth
-                let mut mat_index = Self::mat_index(&current_bounds, position);
-                let mut matrix_update_fn =
+                let mut mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                let mut brick_update_fn =
                     |d: &mut [[[T; DIM]; DIM]; DIM],
                      node_children_array: &mut NodeChildrenArray<u32>| {
                         debug_assert!(insert_size <= DIM as u32);
-                        // In case insert_size does not equal DIM, the matrix needs to be updated
-                        // update size is smaller, than the matrix, but > 1
+                        // In case insert_size does not equal DIM, the brick needs to be updated
+                        // update size is smaller, than the brick, but > 1
                         // simulate the Nodes layout and update accordingly
                         mat_index.cut_each_component(&(DIM - insert_size as usize));
                         if !matches!(node_children_array, NodeChildrenArray::OccupancyBitmap(_)) {
@@ -151,12 +152,12 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                     };
                 match self.nodes.get_mut(current_node_key) {
                     NodeContent::Leaf(d) => {
-                        matrix_update_fn(d, &mut self.node_children[current_node_key].content);
+                        brick_update_fn(d, &mut self.node_children[current_node_key].content);
                     }
                     // should the current Node be anything other, than a leaf at this point, it is to be converted into one
                     _ => {
-                        if insert_size == DIM as u32 || insert_size >= current_bounds.size {
-                            // update size equals matrix size, update the whole matrix
+                        if insert_size == DIM as u32 || insert_size as f32 >= current_bounds.size {
+                            // update size equals brick size, update the whole brick
                             *self.nodes.get_mut(current_node_key) = NodeContent::leaf_from(data);
                             self.deallocate_children_of(node_stack.last().unwrap().0);
                             self.node_children[current_node_key] =
@@ -167,7 +168,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                                 NodeContent::leaf_from(T::default());
                             self.node_children[current_node_key] =
                                 NodeChildren::bitmasked(empty_marker(), 0); // New empty leaf node
-                            matrix_update_fn(
+                            brick_update_fn(
                                 self.nodes.get_mut(current_node_key).mut_leaf_data(),
                                 &mut self.node_children[current_node_key].content,
                             );
@@ -218,18 +219,19 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         position: &V3c<u32>,
         clear_size: u32,
     ) -> Result<(), OctreeError> {
-        let root_bounds = Cube::root_bounds(self.octree_size);
-        if !bound_contains(&root_bounds, position) {
+        let position = V3c::<f32>::from(*position);
+        let root_bounds = Cube::root_bounds(self.octree_size as f32 as f32);
+        if !bound_contains(&root_bounds, &position) {
             return Err(OctreeError::InvalidPosition {
-                x: position.x,
-                y: position.y,
-                z: position.z,
+                x: position.x as u32,
+                y: position.y as u32,
+                z: position.z as u32,
             });
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
-        let mut parent_target = child_octant_for(&root_bounds, position); //This init value is never used
+        let mut parent_target = child_octant_for(&root_bounds, &position); //This init value is never used
 
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
@@ -237,9 +239,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             let current_node = self.nodes.get(current_node_key);
             let target_child_octant;
 
-            if current_bounds.size > clear_size.max(DIM as u32) {
+            if current_bounds.size > clear_size.max(DIM as u32) as f32 {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
-                target_child_octant = child_octant_for(&current_bounds, position);
+                target_child_octant = child_octant_for(&current_bounds, &position);
                 if self.nodes.key_is_valid(
                     self.node_children[current_node_key][target_child_octant as u32] as usize,
                 ) {
@@ -248,8 +250,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         self.node_children[current_node_key][target_child_octant as u32],
                         Cube {
                             min_position: current_bounds.min_position
-                                + offset_region(target_child_octant) * current_bounds.size / 2,
-                            size: current_bounds.size / 2,
+                                + offset_region(target_child_octant) * current_bounds.size / 2.,
+                            size: current_bounds.size / 2.,
                         },
                     ));
                 } else {
@@ -266,8 +268,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                             self.node_children[current_node_key][target_child_octant as u32],
                             Cube {
                                 min_position: current_bounds.min_position
-                                    + offset_region(target_child_octant) * current_bounds.size / 2,
-                                size: current_bounds.size / 2,
+                                    + offset_region(target_child_octant) * current_bounds.size / 2.,
+                                size: current_bounds.size / 2.,
                             },
                         ));
                     } else {
@@ -279,9 +281,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             } else {
                 // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
-                let mut mat_index = Self::mat_index(&current_bounds, position);
+                let mut mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
                 if clear_size < DIM as u32 {
-                    // update size is smaller, than the matrix, but > 1
+                    // update size is smaller, than the brick, but > 1
                     mat_index.cut_each_component(&(DIM - clear_size as usize));
                     for x in mat_index.x..(mat_index.x + clear_size as usize) {
                         for y in mat_index.y..(mat_index.y + clear_size as usize) {

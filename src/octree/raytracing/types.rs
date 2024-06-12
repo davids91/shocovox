@@ -56,7 +56,7 @@ pub(crate) struct SizedNode {
     pub(crate) children: [u32; 8],
 
     /// index of where the voxel values contained in the node start inside the voxels buffer,
-    /// or a "none_value". Should the field contain an index, the next voxel_matrix_dim^3 elements
+    /// or a "none_value". Should the field contain an index, the next voxel_brick_dim^3 elements
     /// inside the @voxels array count as part of the voxels associated with the node
     pub(crate) voxels_start_at: u32,
 }
@@ -65,7 +65,7 @@ pub(crate) struct SizedNode {
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
     pub(crate) octree_size: u32,
-    pub(crate) voxel_matrix_dim: u32,
+    pub(crate) voxel_brick_dim: u32,
     pub ambient_light_color: Color,
     pub ambient_light_position: Vec3,
 }

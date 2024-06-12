@@ -43,11 +43,11 @@ use shocovox_rs::octree::{raytracing::Ray, V3c};
 #[show_image::main]
 fn main() {
     // fill octree with data
-    const MATRIX_DIMENSION: usize = 8;
+    const BRICK_DIMENSION: usize = 8;
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB, MATRIX_DIMENSION>::new(TREE_SIZE)
+    let mut tree = shocovox_rs::octree::Octree::<RGB, BRICK_DIMENSION>::new(TREE_SIZE)
         .ok()
         .unwrap();
 
