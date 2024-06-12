@@ -3,7 +3,7 @@ use crate::spatial::raytracing::CubeRayIntersection;
 
 #[cfg(feature = "bevy_wgpu")]
 use bevy::{
-    asset::{Asset, Handle},
+    asset::Handle,
     ecs::system::Resource,
     math::{Vec2, Vec3},
     reflect::TypePath,
@@ -22,6 +22,11 @@ pub(crate) struct NodeStackItem {
     pub(crate) occupied_bits: u8,
     pub(crate) target_octant: u8,
     pub(crate) child_center: V3c<f32>,
+}
+
+#[cfg(feature = "bevy_wgpu")]
+pub struct ShocoVoxRenderPlugin {
+    pub resolution: [u32; 2],
 }
 
 #[cfg(feature = "bevy_wgpu")]

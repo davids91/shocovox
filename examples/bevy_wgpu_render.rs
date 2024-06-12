@@ -1,20 +1,19 @@
 use bevy::{prelude::*, window::WindowPlugin};
 use shocovox_rs::octree::{
-    raytracing::{
-        classic_raytracing_on_bevy_wgpu::ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
-    },
+    raytracing::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport},
     V3c,
 };
 
-const SIZE: (u32, u32) = (1280, 720);
-const WORKGROUP_SIZE: u32 = 8;
+const RESOLUTION: [u32; 2] = [320, 240];
 
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            ShocoVoxRenderPlugin,
+            ShocoVoxRenderPlugin {
+                resolution: RESOLUTION,
+            },
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
@@ -23,7 +22,7 @@ fn main() {
 }
 
 const ARRAY_DIMENSION: u32 = 64;
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let origin = Vec3::new(
         ARRAY_DIMENSION as f32 * 2.,
         ARRAY_DIMENSION as f32 / 2.,
@@ -77,11 +76,12 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             size: Vec2::new(10., 10.),
             fov: 3.,
         },
+        RESOLUTION,
         images,
     );
     commands.spawn(SpriteBundle {
         sprite: Sprite {
-            custom_size: Some(Vec2::new(SIZE.0 as f32, SIZE.1 as f32)),
+            custom_size: Some(Vec2::new(RESOLUTION[0] as f32, RESOLUTION[1] as f32)),
             ..default()
         },
         texture: viewing_glass.output_texture.clone(),
