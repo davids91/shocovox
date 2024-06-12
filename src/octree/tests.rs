@@ -1,8 +1,42 @@
 #[cfg(test)]
 mod octree_serialization_tests {
     use crate::octree::types::Albedo;
+    use bendy::decoding::FromBencode;
+
+    use crate::object_pool::empty_marker;
+    use crate::octree::types::NodeChildren;
     use crate::octree::Octree;
     use crate::octree::V3c;
+
+    #[test]
+    fn test_node_children_serialization() {
+        use bendy::encoding::ToBencode;
+
+        let node_children_empty = NodeChildren::new(empty_marker());
+        let node_children_filled = NodeChildren::from(empty_marker(), [1, 2, 3, 4, 5, 6, 7, 8]);
+        let node_children_bitmap = NodeChildren::bitmasked(empty_marker(), 666);
+
+        let serialized_node_children_empty = node_children_empty.to_bencode();
+        let serialized_node_children_filled = node_children_filled.to_bencode();
+        let serialized_node_children_bitmap = node_children_bitmap.to_bencode();
+
+        let deserialized_node_children_empty =
+            NodeChildren::from_bencode(&serialized_node_children_empty.ok().unwrap())
+                .ok()
+                .unwrap();
+        let deserialized_node_children_filled =
+            NodeChildren::from_bencode(&serialized_node_children_filled.ok().unwrap())
+                .ok()
+                .unwrap();
+        let deserialized_node_children_bitmap =
+            NodeChildren::from_bencode(&serialized_node_children_bitmap.ok().unwrap())
+                .ok()
+                .unwrap();
+
+        assert!(deserialized_node_children_empty == node_children_empty);
+        assert!(deserialized_node_children_filled == node_children_filled);
+        assert!(deserialized_node_children_bitmap == node_children_bitmap);
+    }
 
     #[test]
     fn test_octree_file_io() {
@@ -214,6 +248,42 @@ mod octree_tests {
             }
         }
         assert!(hits == 64);
+    }
+
+    #[test]
+    fn test_case_simplified_insert_separated_by_clear() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 2;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    tree.insert(&V3c::new(x, y, z), red).ok().unwrap();
+                }
+            }
+        }
+
+        tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
+        let item_at_000 = tree.get(&V3c::new(3, 3, 3));
+        assert!(item_at_000.is_none() || item_at_000.is_some_and(|v| v.is_empty()));
+
+        let mut hits = 0;
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == red);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(hits == 511);
     }
 
     #[test]

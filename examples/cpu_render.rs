@@ -10,9 +10,8 @@ fn main() {
     let voxel_color: Albedo = 0x645097FF.into();
 
     // fill octree with data
-    let tree_size = 16;
-    const MATRIX_DIMENSION: usize = 4;
-    const ARRAY_DIMENSION: u32 = 16;
+    const MATRIX_DIMENSION: usize = 8;
+    const TREE_SIZE: u32 = 64;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
     let mut tree = shocovox_rs::octree::Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
@@ -51,7 +50,7 @@ fn main() {
     use show_image::create_window;
     let window = create_window("image", Default::default()).ok().unwrap();
 
-    let radius = 2. * tree_size as f32;
+    let radius = 2. * TREE_SIZE as f32;
     let mut rng = rand::thread_rng();
     let mut angle = 40.;
     let mut velos = V3c::new(-0.05, 0., 0.);
