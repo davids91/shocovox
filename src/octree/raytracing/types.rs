@@ -3,12 +3,16 @@ use crate::spatial::raytracing::CubeRayIntersection;
 
 #[cfg(feature = "bevy_wgpu")]
 use bevy::{
-    asset::Asset,
+    asset::{Asset, Handle},
     ecs::system::Resource,
     math::{Vec2, Vec3},
     reflect::TypePath,
-    render::render_resource::AsBindGroup,
-    render::{color::Color, render_resource::ShaderType},
+    render::{
+        color::Color,
+        extract_resource::ExtractResource,
+        render_resource::{AsBindGroup, ShaderType},
+        texture::Image,
+    },
 };
 
 pub(crate) struct NodeStackItem {
@@ -80,18 +84,21 @@ pub struct Viewport {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-#[derive(Asset, Resource, Clone, AsBindGroup, TypePath)]
-#[type_path = "shocovox::gpu::OctreeViewMaterial"]
-pub struct OctreeViewMaterial {
-    #[uniform(0)]
+#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
+pub struct ShocoVoxViewingGlass {
+    #[storage_texture(1, image_format = Rgba8Unorm, access = ReadWrite)]
+    pub output_texture: Handle<Image>,
+
+    #[uniform(2, visibility(compute))]
     pub viewport: Viewport,
 
-    #[uniform(1)]
+    #[uniform(3, visibility(compute))]
     pub(crate) meta: OctreeMetaData,
 
-    #[storage(2)]
+    #[storage(4, visibility(compute))]
     pub(crate) nodes: Vec<SizedNode>,
 
-    #[storage(3)]
+    #[storage(5, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 }
