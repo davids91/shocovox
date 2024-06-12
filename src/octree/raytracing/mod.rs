@@ -8,4 +8,4 @@ pub mod bevy;
 pub use crate::spatial::raytracing::Ray;
 
 #[cfg(feature = "bevy_wgpu")]
-pub use types::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport};
+pub use bevy::types::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport};

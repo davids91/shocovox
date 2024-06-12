@@ -3,8 +3,7 @@ use crate::object_pool::empty_marker;
 use crate::octree::{
     raytracing::{
         bevy::create_ouput_texture,
-        types::{OctreeMetaData, ShocoVoxViewingGlass, SizedNode, Viewport, Voxelement},
-        ShocoVoxRenderPlugin,
+        bevy::types::{OctreeMetaData, ShocoVoxViewingGlass, SizedNode, Viewport, Voxelement},
     },
     types::{NodeChildrenArray, NodeContent},
     Octree, VoxelData,

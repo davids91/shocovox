@@ -4,15 +4,14 @@ use shocovox_rs::octree::{
     V3c,
 };
 
-const RESOLUTION: [u32; 2] = [320, 240];
-
+const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
             ShocoVoxRenderPlugin {
-                resolution: RESOLUTION,
+                resolution: DISPLAY_RESOLUTION,
             },
         ))
         .add_systems(Startup, setup)
@@ -76,12 +75,12 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             size: Vec2::new(10., 10.),
             fov: 3.,
         },
-        RESOLUTION,
+        DISPLAY_RESOLUTION,
         images,
     );
     commands.spawn(SpriteBundle {
         sprite: Sprite {
-            custom_size: Some(Vec2::new(RESOLUTION[0] as f32, RESOLUTION[1] as f32)),
+            custom_size: Some(Vec2::new(1024., 768.)),
             ..default()
         },
         texture: viewing_glass.output_texture.clone(),
@@ -101,7 +100,7 @@ fn rotate_camera(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 1024.;
+        let addition = ARRAY_DIMENSION as f32 / 10.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle

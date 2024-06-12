@@ -1,48 +1,36 @@
-use crate::octree::raytracing::types::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass};
-use crate::octree::Octree;
+mod data;
+pub mod types;
 
-use bevy::asset::Handle;
+pub use crate::octree::raytracing::bevy::types::{
+    ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
+};
+
+use crate::octree::raytracing::bevy::types::{
+    ShocoVoxLabel, ShocoVoxRenderNode, ShocoVoxRenderPipeline,
+};
+
 use bevy::{
     app::{App, Plugin},
-    asset::{AssetServer, Assets},
-    ecs::system::{Res, ResMut, Resource},
+    asset::{AssetServer, Assets, Handle},
+    ecs::system::{Res, ResMut},
     ecs::world::{FromWorld, World},
     prelude::IntoSystemConfigs,
     render::{
         extract_resource::ExtractResourcePlugin,
         render_asset::{RenderAssetUsages, RenderAssets},
         render_graph,
-        render_graph::{RenderGraph, RenderLabel},
+        render_graph::RenderGraph,
         render_resource::{
-            AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, CachedPipelineState,
-            ComputePassDescriptor, ComputePipelineDescriptor, Extent3d, PipelineCache,
-            TextureDimension, TextureFormat, TextureUsages,
+            AsBindGroup, CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor,
+            Extent3d, PipelineCache, TextureDimension, TextureFormat, TextureUsages,
         },
         renderer::{RenderContext, RenderDevice},
         texture::{FallbackImage, Image},
         Render, RenderApp, RenderSet,
     },
 };
+
 use std::borrow::Cow;
-
-mod data;
-
-const WORKGROUP_SIZE: u32 = 8;
-
-#[derive(Resource)]
-struct ShocoVoxRenderPipeline {
-    viewing_glass_bind_group_layout: BindGroupLayout,
-    update_pipeline: CachedComputePipelineId,
-    bind_group: Option<BindGroup>,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct ShocoVoxLabel;
-
-struct ShocoVoxRenderNode {
-    ready: bool,
-    resolution: [u32; 2],
-}
 
 impl FromWorld for ShocoVoxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
@@ -71,11 +59,11 @@ impl FromWorld for ShocoVoxRenderPipeline {
 }
 
 fn prepare_bind_group(
-    mut pipeline: ResMut<ShocoVoxRenderPipeline>,
     gpu_images: Res<RenderAssets<Image>>,
     fallback_image: Res<FallbackImage>,
-    octree_viewing_glass: Res<ShocoVoxViewingGlass>,
     render_device: Res<RenderDevice>,
+    mut pipeline: ResMut<ShocoVoxRenderPipeline>,
+    octree_viewing_glass: Res<ShocoVoxViewingGlass>,
 ) {
     let bind_group = octree_viewing_glass
         .as_bind_group(
@@ -119,7 +107,13 @@ impl Plugin for ShocoVoxRenderPlugin {
         );
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
-        render_graph.add_node(ShocoVoxLabel, ShocoVoxRenderNode::default());
+        render_graph.add_node(
+            ShocoVoxLabel,
+            ShocoVoxRenderNode {
+                ready: false,
+                resolution: self.resolution,
+            },
+        );
         render_graph.add_node_edge(ShocoVoxLabel, bevy::render::graph::CameraDriverLabel);
     }
 
@@ -129,15 +123,7 @@ impl Plugin for ShocoVoxRenderPlugin {
     }
 }
 
-impl Default for ShocoVoxRenderNode {
-    fn default() -> Self {
-        Self {
-            ready: false,
-            resolution: [1024, 768],
-        }
-    }
-}
-
+const WORKGROUP_SIZE: u32 = 8;
 impl render_graph::Node for ShocoVoxRenderNode {
     fn update(&mut self, world: &mut World) {
         let pipeline = world.resource::<ShocoVoxRenderPipeline>();

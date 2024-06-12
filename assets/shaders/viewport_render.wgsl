@@ -687,11 +687,14 @@ var<storage, read_write> nodes: array<SizedNode>;
 var<storage, read_write> voxels: array<Voxelement>;
 
 @compute @workgroup_size(8, 8, 1)
-fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
+fn update(
+    @builtin(global_invocation_id) invocation_id: vec3<u32>,
+    @builtin(num_workgroups) num_workgroups: vec3<u32>,
+) {
     let pixel_location = vec2u(invocation_id.xy);
     let pixel_location_normalized = vec2f(
-        f32(invocation_id.x) / 640.,
-        f32(invocation_id.y) / 480.
+        f32(invocation_id.x) / f32(num_workgroups.x * 8),
+        f32(invocation_id.y) / f32(num_workgroups.y * 8)
     );
     let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
