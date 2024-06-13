@@ -1,10 +1,24 @@
+#[cfg(not(feature = "bevy_wgpu"))]
+fn main() {
+    println!("You probably forgot to enable the bevy_wgpu feature!");
+}
+
+#[cfg(feature = "bevy_wgpu")]
 use bevy::{prelude::*, window::WindowPlugin};
+
+#[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport},
     V3c,
 };
 
+#[cfg(feature = "bevy_wgpu")]
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
+
+#[cfg(feature = "bevy_wgpu")]
+const ARRAY_DIMENSION: u32 = 64;
+
+#[cfg(feature = "bevy_wgpu")]
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
@@ -20,7 +34,7 @@ fn main() {
         .run();
 }
 
-const ARRAY_DIMENSION: u32 = 64;
+#[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let origin = Vec3::new(
         ARRAY_DIMENSION as f32 * 2.,
@@ -90,11 +104,13 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.insert_resource(viewing_glass);
 }
 
+#[cfg(feature = "bevy_wgpu")]
 #[derive(Component)]
 struct DomePosition {
     yaw: f32,
 }
 
+#[cfg(feature = "bevy_wgpu")]
 fn rotate_camera(
     mut angles_query: Query<&mut DomePosition>,
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
@@ -124,6 +140,7 @@ fn rotate_camera(
         .normalize();
 }
 
+#[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
     if keys.pressed(KeyCode::ArrowUp) {
         viewing_glass.viewport.size *= 1.1;
