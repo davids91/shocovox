@@ -8,10 +8,10 @@ use bendy::{
 impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
     fn encode_single(data: &T, encoder: &mut Encoder) -> Result<(), BencodeError> {
         let color = data.albedo();
-        encoder.emit(color[0])?;
-        encoder.emit(color[1])?;
-        encoder.emit(color[2])?;
-        encoder.emit(color[3])?;
+        encoder.emit(color.r)?;
+        encoder.emit(color.g)?;
+        encoder.emit(color.b)?;
+        encoder.emit(color.a)?;
         encoder.emit(data.user_data())
     }
 
@@ -48,7 +48,12 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
             Object::Integer(i) => i.parse::<u32>().ok().unwrap(),
             _ => 0,
         };
-        Ok(VoxelData::new(r, g, b, a, user_data))
+        let albedo = Albedo::default()
+            .with_red(r)
+            .with_green(g)
+            .with_blue(b)
+            .with_alpha(a);
+        Ok(VoxelData::new(albedo, user_data))
     }
 }
 
@@ -80,6 +85,8 @@ where
 }
 
 use bendy::decoding::{FromBencode, Object};
+
+use super::types::Albedo;
 impl<T, const DIM: usize> FromBencode for NodeContent<T, DIM>
 where
     T: PartialEq + Default + Clone + VoxelData,

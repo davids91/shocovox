@@ -100,10 +100,10 @@ where
                             let content = data[x][y][z].user_data();
                             voxels.push(Voxelement {
                                 albedo: Color::rgba(
-                                    albedo[0] as f32 / 255.,
-                                    albedo[1] as f32 / 255.,
-                                    albedo[2] as f32 / 255.,
-                                    albedo[3] as f32 / 255.,
+                                     albedo.r as f32 / 255.,
+                                     albedo.g as f32 / 255.,
+                                     albedo.b as f32 / 255.,
+                                     albedo.a as f32 / 255.,
                                 ),
                                 content,
                             })
