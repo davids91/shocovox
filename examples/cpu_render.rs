@@ -1,39 +1,4 @@
 #[cfg(feature = "raytracing")]
-#[derive(Default, Clone, Debug, PartialEq)]
-struct RGB {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-}
-
-#[cfg(feature = "raytracing")]
-impl RGB {
-    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        RGB { r, g, b, a }
-    }
-}
-
-#[cfg(feature = "raytracing")]
-impl shocovox_rs::octree::VoxelData for RGB {
-    fn new(r: u8, g: u8, b: u8, a: u8, _user_data: u32) -> Self {
-        Self { r, g, b, a }
-    }
-    fn albedo(&self) -> [u8; 4] {
-        [self.r, self.g, self.b, self.a]
-    }
-    fn user_data(&self) -> u32 {
-        0
-    }
-    fn clear(&mut self) {
-        self.r = 0;
-        self.g = 0;
-        self.b = 0;
-        self.a = 0;
-    }
-}
-
-#[cfg(feature = "raytracing")]
 use rand::Rng;
 
 #[cfg(feature = "raytracing")]
@@ -42,33 +7,37 @@ use shocovox_rs::octree::{raytracing::Ray, V3c};
 #[cfg(feature = "raytracing")]
 #[show_image::main]
 fn main() {
+    let voxel_color: Albedo = 0x645097FF.into();
+
     // fill octree with data
     const BRICK_DIMENSION: usize = 8;
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<RGB, BRICK_DIMENSION>::new(TREE_SIZE)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), RGB::new(100, 80, 151, 255))
-        .ok()
-        .unwrap();
-    for x in 0..TREE_SIZE {
-        for y in 0..TREE_SIZE {
-            for z in 0..TREE_SIZE {
-                if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
-                    && (3 < x % 10 && 3 < y % 10 && 3 < z % 10))
-                    || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
+    tree.insert(&V3c::new(1, 3, 3), voxel_color)
+        .expect("insert of voxel to work");
+    for x in 0..tree_size {
+        for y in 0..tree_size {
+            for z in 0..tree_size {
+                if ((x < (ARRAY_DIMENSION / 4)
+                    || y < (ARRAY_DIMENSION / 4)
+                    || z < (ARRAY_DIMENSION / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                    || ((ARRAY_DIMENSION / 2) <= x
+                        && (ARRAY_DIMENSION / 2) <= y
+                        && (ARRAY_DIMENSION / 2) <= z)
                 {
                     tree.insert(
                         &V3c::new(x, y, z),
-                        RGB::new(
-                            (255 as f32 * x as f32 / TREE_SIZE as f32) as u8,
-                            (255 as f32 * y as f32 / TREE_SIZE as f32) as u8,
-                            (255 as f32 * z as f32 / TREE_SIZE as f32) as u8,
-                            255,
-                        ),
+                        Albedo::default()
+                            .with_red((255 as f32 * x as f32 / tree_size as f32) as u8)
+                            .with_green((255 as f32 * y as f32 / tree_size as f32) as u8)
+                            .with_blue((255 as f32 * z as f32 / tree_size as f32) as u8)
+                            .with_alpha(255),
                     )
                     .ok()
                     .unwrap();
@@ -77,6 +46,7 @@ fn main() {
         }
     }
 
+    use shocovox_rs::octree::types::Albedo;
     use show_image::create_window;
     let window = create_window("image", Default::default()).ok().unwrap();
 
@@ -184,4 +154,7 @@ fn main() {
 }
 
 #[cfg(not(feature = "raytracing"))]
-fn main() {} //nothing to do when the feature is not enabled
+fn main() {
+    println!("You probably forgot to enable the raytracing feature!");
+    //nothing to do when the feature is not enabled
+}
