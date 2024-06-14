@@ -1,22 +1,18 @@
 use crate::object_pool::empty_marker;
+
 use crate::octree::{
-    raytracing::types::{OctreeMetaData, OctreeViewMaterial, SizedNode, Viewport, Voxelement},
+    raytracing::{
+        bevy::create_ouput_texture,
+        bevy::types::{OctreeMetaData, ShocoVoxViewingGlass, SizedNode, Viewport, Voxelement},
+    },
     types::{NodeChildrenArray, NodeContent},
+    Octree, VoxelData,
 };
 
 use bevy::{
-    math::Vec3,
-    pbr::Material,
-    render::{color::Color, render_resource::ShaderRef},
+    asset::Assets, ecs::system::ResMut, math::Vec3, render::color::Color, render::texture::Image,
 };
 
-impl Material for OctreeViewMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/viewport_render.wgsl".into()
-    }
-}
-
-use crate::octree::{Octree, VoxelData};
 impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Clone + VoxelData,
@@ -58,7 +54,12 @@ where
         meta
     }
 
-    pub fn create_bevy_material_view(&self, viewport: &Viewport) -> OctreeViewMaterial {
+    pub fn create_bevy_view(
+        &self,
+        viewport: &Viewport,
+        resolution: [u32; 2],
+        images: ResMut<Assets<Image>>,
+    ) -> ShocoVoxViewingGlass {
         let meta = OctreeMetaData {
             octree_size: self.octree_size,
             voxel_matrix_dim: DIM as u32,
@@ -113,7 +114,9 @@ where
             }
             nodes.push(sized_node);
         }
-        OctreeViewMaterial {
+
+        ShocoVoxViewingGlass {
+            output_texture: create_ouput_texture(resolution, images),
             viewport: *viewport,
             meta,
             nodes,

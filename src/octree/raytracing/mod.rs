@@ -3,9 +3,9 @@ mod tests;
 mod types;
 
 #[cfg(feature = "bevy_wgpu")]
-pub mod classic_raytracing_on_bevy_wgpu;
+pub mod bevy;
 
 pub use crate::spatial::raytracing::Ray;
 
 #[cfg(feature = "bevy_wgpu")]
-pub use types::{OctreeViewMaterial, Viewport};
+pub use bevy::types::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport};

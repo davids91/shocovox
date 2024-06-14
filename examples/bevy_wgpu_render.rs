@@ -1,14 +1,27 @@
 #[cfg(feature = "bevy_wgpu")]
-use bevy::prelude::*;
+use bevy::{prelude::*, window::WindowPlugin};
+
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::{octree::raytracing::OctreeViewMaterial, octree::V3c};
+use shocovox_rs::octree::{
+    raytracing::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport},
+    V3c,
+};
+
+#[cfg(feature = "bevy_wgpu")]
+const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
+
+#[cfg(feature = "bevy_wgpu")]
+const ARRAY_DIMENSION: u32 = 64;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
     App::new()
+        .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
-            DefaultPlugins,
-            MaterialPlugin::<OctreeViewMaterial>::default(),
+            DefaultPlugins.set(WindowPlugin::default()),
+            ShocoVoxRenderPlugin {
+                resolution: DISPLAY_RESOLUTION,
+            },
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
@@ -17,38 +30,12 @@ fn main() {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-const ARRAY_DIMENSION: u32 = 64;
-
-#[cfg(feature = "bevy_wgpu")]
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<OctreeViewMaterial>>,
-) {
-    use shocovox_rs::octree::{raytracing::Viewport, types::Albedo};
-
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
-            intensity: 3000.0,
-            ..Default::default()
-        },
-        transform: Transform::from_xyz(-3.0, 2.0, -1.0),
-        ..Default::default()
-    });
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
-            intensity: 3000.0,
-            ..Default::default()
-        },
-        transform: Transform::from_xyz(3.0, 2.0, 1.0),
-        ..Default::default()
-    });
-
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(5.0, 5.0, 7.0).looking_at(Vec3::new(4., 1., 0.0), Vec3::Y),
-        ..Default::default()
-    });
-
+fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
+    let origin = Vec3::new(
+        ARRAY_DIMENSION as f32 * 2.,
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 * -2.,
+    );
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
@@ -95,27 +82,26 @@ fn setup(
             }
         }
     }
-    let quad_size = 10.;
-    let mesh_handle = meshes.add(Mesh::from(Rectangle {
-        half_size: Vec2::new(quad_size, quad_size) / 2.,
-    }));
-    let origin = Vec3::new(
-        ARRAY_DIMENSION as f32 * 2.,
-        ARRAY_DIMENSION as f32 / 2.,
-        ARRAY_DIMENSION as f32 * -2.,
+    let viewing_glass = tree.create_bevy_view(
+        &Viewport {
+            direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
+            origin,
+            size: Vec2::new(10., 10.),
+            fov: 3.,
+        },
+        DISPLAY_RESOLUTION,
+        images,
     );
-    let material_handle = materials.add(tree.create_bevy_material_view(&Viewport {
-        direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
-        origin,
-        size: Vec2::new(10., 10.),
-        fov: 3.,
-    }));
-    commands.spawn(MaterialMeshBundle {
-        mesh: mesh_handle.clone(),
-        material: material_handle.clone(),
-        transform: Transform::from_xyz(quad_size + 0.5, 0.0, 0.0),
-        ..Default::default()
+    commands.spawn(SpriteBundle {
+        sprite: Sprite {
+            custom_size: Some(Vec2::new(1024., 768.)),
+            ..default()
+        },
+        texture: viewing_glass.output_texture.clone(),
+        ..default()
     });
+    commands.spawn(Camera2dBundle::default());
+    commands.insert_resource(viewing_glass);
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -127,10 +113,10 @@ struct DomePosition {
 #[cfg(feature = "bevy_wgpu")]
 fn rotate_camera(
     mut angles_query: Query<&mut DomePosition>,
-    mut mats: ResMut<Assets<OctreeViewMaterial>>,
+    mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 1024.;
+        let addition = ARRAY_DIMENSION as f32 / 10.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle
@@ -140,31 +126,27 @@ fn rotate_camera(
     };
     angles_query.single_mut().yaw = angle;
 
-    for (_mat_handle, mat) in mats.as_mut().iter_mut() {
-        let radius = ARRAY_DIMENSION as f32 * 1.3;
-        mat.viewport.origin = Vec3::new(
-            ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
-            ARRAY_DIMENSION as f32 / 2.,
-            ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
-        );
-        mat.viewport.direction = (Vec3::new(
-            ARRAY_DIMENSION as f32 / 2.,
-            ARRAY_DIMENSION as f32 / 2.,
-            ARRAY_DIMENSION as f32 / 2.,
-        ) - mat.viewport.origin)
-            .normalize();
-    }
+    let radius = ARRAY_DIMENSION as f32 * 1.3;
+    viewing_glass.viewport.origin = Vec3::new(
+        ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
+    );
+    viewing_glass.viewport.direction = (Vec3::new(
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 / 2.,
+    ) - viewing_glass.viewport.origin)
+        .normalize();
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut mats: ResMut<Assets<OctreeViewMaterial>>) {
-    for (_mat_handle, mat) in mats.as_mut().iter_mut() {
-        if keys.pressed(KeyCode::ArrowUp) {
-            mat.viewport.size *= 1.1;
-        }
-        if keys.pressed(KeyCode::ArrowDown) {
-            mat.viewport.size *= 0.9;
-        }
+fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
+    if keys.pressed(KeyCode::ArrowUp) {
+        viewing_glass.viewport.size *= 1.1;
+    }
+    if keys.pressed(KeyCode::ArrowDown) {
+        viewing_glass.viewport.size *= 0.9;
     }
 }
 
