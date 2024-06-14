@@ -8,7 +8,7 @@ pub mod update;
 pub mod raytracing;
 
 pub use crate::spatial::math::vector::V3c;
-pub use types::{Octree, VoxelData};
+pub use types::{Albedo, Octree, VoxelData};
 
 use crate::object_pool::{empty_marker, ObjectPool};
 use crate::octree::{

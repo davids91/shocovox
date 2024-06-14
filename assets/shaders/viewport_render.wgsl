@@ -671,36 +671,45 @@ struct Viewport {
     fov: f32,
 }
 
-@group(2) @binding(0)
+@group(0) @binding(1)
+var output_texture: texture_storage_2d<rgba8unorm, read_write>;
+
+@group(0) @binding(2)
 var<uniform> viewport: Viewport;
 
-@group(2) @binding(1)
+@group(0) @binding(3)
 var<uniform> octreeMetaData: OctreeMetaData;
 
-@group(2) @binding(2)
+@group(0) @binding(4)
 var<storage, read_write> nodes: array<SizedNode>;
 
-@group(2) @binding(3)
+@group(0) @binding(5)
 var<storage, read_write> voxels: array<Voxelement>;
 
-@fragment
-fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
-    let viewport_ = viewport; //Read only once from global RAM
+@compute @workgroup_size(8, 8, 1)
+fn update(
+    @builtin(global_invocation_id) invocation_id: vec3<u32>,
+    @builtin(num_workgroups) num_workgroups: vec3<u32>,
+) {
+    let pixel_location = vec2u(invocation_id.xy);
+    let pixel_location_normalized = vec2f(
+        f32(invocation_id.x) / f32(num_workgroups.x * 8),
+        f32(invocation_id.y) / f32(num_workgroups.y * 8)
+    );
     let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
-        viewport_up_direction, viewport_.direction
+        viewport_up_direction, viewport.direction
     ));
-    let 
-    viewport_bottom_left = viewport_.origin 
-        + (viewport_.direction * viewport_.fov)
-        - (viewport_right_direction * (viewport_.size.x / 2.))
-        - (viewport_up_direction * (viewport_.size.y / 2.))
+    let viewport_bottom_left = viewport.origin 
+        + (viewport.direction * viewport.fov)
+        - (viewport_right_direction * (viewport.size.x / 2.))
+        - (viewport_up_direction * (viewport.size.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport_.size.x * mesh.uv.x
-        + viewport_up_direction * viewport_.size.y * (1. - mesh.uv.y)
+        + viewport_right_direction * viewport.size.x * f32(pixel_location_normalized.x)
+        + viewport_up_direction * viewport.size.y * (1. - f32(pixel_location_normalized.y))
         ;
-    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport_.origin));
+    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
     var ray_result = get_by_ray(ray);
     var rgb_result = vec3f(0.5,0.5,0.5);
@@ -711,7 +720,8 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
         let result_with_lights = ray_result.albedo.rgb * diffuse_light_strength;
         rgb_result = result_with_lights.rgb;
     }
-    return vec4<f32>(rgb_result, 1.0);
+
+    textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
 }
 
 // Note: should be const

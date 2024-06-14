@@ -14,29 +14,25 @@ fn main() {
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
         .ok()
         .unwrap();
 
     tree.insert(&V3c::new(1, 3, 3), voxel_color)
         .expect("insert of voxel to work");
-    for x in 0..tree_size {
-        for y in 0..tree_size {
-            for z in 0..tree_size {
-                if ((x < (ARRAY_DIMENSION / 4)
-                    || y < (ARRAY_DIMENSION / 4)
-                    || z < (ARRAY_DIMENSION / 4))
+    for x in 0..TREE_SIZE {
+        for y in 0..TREE_SIZE {
+            for z in 0..TREE_SIZE {
+                if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
                     && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
-                    || ((ARRAY_DIMENSION / 2) <= x
-                        && (ARRAY_DIMENSION / 2) <= y
-                        && (ARRAY_DIMENSION / 2) <= z)
+                    || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
                 {
                     tree.insert(
                         &V3c::new(x, y, z),
                         Albedo::default()
-                            .with_red((255 as f32 * x as f32 / tree_size as f32) as u8)
-                            .with_green((255 as f32 * y as f32 / tree_size as f32) as u8)
-                            .with_blue((255 as f32 * z as f32 / tree_size as f32) as u8)
+                            .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                            .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                            .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
                             .with_alpha(255),
                     )
                     .ok()
