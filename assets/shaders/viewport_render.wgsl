@@ -291,7 +291,7 @@ fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
     return (0x000000FF & sized_node_meta);
 }
 
-// Functionality-wise this function is more generic, than its coutnerpart
+// Functionality-wise this function is more generic, than its counterpart
 // and is used in voxel brick mapping too
 //crate::spatial::math::flat_projection
 fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
