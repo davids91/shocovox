@@ -1,9 +1,9 @@
 use criterion::{criterion_group, criterion_main};
 use rand::Rng;
-use shocovox_rs::{octree::Octree, octree::V3c};
+use shocovox_rs::octree::{Octree, V3c};
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::octree::raytracing::Ray;
+use shocovox_rs::octree::{raytracing::Ray, Albedo};
 
 fn criterion_benchmark(c: &mut criterion::Criterion) {
     let mut rng = rand::thread_rng();
@@ -11,10 +11,10 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]
     {
         let tree_size = 512;
-        let mut tree = shocovox_rs::octree::Octree::<u32, 8>::new(tree_size)
+        let mut tree = shocovox_rs::octree::Octree::<Albedo, 8>::new(tree_size)
             .ok()
             .unwrap();
-        tree.insert(&V3c::new(1, 3, 3), rng.gen_range(0..500))
+        tree.insert(&V3c::new(1, 3, 3), rng.gen_range(0..500).into())
             .ok()
             .unwrap();
         for x in 0..100 {
@@ -25,7 +25,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
                         || z < (tree_size / 4)
                         || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                     {
-                        tree.insert(&V3c::new(x, y, z), rng.gen_range(0..500))
+                        tree.insert(&V3c::new(x, y, z), rng.gen_range(0..500).into())
                             .ok()
                             .unwrap();
                     }
@@ -74,7 +74,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
     }
 
     let tree_size = 64;
-    let mut tree = shocovox_rs::octree::Octree::<u32>::new(tree_size)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo>::new(tree_size)
         .ok()
         .unwrap();
 
@@ -86,7 +86,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
                     rng.gen_range(0..tree_size),
                     rng.gen_range(0..tree_size),
                 ),
-                rng.gen_range(0..500),
+                rng.gen_range(0..500).into(),
             )
             .ok()
         });
@@ -122,7 +122,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
 
     c.bench_function("octree load", |b| {
         b.iter(|| {
-            let _tree_copy = Octree::<u32>::load("test_junk_octree").ok().unwrap();
+            let _tree_copy = Octree::<Albedo>::load("test_junk_octree").ok().unwrap();
         });
     });
 }
