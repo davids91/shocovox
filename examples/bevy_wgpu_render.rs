@@ -1,8 +1,3 @@
-#[cfg(not(feature = "bevy_wgpu"))]
-fn main() {
-    println!("You probably forgot to enable the bevy_wgpu feature!");
-}
-
 #[cfg(feature = "bevy_wgpu")]
 use bevy::{prelude::*, window::WindowPlugin};
 
@@ -44,11 +39,13 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<u32, 16>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, 16>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), 0x66FFFF).ok().unwrap();
+    tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
+        .ok()
+        .unwrap();
     for x in 0..ARRAY_DIMENSION {
         for y in 0..ARRAY_DIMENSION {
             for z in 0..ARRAY_DIMENSION {
@@ -75,9 +72,12 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     } else {
                         128
                     };
-                    tree.insert(&V3c::new(x, y, z), r | (g << 8) | (b << 16) | 0xFF000000)
-                        .ok()
-                        .unwrap();
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        Albedo::from(r | (g << 8) | (b << 16) | 0xFF000000),
+                    )
+                    .ok()
+                    .unwrap();
                 }
             }
         }
@@ -148,4 +148,10 @@ fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoV
     if keys.pressed(KeyCode::ArrowDown) {
         viewing_glass.viewport.size *= 0.9;
     }
+}
+
+#[cfg(not(feature = "bevy_wgpu"))]
+fn main() {
+    println!("You probably forgot to enable the bevy_wgpu feature!");
+    //nothing to do when the feature is not enabled
 }
