@@ -1,5 +1,7 @@
 use crate::octree::{
-    raytracing::types::NodeStackItem, types::NodeChildrenArray, Cube, Octree, V3c, VoxelData,
+    raytracing::types::NodeStackItem,
+    types::{NodeChildrenArray, NodeContent},
+    Cube, Octree, V3c, VoxelData,
 };
 
 use crate::spatial::math::cube_impact_normal;
@@ -384,12 +386,27 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
                     if !node_stack.last().unwrap().contains_target_center()
                         || (self.nodes.key_is_valid(target_child_key as usize)
-                            && is_bitmap_occupied_at_octant(
-                                node_stack.last().unwrap().occupied_bits,
-                                target_octant,
-                            ))
+                                && is_bitmap_occupied_at_octant(
+                                    node_stack.last().unwrap().occupied_bits,
+                                    target_octant,
+                                )
+                            // Also check if the child collides with the ray
+                            && match self.nodes.get(target_child_key as usize) {
+                                NodeContent::Nothing => false,
+                                NodeContent::Internal(occupied_bits) => 0 != (
+                                    *occupied_bits
+                                    & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
+                                        &(ray.point_at(current_d) - target_bounds.min_position.into()),
+                                        target_bounds.size as f32,
+                                    ) as usize]
+                                    [direction_lut_index as usize]
+                                ),
+                                NodeContent::Leaf(_) => true,
+                            })
                     {
-                        // stop advancing because current target is OOB or not empty while inside bounds
+                        // stop advancing because current target is either
+                        // - OOB
+                        // - or (not empty while inside bounds AND collides with the ray based on its occupancy bitmap)
                         break;
                     }
                 }
