@@ -1,4 +1,4 @@
-use crate::spatial::{math::vector::V3c, Cube, FLOAT_ERROR_TOLERANCE};
+use crate::spatial::{math::vector::V3c, Cube};
 
 pub mod lut;
 
@@ -22,7 +22,6 @@ impl Ray {
 pub struct CubeRayIntersection {
     pub(crate) impact_distance: Option<f32>,
     pub(crate) exit_distance: f32,
-    pub(crate) impact_normal: V3c<f32>,
 }
 
 impl Cube {
@@ -50,34 +49,16 @@ impl Cube {
             return None;
         }
 
-        let p = ray.point_at(tmin);
-        let mut impact_normal = V3c::unit(0.);
-        if (p.x - self.min_position.x as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.x = -1.;
-        } else if (p.x - (self.min_position.x + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.x = 1.;
-        } else if (p.y - self.min_position.y as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.y = -1.;
-        } else if (p.y - (self.min_position.y + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.y = 1.;
-        } else if (p.z - self.min_position.z as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.z = -1.;
-        } else if (p.z - (self.min_position.z + self.size) as f32).abs() < FLOAT_ERROR_TOLERANCE {
-            impact_normal.z = 1.;
-        }
-
         if tmin < 0.0 {
             return Some(CubeRayIntersection {
                 impact_distance: None,
                 exit_distance: tmax,
-                impact_normal,
             });
         }
 
         Some(CubeRayIntersection {
             impact_distance: Some(tmin),
             exit_distance: tmax,
-            impact_normal,
         })
     }
 }

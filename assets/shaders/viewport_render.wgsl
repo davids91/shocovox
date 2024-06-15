@@ -493,7 +493,6 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         node_stack_i = 1;
     }
 
-    var i = 0;
     while(0 < node_stack_i && node_stack_i < max_depth) { // until there are items on the stack
         let current_bounds = node_stack[node_stack_i - 1].bounds;
         let current_bounds_ray_intersection = node_stack[node_stack_i - 1].bounds_intersection;

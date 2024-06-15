@@ -1,8 +1,7 @@
 use crate::octree::{Cube, V3c};
-use crate::spatial::raytracing::CubeRayIntersection;
 
 pub(crate) struct NodeStackItem {
-    pub(crate) bounds_intersection: CubeRayIntersection,
+    pub(crate) intersection_exit_distance: f32,
     pub(crate) bounds: Cube,
     pub(crate) node: u32,
     pub(crate) occupied_bits: u8,

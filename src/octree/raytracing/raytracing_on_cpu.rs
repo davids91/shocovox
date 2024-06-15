@@ -2,6 +2,7 @@ use crate::octree::{
     raytracing::types::NodeStackItem, types::NodeChildrenArray, Cube, Octree, V3c, VoxelData,
 };
 
+use crate::spatial::math::cube_impact_normal;
 use crate::spatial::{
     math::{
         flat_projection, hash_direction, hash_region, is_bitmap_occupied_at_octant, offset_region,
@@ -26,7 +27,7 @@ impl NodeStackItem {
             + V3c::unit(bounds.size as f32 / 4.)
             + Into::<V3c<f32>>::into(offset_region(target_octant)) * (bounds.size as f32 / 2.);
         Self {
-            bounds_intersection,
+            intersection_exit_distance: bounds_intersection.exit_distance,
             bounds,
             node,
             occupied_bits,
@@ -126,20 +127,15 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
     fn traverse_brick(
         ray: &Ray,
+        ray_current_distance: &mut f32,
         brick: &[[[T; DIM]; DIM]; DIM],
         brick_occupied_bits: u64,
         bounds: &Cube,
-        intersection: &CubeRayIntersection,
-        ray_current_distance: &mut f32,
         ray_scale_factors: &V3c<f32>,
         direction_lut_index: usize,
     ) -> Option<V3c<usize>> {
         let mut current_index = {
-            let pos = ray.point_at(
-                intersection
-                    .impact_distance
-                    .unwrap_or(*ray_current_distance),
-            ) - V3c::<f32>::from(bounds.min_position);
+            let pos = ray.point_at(*ray_current_distance) - V3c::<f32>::from(bounds.min_position);
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
@@ -281,8 +277,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
         while !node_stack.is_empty() {
             let node_stack_top = node_stack.last().unwrap();
-            let current_bounds = node_stack_top.bounds;
-            let current_bounds_ray_intersection = node_stack_top.bounds_intersection;
+            let mut current_bounds = node_stack_top.bounds;
+            let current_intersection_exit_distance = node_stack_top.intersection_exit_distance;
             let current_node_key = node_stack_top.node as usize;
             let current_node = self.nodes.get(current_node_key);
             let mut target_octant = node_stack_top.target_octant;
@@ -291,7 +287,44 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                 .nodes
                 .key_is_valid(node_stack.last().unwrap().node as usize));
 
-            if !node_stack_top.contains_target_center() // If current target is OOB
+            let mut leaf_miss = false;
+            if current_node.is_leaf() {
+                debug_assert!(matches!(
+                    self.node_children[current_node_key].content,
+                    NodeChildrenArray::OccupancyBitmap(_)
+                ));
+                if let Some(leaf_brick_hit) = Self::traverse_brick(
+                    &ray,
+                    &mut ray_current_distance,
+                    current_node.leaf_data(),
+                    match self.node_children[current_node_key].content {
+                        NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
+                        _ => {
+                            debug_assert!(false);
+                            0
+                        }
+                    },
+                    &current_bounds,
+                    &ray_scale_factors,
+                    direction_lut_index,
+                ) {
+                    let impact_point = ray.point_at(ray_current_distance);
+                    current_bounds.size /= DIM as f32;
+                    current_bounds.min_position = current_bounds.min_position
+                        + V3c::<f32>::from(leaf_brick_hit) * current_bounds.size;
+                    let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
+                    return Some((
+                        &current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
+                            [leaf_brick_hit.z],
+                        impact_point,
+                        impact_normal,
+                    ));
+                }
+                leaf_miss = true;
+            }
+
+            if leaf_miss
+                || !node_stack_top.contains_target_center() // If current target is OOB
                 // In case there is no overlap between the node occupancy and the potential slots the ray would hit
                 || 0 == (node_stack.last().unwrap().occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant as usize][direction_lut_index as usize])
                 || node_stack_top.is_empty()
@@ -307,67 +340,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     );
                     parent.add_point(step_vec);
                 }
-                ray_current_distance = current_bounds_ray_intersection.exit_distance;
+                ray_current_distance = current_intersection_exit_distance;
                 continue; // Re-calculate current_bounds and ray intersection
             }
-            if current_node.is_leaf() {
-                debug_assert!(matches!(
-                    self.node_children[current_node_key].content,
-                    NodeChildrenArray::OccupancyBitmap(_)
-                ));
-                if let Some(leaf_brick_hit) = Self::traverse_brick(
-                    &ray,
-                    current_node.leaf_data(),
-                    match self.node_children[current_node_key].content {
-                        NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
-                        _ => {
-                            debug_assert!(false);
-                            0
-                        }
-                    },
-                    &current_bounds,
-                    &current_bounds_ray_intersection,
-                    &mut ray_current_distance,
-                    &ray_scale_factors,
-                    direction_lut_index,
-                ) {
-                    let brick_unit = current_bounds.size / DIM as f32;
-                    let result_raycast = Cube {
-                        min_position: current_bounds.min_position
-                            + V3c::from(leaf_brick_hit) * brick_unit,
-                        size: brick_unit,
-                    }
-                    .intersect_ray(&ray)
-                    .unwrap_or(current_bounds_ray_intersection);
-                    return Some((
-                        &current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
-                            [leaf_brick_hit.z],
-                        ray.point_at(
-                            result_raycast
-                                .impact_distance
-                                .unwrap_or(ray_current_distance),
-                        ),
-                        result_raycast.impact_normal,
-                    ));
-                } else {
-                    // POP
-                    let popped_target = node_stack.pop().unwrap();
-                    if let Some(parent) = node_stack.last_mut() {
-                        let step_vec = Self::dda_step_to_next_sibling(
-                            &ray,
-                            &mut ray_current_distance,
-                            &popped_target.bounds,
-                            &ray_scale_factors,
-                        );
-                        parent.add_point(step_vec);
-                    }
-                    ray_current_distance = current_bounds_ray_intersection.exit_distance;
-                    continue; // Re-calculate current_bounds and ray intersection
-                }
-            }
-            ray_current_distance = current_bounds_ray_intersection
-                .impact_distance
-                .unwrap_or(ray_current_distance);
 
             let mut target_bounds = current_bounds.child_bounds_for(target_octant);
             let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
@@ -376,10 +351,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let target_hit = target_bounds.intersect_ray(&ray);
             if !target_is_empty && target_hit.is_some() {
                 // PUSH
-                ray_current_distance = target_hit
-                    .unwrap()
-                    .impact_distance
-                    .unwrap_or(ray_current_distance);
                 let child_target_octant = hash_region(
                     &(ray.point_at(ray_current_distance) - target_bounds.min_position.into()),
                     target_bounds.size as f32,

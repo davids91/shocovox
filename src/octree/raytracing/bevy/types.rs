@@ -100,6 +100,9 @@ pub(crate) struct ShocoVoxRenderPipeline {
     pub(crate) bind_group: Option<BindGroup>,
 }
 
+#[derive(Resource)]
+pub(crate) struct ShocoVoxRenderResolution(pub(crate) [u32; 2]);
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub(crate) struct ShocoVoxLabel;
 

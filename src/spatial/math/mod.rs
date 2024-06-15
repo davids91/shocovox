@@ -1,6 +1,6 @@
 pub mod vector;
 
-use crate::spatial::math::vector::V3c;
+use crate::spatial::{math::vector::V3c, Cube, FLOAT_ERROR_TOLERANCE};
 
 ///####################################################################################
 /// Octant
@@ -128,6 +128,37 @@ pub fn plane_line_intersection(
         return None;
     }
     Some(plane_line_dot_to_plane / directions_dot)
+}
+
+pub fn cube_impact_normal(cube: &Cube, impact_point: &V3c<f32>) -> V3c<f32> {
+    let mid_to_impact =
+        V3c::from(cube.min_position) + V3c::unit(cube.size as f32 / 2.) - *impact_point;
+    let max_component = mid_to_impact
+        .x
+        .abs()
+        .max(mid_to_impact.y.abs())
+        .max(mid_to_impact.z.abs());
+
+    let impact_normal = V3c::new(
+        if mid_to_impact.x.abs() == max_component {
+            mid_to_impact.x
+        } else {
+            0.
+        },
+        if mid_to_impact.y.abs() == max_component {
+            mid_to_impact.y
+        } else {
+            0.
+        },
+        if mid_to_impact.z.abs() == max_component {
+            mid_to_impact.z
+        } else {
+            0.
+        },
+    );
+
+    debug_assert!(0. < impact_normal.length());
+    impact_normal.normalized()
 }
 
 #[cfg(test)]
