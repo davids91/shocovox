@@ -241,7 +241,7 @@ where
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
 }
 
-impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
     pub(in crate::octree) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
         // --> In case the smallest possible node the contained matrix of voxels
         // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
@@ -257,7 +257,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         mat_index
     }
 
-    pub(in crate::octree) fn occupancy_bitmask(brick: &[[[T; DIM]; DIM]; DIM]) -> u64 {
+    pub(in crate::octree) fn bruteforce_occupancy_bitmask(brick: &[[[T; DIM]; DIM]; DIM]) -> u64 {
         let mut bitmask = 0u64;
         for x in 0..DIM {
             for y in 0..DIM {
@@ -281,7 +281,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         content: [[[T; DIM]; DIM]; DIM],
     ) -> [u32; 8] {
         // Create new children leaf nodes based on the provided content
-        let occupancy_bitmap = Self::occupancy_bitmask(&content);
+        let occupancy_bitmap = Self::bruteforce_occupancy_bitmask(&content);
         let children = [
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
             self.nodes.push(NodeContent::Leaf(content.clone())) as u32,
@@ -324,9 +324,25 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
     /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
     /// As they might be empty by fault and to correct them the occupied bits is required.
     /// Leaf node occupancy bitmap should not be calculated by this function
-    pub(in crate::octree) fn occupied_bits_not_leaf(&self, node: u32) -> u8 {
+    pub(in crate::octree) fn occupied_8bit(&self, node: u32) -> u8 {
         match self.nodes.get(node as usize) {
-            NodeContent::Leaf(_) => 0xFF,
+            NodeContent::Leaf(_) => {
+                let leaf_occupied_bits = match self.node_children[node as usize].content {
+                    NodeChildrenArray::OccupancyBitmap(occupied_bits) => occupied_bits,
+                    _ => {
+                        debug_assert!(false);
+                        0
+                    }
+                };
+                (((leaf_occupied_bits & 0x0000000000330033) > 0) as u8) << 0
+                    | (((leaf_occupied_bits & 0x0000000000cc00cc) > 0) as u8) << 1
+                    | (((leaf_occupied_bits & 0x0033003300000000) > 0) as u8) << 2
+                    | (((leaf_occupied_bits & 0x00cc00cc00000000) > 0) as u8) << 3
+                    | (((leaf_occupied_bits & 0x0000000033003300) > 0) as u8) << 4
+                    | (((leaf_occupied_bits & 0x00000000cc00cc00) > 0) as u8) << 5
+                    | (((leaf_occupied_bits & 0x3300330000000000) > 0) as u8) << 6
+                    | (((leaf_occupied_bits & 0xcc00cc0000000000) > 0) as u8) << 7
+            }
             _ => self.node_children[node as usize].occupied_bits(),
         }
     }

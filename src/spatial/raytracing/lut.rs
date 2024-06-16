@@ -1,8 +1,31 @@
 use crate::octree::V3c;
-use crate::spatial::math::{
-    hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
-    set_occupancy_in_bitmap_64bits,
+use crate::spatial::{
+    math::{
+        hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
+        set_occupancy_in_bitmap_64bits,
+    },
+    offset_region,
 };
+
+#[allow(dead_code)]
+fn convert_8bit_bitmap_to_64bit() {
+    for octant in 0..8 {
+        let min_pos = offset_region(octant);
+        let min_pos = V3c::new(
+            min_pos.x as usize * 2,
+            min_pos.y as usize * 2,
+            min_pos.z as usize * 2,
+        );
+        let mut result_bitmap = 0;
+        for x in min_pos.x..(min_pos.x + 2) {
+            for y in min_pos.y..(min_pos.y + 2) {
+                for z in min_pos.z..(min_pos.z + 2) {
+                    set_occupancy_in_bitmap_64bits(x, y, z, 4, true, &mut result_bitmap);
+                }
+            }
+        }
+    }
+}
 
 #[allow(dead_code)]
 fn generate_lut_64_bits() -> [[u64; 8]; 64] {

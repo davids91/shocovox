@@ -188,13 +188,13 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
             {
                 continue;
             }
-            let previous_occupied_bits = self.occupied_bits_not_leaf(node_key);
-            let occupied_bits = self.occupied_bits_not_leaf(node_key);
+            let previous_occupied_bits = self.occupied_8bit(node_key);
+            let occupied_bits = self.occupied_8bit(node_key);
             if let NodeContent::Nothing = current_node {
                 // This is incorrect information which needs to be corrected
                 // As the current Node is either a parent or a data leaf, it can not be Empty or nothing
                 *self.nodes.get_mut(node_key as usize) =
-                    NodeContent::Internal(self.occupied_bits_not_leaf(node_key));
+                    NodeContent::Internal(self.occupied_8bit(node_key));
             }
             if simplifyable {
                 simplifyable = self.simplify(node_key); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
@@ -314,7 +314,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                         self.nodes.free(current_node_key);
                         let parent_key = node_stack[node_stack.len() - 2].0 as usize;
                         self.node_children[parent_key][parent_target as u32] = empty_marker();
-                        let new_occupied_bits = self.occupied_bits_not_leaf(parent_key as u32);
+                        let new_occupied_bits = self.occupied_8bit(parent_key as u32);
                         if let NodeContent::Internal(occupied_bits) = self.nodes.get_mut(parent_key)
                         {
                             *occupied_bits = new_occupied_bits;
@@ -349,8 +349,8 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         }
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            let previous_occupied_bits = self.occupied_bits_not_leaf(node_key);
-            let occupied_bits = self.occupied_bits_not_leaf(node_key);
+            let previous_occupied_bits = self.occupied_8bit(node_key);
+            let occupied_bits = self.occupied_8bit(node_key);
             *self.nodes.get_mut(node_key as usize) = if 0 != occupied_bits {
                 NodeContent::Internal(occupied_bits)
             } else {
@@ -409,8 +409,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 }
             }
             self.deallocate_children_of(node);
-            self.node_children[node as usize].content =
-                NodeChildrenArray::OccupancyBitmap(Self::occupancy_bitmask(data.leaf_data()));
+            self.node_children[node as usize].content = NodeChildrenArray::OccupancyBitmap(
+                Self::bruteforce_occupancy_bitmask(data.leaf_data()),
+            );
             *self.nodes.get_mut(node as usize) = data;
 
             true

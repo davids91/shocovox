@@ -101,11 +101,6 @@ pub(crate) fn octant_bitmask(octant: u8) -> u8 {
     0x01 << octant
 }
 
-/// Queries a bitmask for a single octant position in an 8bit bitmask
-pub(crate) fn is_bitmap_occupied_at_octant(bitmap: u8, octant: u8) -> bool {
-    0 < bitmap & octant_bitmask(octant)
-}
-
 #[allow(dead_code)] // Could be useful either for debugging or new implementations
 #[cfg(feature = "raytracing")]
 /// calculates the distance between the line, and the plane both described by a ray

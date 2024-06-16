@@ -9,9 +9,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]
     {
         let tree_size = 512;
-        let mut tree = shocovox_rs::octree::Octree::<Albedo, 8>::new(tree_size)
-            .ok()
-            .unwrap();
+        let mut tree = Octree::<Albedo, 8>::new(tree_size).ok().unwrap();
         for x in 0..100 {
             for y in 0..100 {
                 for z in 0..100 {
