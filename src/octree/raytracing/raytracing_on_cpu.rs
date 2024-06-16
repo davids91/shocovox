@@ -396,7 +396,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                                 NodeContent::Internal(occupied_bits) => 0 != (
                                     *occupied_bits
                                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
-                                        &(ray.point_at(current_d) - target_bounds.min_position.into()),
+                                        &(ray.point_at(ray_current_distance) - target_bounds.min_position.into()),
                                         target_bounds.size as f32,
                                     ) as usize]
                                     [direction_lut_index as usize]

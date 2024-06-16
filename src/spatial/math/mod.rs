@@ -1,6 +1,7 @@
+mod tests;
 pub mod vector;
 
-use crate::spatial::{math::vector::V3c, Cube, FLOAT_ERROR_TOLERANCE};
+use crate::spatial::{math::vector::V3c, Cube};
 
 ///####################################################################################
 /// Octant
@@ -130,6 +131,7 @@ pub fn plane_line_intersection(
     Some(plane_line_dot_to_plane / directions_dot)
 }
 
+#[cfg(feature = "raytracing")]
 pub fn cube_impact_normal(cube: &Cube, impact_point: &V3c<f32>) -> V3c<f32> {
     let mid_to_impact =
         V3c::from(cube.min_position) + V3c::unit(cube.size as f32 / 2.) - *impact_point;
@@ -141,17 +143,17 @@ pub fn cube_impact_normal(cube: &Cube, impact_point: &V3c<f32>) -> V3c<f32> {
 
     let impact_normal = V3c::new(
         if mid_to_impact.x.abs() == max_component {
-            mid_to_impact.x
+            -mid_to_impact.x
         } else {
             0.
         },
         if mid_to_impact.y.abs() == max_component {
-            mid_to_impact.y
+            -mid_to_impact.y
         } else {
             0.
         },
         if mid_to_impact.z.abs() == max_component {
-            mid_to_impact.z
+            -mid_to_impact.z
         } else {
             0.
         },
@@ -159,76 +161,4 @@ pub fn cube_impact_normal(cube: &Cube, impact_point: &V3c<f32>) -> V3c<f32> {
 
     debug_assert!(0. < impact_normal.length());
     impact_normal.normalized()
-}
-
-#[cfg(test)]
-mod bitmask_tests {
-
-    use std::collections::HashSet;
-
-    use super::flat_projection;
-    use super::octant_bitmask;
-    use super::position_in_bitmap_64bits;
-
-    #[test]
-    fn test_lvl2_flat_projection() {
-        for octant in 0..8 {
-            let bitmask = octant_bitmask(octant);
-            for compare_octant in 0..8 {
-                assert!(compare_octant == octant || 0 == bitmask & octant_bitmask(compare_octant));
-            }
-        }
-    }
-
-    #[test]
-    fn test_flat_projection() {
-        const DIMENSION: usize = 10;
-        assert!(0 == flat_projection(0, 0, 0, DIMENSION));
-        assert!(DIMENSION == flat_projection(10, 0, 0, DIMENSION));
-        assert!(DIMENSION == flat_projection(0, 1, 0, DIMENSION));
-        assert!(DIMENSION * DIMENSION == flat_projection(0, 0, 1, DIMENSION));
-        assert!(DIMENSION * DIMENSION * 4 == flat_projection(0, 0, 4, DIMENSION));
-        assert!((DIMENSION * DIMENSION * 4) + 3 == flat_projection(3, 0, 4, DIMENSION));
-        assert!(
-            (DIMENSION * DIMENSION * 4) + (DIMENSION * 2) + 3
-                == flat_projection(3, 2, 4, DIMENSION)
-        );
-
-        let mut number_coverage = HashSet::new();
-        for x in 0..DIMENSION {
-            for y in 0..DIMENSION {
-                for z in 0..DIMENSION {
-                    let address = flat_projection(x, y, z, DIMENSION);
-                    assert!(!number_coverage.contains(&address));
-                    number_coverage.insert(address);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_lvl1_flat_projection_exact_size_match() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 4));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 2, 4));
-        assert!(63 == position_in_bitmap_64bits(3, 3, 3, 4));
-    }
-
-    #[test]
-    fn test_lvl1_flat_projection_greater_dimension() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 10));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 5, 10));
-        assert!(42 == position_in_bitmap_64bits(5, 5, 5, 10));
-        assert!(63 == position_in_bitmap_64bits(9, 9, 9, 10));
-    }
-    #[test]
-    fn test_lvl1_flat_projection_smaller_dimension() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 2));
-        assert!(2 == position_in_bitmap_64bits(1, 0, 0, 2));
-        assert!(8 == position_in_bitmap_64bits(0, 1, 0, 2));
-        assert!(10 == position_in_bitmap_64bits(1, 1, 0, 2));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 1, 2));
-        assert!(34 == position_in_bitmap_64bits(1, 0, 1, 2));
-        assert!(40 == position_in_bitmap_64bits(0, 1, 1, 2));
-        assert!(42 == position_in_bitmap_64bits(1, 1, 1, 2));
-    }
 }

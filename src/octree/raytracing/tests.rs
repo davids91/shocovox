@@ -494,7 +494,9 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_brick_undetected() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         for x in 0..tree_size {
             for y in 0..tree_size {
@@ -524,7 +526,9 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_brick_z_edge_error() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         for x in 1..tree_size {
             for y in 1..tree_size {
@@ -546,16 +550,19 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
-        assert!(tree
-            .get_by_ray(&ray)
-            .is_some_and(|v| *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)));
+        assert!(tree.get_by_ray(&ray).is_some_and(|v| {
+            println!("v: {:?}", v);
+            *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)
+        }));
     }
 
     #[test]
     fn test_edge_case_brick_traversal_error() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         tree.insert(&V3c::new(0, 0, 0), 0x000000FF.into())
             .ok()

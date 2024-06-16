@@ -1,6 +1,7 @@
 use crate::spatial::{math::vector::V3c, Cube};
 
 pub mod lut;
+mod tests;
 
 #[derive(Debug)]
 pub struct Ray {
