@@ -6,11 +6,11 @@ pub use crate::octree::raytracing::bevy::types::{
 };
 
 use crate::octree::raytracing::bevy::types::{
-    ShocoVoxLabel, ShocoVoxRenderNode, ShocoVoxRenderPipeline, ShocoVoxRenderResolution,
+    ShocoVoxLabel, ShocoVoxRenderNode, ShocoVoxRenderPipeline,
 };
 
 use bevy::{
-    app::{App, Plugin, Startup},
+    app::{App, Plugin},
     asset::{AssetServer, Assets, Handle},
     ecs::system::{Res, ResMut},
     ecs::world::{FromWorld, World},
@@ -97,26 +97,6 @@ pub(crate) fn create_ouput_texture(
     images.add(output_texture)
 }
 
-pub(crate) fn create_ouput_texture2(
-    resolution: Res<ShocoVoxRenderResolution>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    let mut output_texture = Image::new_fill(
-        Extent3d {
-            width: resolution.0[0],
-            height: resolution.0[1],
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    output_texture.texture_descriptor.usage =
-        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    images.add(output_texture);
-}
-
 impl Plugin for ShocoVoxRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractResourcePlugin::<ShocoVoxViewingGlass>::default());
@@ -135,13 +115,11 @@ impl Plugin for ShocoVoxRenderPlugin {
             },
         );
         render_graph.add_node_edge(ShocoVoxLabel, bevy::render::graph::CameraDriverLabel);
-        app.add_systems(Startup, create_ouput_texture2);
     }
 
     fn finish(&self, app: &mut App) {
         let render_app = app.sub_app_mut(RenderApp);
         render_app.init_resource::<ShocoVoxRenderPipeline>();
-        render_app.insert_resource(ShocoVoxRenderResolution(self.resolution));
     }
 }
 

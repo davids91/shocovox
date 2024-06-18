@@ -1,6 +1,5 @@
 use bevy::{
     asset::Handle,
-    ecs::component::Component,
     ecs::system::Resource,
     math::{Vec2, Vec3},
     reflect::TypePath,
@@ -35,8 +34,9 @@ pub(crate) struct SizedNode {
     ///   - Byte 4: TBD
     pub(crate) sized_node_meta: u32,
 
+    /// index of where the data about this node is found in children_buffer
     /// - In case of internal nodes:
-    ///   - Index values of node children
+    ///   - 8 Index value of node children
     /// - In case of leaf nodes:
     ///   - Byte 1-4: Occupancy bitmap MSB
     ///   - Byte 5-8: Occupancy bitmap LSB
@@ -46,7 +46,7 @@ pub(crate) struct SizedNode {
     ///   - Byte 21-24: TBD
     ///   - Byte 25-28: TBD
     ///   - Byte 29-32: TBD
-    pub(crate) children: [u32; 8],
+    pub(crate) children_start_at: u32,
 
     /// index of where the voxel values contained in the node start inside the voxels buffer,
     /// or a "none_value". Should the field contain an index, the next voxel_brick_dim^3 elements
@@ -90,6 +90,9 @@ pub struct ShocoVoxViewingGlass {
     pub(crate) nodes: Vec<SizedNode>,
 
     #[storage(5, visibility(compute))]
+    pub(crate) children_buffer: Vec<u32>,
+
+    #[storage(6, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 }
 
@@ -99,9 +102,6 @@ pub(crate) struct ShocoVoxRenderPipeline {
     pub(crate) update_pipeline: CachedComputePipelineId,
     pub(crate) bind_group: Option<BindGroup>,
 }
-
-#[derive(Resource)]
-pub(crate) struct ShocoVoxRenderResolution(pub(crate) [u32; 2]);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 pub(crate) struct ShocoVoxLabel;
