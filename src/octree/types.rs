@@ -91,6 +91,10 @@ impl From<u32> for Albedo {
     }
 }
 
+/// Sparse Octree of Nodes, where each node contains a brick of voxels.
+/// A Brick is a 3 dimensional matrix, each element of it containing a voxel.
+/// A Brick can be indexed directly, as opposed to the octree which is essentially a
+/// tree-graph where each node has 8 children.
 #[cfg_attr(feature = "serialization", derive(Serialize))]
 pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub auto_simplify: bool,

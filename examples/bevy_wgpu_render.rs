@@ -4,7 +4,7 @@ use bevy::{prelude::*, window::WindowPlugin};
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport},
-    V3c,
+    Albedo, V3c,
 };
 
 #[cfg(feature = "bevy_wgpu")]

@@ -5,16 +5,16 @@ use crate::spatial::math::vector::V3c;
 ///####################################################################################
 /// Octant
 ///####################################################################################
-pub(crate) fn offset_region(octant: u8) -> V3c<u32> {
+pub(crate) fn offset_region(octant: u8) -> V3c<f32> {
     match octant {
-        0 => V3c::new(0, 0, 0),
-        1 => V3c::new(1, 0, 0),
-        2 => V3c::new(0, 0, 1),
-        3 => V3c::new(1, 0, 1),
-        4 => V3c::new(0, 1, 0),
-        5 => V3c::new(1, 1, 0),
-        6 => V3c::new(0, 1, 1),
-        7 => V3c::new(1, 1, 1),
+        0 => V3c::new(0., 0., 0.),
+        1 => V3c::new(1., 0., 0.),
+        2 => V3c::new(0., 0., 1.),
+        3 => V3c::new(1., 0., 1.),
+        4 => V3c::new(0., 1., 0.),
+        5 => V3c::new(1., 1., 0.),
+        6 => V3c::new(0., 1., 1.),
+        7 => V3c::new(1., 1., 1.),
         _ => panic!("Invalid region hash provided for spatial reference!"),
     }
 }

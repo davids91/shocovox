@@ -8,7 +8,7 @@ use crate::spatial::math::{octant_bitmask, set_occupancy_in_bitmap_64bits};
 ///####################################################################################
 
 /// Returns whether the given bound contains the given position.
-pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> bool {
+pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
     position.x >= bounds.min_position.x
         && position.x < bounds.min_position.x + bounds.size
         && position.y >= bounds.min_position.y
@@ -18,7 +18,7 @@ pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<u32>) -> b
 }
 
 /// Returns with the octant value(i.e. index) of the child for the given position
-pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<u32>) -> u8 {
+pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
     debug_assert!(bound_contains(bounds, position));
     hash_region(
         &(*position - bounds.min_position).into(),
@@ -243,12 +243,12 @@ where
 
 impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
     pub(in crate::octree) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
-        // --> In case the smallest possible node the contained matrix
+        // --> In case the smallest possible node the contained matrix of voxels
         // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
-        // --> In case of greater Nodes the below ratio equation is relevant
+        // --> In case of bigger Nodes the below ratio equation is relevant
         // mat[xyz]/DIM = (position - min_position) / bounds.size
-        let mat_index =
-            (V3c::<usize>::from(*position - bounds.min_position) * DIM) / bounds.size as usize;
+        let mat_index = (V3c::<usize>::from(*position - bounds.min_position.into()) * DIM)
+            / bounds.size as usize;
         // The difference between the actual position and min bounds
         // must not be greater, than DIM at each dimension
         debug_assert!(mat_index.x < DIM);

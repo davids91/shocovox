@@ -62,7 +62,7 @@ where
     ) -> ShocoVoxViewingGlass {
         let meta = OctreeMetaData {
             octree_size: self.octree_size,
-            voxel_matrix_dim: DIM as u32,
+            voxel_brick_dim: DIM as u32,
             ambient_light_color: Color::rgba(1., 1., 1., 1.),
             ambient_light_position: Vec3::new(
                 self.octree_size as f32,

@@ -10,11 +10,11 @@ fn main() {
     let voxel_color: Albedo = 0x645097FF.into();
 
     // fill octree with data
-    const MATRIX_DIMENSION: usize = 8;
+    const BRICK_DIMENSION: usize = 8;
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 128;
     let viewport_size_height = 128;
-    let mut tree = shocovox_rs::octree::Octree::<Albedo, MATRIX_DIMENSION>::new(TREE_SIZE)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
         .ok()
         .unwrap();
 

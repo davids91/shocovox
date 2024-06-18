@@ -291,8 +291,8 @@ fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
     return (0x000000FF & sized_node_meta);
 }
 
-// Functionality-wise this function is more generic, than its coutnerpart
-// and is used in voxel matrix mapping too
+// Functionality-wise this function is more generic, than its counterpart
+// and is used in voxel brick mapping too
 //crate::spatial::math::flat_projection
 fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
@@ -339,25 +339,25 @@ fn hash_direction(direction: vec3f) -> u32 {
     return hash_region(offset, 2.);
 }
 
-struct MatrixHit{
+struct BrickHit{
     hit: bool,
     index: vec3u
 }
 
-fn traverse_matrix(
+fn traverse_brick(
     ray: Line,
     ray_current_distance: ptr<function,f32>,
-    ray_scale_factors: vec3f,
-    direction_lut_index: u32,
-    unit_in_bitmap_space: f32, 
-    matrix_index_start: u32,
+    brick_index_start: u32,
     occupancy_bitmap_lsb: u32,
     occupancy_bitmap_msb: u32,
     bounds: Cube,
     intersection: CubeRayIntersection,
+    ray_scale_factors: vec3f,
+    direction_lut_index: u32,
+    unit_in_bitmap_space: f32, 
     dimension: u32
-) -> MatrixHit{
-    var result: MatrixHit;
+) -> BrickHit{
+    var result: BrickHit;
     result.hit = false;
 
     let pos = (
@@ -370,10 +370,10 @@ fn traverse_matrix(
         clamp(i32(pos.y), 0, i32(dimension - 1)),
         clamp(i32(pos.z), 0, i32(dimension - 1))
     );
-    let matrix_unit = bounds.size / f32(dimension);
+    let brick_unit = bounds.size / f32(dimension);
     var current_bounds = Cube(
-        bounds.min_position + vec3f(current_index) * matrix_unit,
-        matrix_unit
+        bounds.min_position + vec3f(current_index) * brick_unit,
+        brick_unit
     );
 
     let start_pos_in_bitmap = position_in_bitmap_64bits(vec3u(current_index), dimension);
@@ -418,11 +418,11 @@ fn traverse_matrix(
             }
         }
 
-        let voxel_matrix_index = u32(flat_projection(
+        let voxel_brick_index = u32(flat_projection(
             vec3u(current_index),
             vec2u(dimension, dimension)
         ));
-        if !is_empty(voxels[matrix_index_start + voxel_matrix_index])
+        if !is_empty(voxels[brick_index_start + voxel_brick_index])
         {
             result.hit = true;
             result.index = vec3u(current_index);
@@ -453,7 +453,7 @@ const max_depth = 20; // the depth for an octree the size of 1048576
                       // which would be approximately 10 km in case 1 voxel is 1 cm
 fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var result: OctreeRayIntersection;
-    let dimension = octreeMetaData.voxel_matrix_dim;
+    let dimension = octreeMetaData.voxel_brick_dim;
     let voxelement_count = arrayLength(&voxels);
     let node_count = arrayLength(&nodes);
 
@@ -469,7 +469,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         ray.direction.z = FLOAT_ERROR_TOLERANCE;
     }
 
-    var current_d: f32  = 0.0;
+    var ray_current_distance: f32  = 0.0;
     var node_stack: array<NodeStackItem, max_depth>;
     var node_stack_i: i32 = 0;
     let ray_scale_factors = get_dda_scale_factors(ray);
@@ -479,9 +479,9 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
     var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
-        current_d = impact_or(root_intersection, 0.);
+        ray_current_distance = impact_or(root_intersection, 0.);
         let target_octant = hash_region(
-            point_in_ray_at_distance(ray, current_d) - root_bounds.min_position,
+            point_in_ray_at_distance(ray, ray_current_distance) - root_bounds.min_position,
             root_bounds.size,
         );
         node_stack[0] = new_node_stack_item(
@@ -513,38 +513,38 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             if(0 < node_stack_i){
                 let step_vec = dda_step_to_next_sibling(
                     ray,
-                    &current_d,
+                    &ray_current_distance,
                     popped_target.bounds,
                     ray_scale_factors
                 );
                 node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
             }
-            current_d = current_bounds_ray_intersection.exit_distance;
+            ray_current_distance = current_bounds_ray_intersection.exit_distance;
             continue;
         }
 
         if is_leaf(current_node.sized_node_meta) {
-            let leaf_matrix_hit = traverse_matrix(
-                ray, &current_d, ray_scale_factors, direction_lut_index,
-                unit_in_bitmap_space, current_node.voxels_start_at,
+            let leaf_brick_hit = traverse_brick(
+                ray, &ray_current_distance, current_node.voxels_start_at,
                 current_node.children[0], current_node.children[1],
                 current_bounds, current_bounds_ray_intersection,
+                ray_scale_factors, direction_lut_index, unit_in_bitmap_space,
                 dimension
             );
-            if leaf_matrix_hit.hit == true {
+            if leaf_brick_hit.hit == true {
                 let hit_in_voxels = (
                     current_node.voxels_start_at
                     + u32(flat_projection(
-                        leaf_matrix_hit.index,
+                        leaf_brick_hit.index,
                         vec2u(dimension, dimension)
                     ))
                 );
-                let matrix_unit = current_bounds.size / f32(dimension);
+                let brick_unit = current_bounds.size / f32(dimension);
                 let result_bounds = Cube(
                     current_bounds.min_position + (
-                        vec3f(leaf_matrix_hit.index) * matrix_unit
+                        vec3f(leaf_brick_hit.index) * brick_unit
                     ),
-                    matrix_unit
+                    brick_unit
                 );
                 var result_raycast = cube_intersect_ray(result_bounds, ray);
                 if result_raycast.hit == false {
@@ -554,7 +554,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 result.albedo = voxels[hit_in_voxels].albedo;
                 result.content = voxels[hit_in_voxels].content;
                 result.collision_point = point_in_ray_at_distance(
-                    ray, impact_or(result_raycast, current_d)
+                    ray, impact_or(result_raycast, ray_current_distance)
                 );
                 result.impact_normal = result_raycast.impact_normal;
                 return result;
@@ -565,17 +565,17 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 if(0 < node_stack_i){
                     let step_vec = dda_step_to_next_sibling(
                         ray,
-                        &current_d,
+                        &ray_current_distance,
                         popped_target.bounds,
                         ray_scale_factors
                     );
                     node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
                 }
-                current_d = current_bounds_ray_intersection.exit_distance;
+                ray_current_distance = current_bounds_ray_intersection.exit_distance;
                 continue;
             }
         }
-        current_d = impact_or(current_bounds_ray_intersection, current_d);
+        ray_current_distance = impact_or(current_bounds_ray_intersection, ray_current_distance);
 
         var target_bounds = child_bounds_for(current_bounds, target_octant);
         var target_child_key = current_node.children[target_octant];
@@ -587,9 +587,9 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         let target_hit = cube_intersect_ray(target_bounds, ray);
         if(!target_is_empty && target_hit.hit) {
             // PUSH
-            current_d = impact_or(target_hit, current_d);
+            ray_current_distance = impact_or(target_hit, ray_current_distance);
             let child_target_octant = hash_region(
-                (point_in_ray_at_distance(ray, current_d) - target_bounds.min_position),
+                (point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position),
                 target_bounds.size
             );
             node_stack[node_stack_i] = new_node_stack_item(
@@ -604,12 +604,12 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             loop{
                 let step_vec = dda_step_to_next_sibling(
                     ray,
-                    &current_d,
+                    &ray_current_distance,
                     target_bounds,
                     ray_scale_factors
                 );
                 if target_hit.hit == true {
-                    current_d = target_hit.exit_distance;
+                    ray_current_distance = target_hit.exit_distance;
                 }
                 node_stack[node_stack_i - 1] = add_point_to(node_stack[node_stack_i - 1], step_vec);
                 target_octant = node_stack[node_stack_i - 1].target_octant;
@@ -659,7 +659,7 @@ struct SizedNode {
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
     octree_size: u32,
-    voxel_matrix_dim: u32,
+    voxel_brick_dim: u32,
     ambient_light_color: vec4f,
     ambient_light_position: vec3f,
 }

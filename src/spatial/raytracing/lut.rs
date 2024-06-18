@@ -19,7 +19,7 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
                 for dx in -1i32..=1 {
                     for dy in -1i32..=1 {
                         for dz in -1i32..=1 {
-                            // step through the matrix in the given direction and set relevant bits to occupied
+                            // step through the brick in the given direction and set relevant bits to occupied
                             if 0 == dx || 0 == dy || 0 == dz {
                                 continue;
                             }
@@ -74,7 +74,7 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
                 for dx in -1i32..=1 {
                     for dy in -1i32..=1 {
                         for dz in -1i32..=1 {
-                            // step through the matrix in the given direction and set the positional bits to occupied
+                            // step through the brick in the given direction and set the positional bits to occupied
                             if 0 == dx || 0 == dy || 0 == dz {
                                 continue;
                             }
