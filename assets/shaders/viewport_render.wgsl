@@ -182,45 +182,24 @@ fn cube_impact_normal(cube: Cube, impact_point: vec3f) -> vec3f{
 }
 
 struct NodeStackItem {
-    intersection_exit_distance: f32,
     bounds: Cube,
     node: u32,
     sized_node_meta: u32,
     target_octant: u32,
-    child_center: vec3f,
 }
 
 //crate::octree:raytracing::NodeStackItem::new
 fn new_node_stack_item(
     bounds: Cube,
-    cube_intersection: CubeRayIntersection,
     node: u32,
     sized_node_meta: u32,
     target_octant: u32
 ) -> NodeStackItem {
     var result: NodeStackItem;
     result.bounds = bounds;
-    result.intersection_exit_distance = cube_intersection.exit_distance;
     result.node = node;
-    result.sized_node_meta = sized_node_meta;
     result.target_octant = target_octant;
-    result.child_center = (
-        bounds.min_position + (bounds.size / 4.)
-        + (offset_region(target_octant) * (result.bounds.size / 2.))
-    );
-    return result;
-}
-
-//crate::octree:raytracing::NodeStackItem::add_point
-fn add_point_to(item: NodeStackItem, point: vec3f) -> NodeStackItem {
-    var result: NodeStackItem = item;
-    result.bounds = item.bounds;
-    result.node = item.node;
-    result.child_center = item.child_center + point;
-    result.target_octant = hash_region(
-        (result.child_center - result.bounds.min_position),
-        result.bounds.size
-    );
+    result.sized_node_meta = sized_node_meta;
     return result;
 }
 
@@ -456,14 +435,15 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         ray.direction.z = FLOAT_ERROR_TOLERANCE;
     }
 
+    let ray_scale_factors = get_dda_scale_factors(ray);
+    let direction_lut_index = hash_direction(ray.direction);
+
+    var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     var ray_current_distance: f32  = 0.0;
     var node_stack: array<NodeStackItem, max_depth>;
     var node_stack_i: i32 = 0;
-    let ray_scale_factors = get_dda_scale_factors(ray);
-    let direction_lut_index = hash_direction(ray.direction);
     let unit_in_bitmap_space = 4. / f32(dimension);
 
-    var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersection = cube_intersect_ray(root_bounds, ray);
     if(root_intersection.hit){
         ray_current_distance = impact_or(root_intersection, 0.);
@@ -472,7 +452,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             root_bounds.size,
         );
         node_stack[0] = new_node_stack_item(
-            root_bounds, root_intersection,
+            root_bounds,
             OCTREE_ROOT_NODE_KEY,
             nodes[OCTREE_ROOT_NODE_KEY].sized_node_meta,
             target_octant
@@ -482,7 +462,6 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 
     while(0 < node_stack_i && node_stack_i < max_depth) { // until there are items on the stack
         var current_bounds = node_stack[node_stack_i - 1].bounds;
-        let current_intersection_exit_distance = node_stack[node_stack_i - 1].intersection_exit_distance;
         var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
         var target_octant = node_stack[node_stack_i - 1].target_octant;
 
@@ -517,6 +496,8 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             }
             leaf_miss = true;
         }
+
+        //TODO: integrate changes..
         if( leaf_miss
             ||(!cube_contains_point(current_bounds, node_stack[node_stack_i - 1].child_center))
             || ( 0 == (

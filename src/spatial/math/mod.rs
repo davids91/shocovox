@@ -1,7 +1,10 @@
 mod tests;
 pub mod vector;
 
-use crate::spatial::{math::vector::V3c, Cube};
+use crate::spatial::math::vector::V3c;
+
+#[cfg(feature = "raytracing")]
+use crate::spatial::{raytracing::lut::OCTANT_STEP_RESULT_LUT, Cube};
 
 ///####################################################################################
 /// Octant
@@ -40,6 +43,16 @@ pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1.0 - direction.length()).abs() < 0.1);
     let offset = V3c::unit(1.) + *direction;
     hash_region(&offset, 2.)
+}
+
+pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
+    let step_signum_index = V3c::new(
+        ((step.x as i32).signum() + 1) as usize,
+        ((step.y as i32).signum() + 1) as usize,
+        ((step.z as i32).signum() + 1) as usize,
+    );
+    OCTANT_STEP_RESULT_LUT[octant as usize][step_signum_index.x][step_signum_index.y]
+        [step_signum_index.z]
 }
 
 /// Maps 3 dimensional space limited by `size` to 1 dimension

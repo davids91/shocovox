@@ -136,6 +136,146 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
     bitmap_lut
 }
 
+pub const OOB_OCTANT: u8 = 8;
+pub const OCTANT_STEP_RESULT_LUT: [[[[u8; 3]; 3]; 3]; 8] = [
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, 0, 2],
+            [OOB_OCTANT, 4, 6],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, 1, 3],
+            [OOB_OCTANT, 5, 7],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, 0, 2],
+            [OOB_OCTANT, 4, 6],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, 1, 3],
+            [OOB_OCTANT, 5, 7],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [0, 2, OOB_OCTANT],
+            [4, 6, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [1, 3, OOB_OCTANT],
+            [5, 7, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [0, 2, OOB_OCTANT],
+            [4, 6, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [1, 3, OOB_OCTANT],
+            [5, 7, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, 0, 2],
+            [OOB_OCTANT, 4, 6],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, 1, 3],
+            [OOB_OCTANT, 5, 7],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, 0, 2],
+            [OOB_OCTANT, 4, 6],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, 1, 3],
+            [OOB_OCTANT, 5, 7],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [0, 2, OOB_OCTANT],
+            [4, 6, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [1, 3, OOB_OCTANT],
+            [5, 7, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+    [
+        [
+            [0, 2, OOB_OCTANT],
+            [4, 6, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [1, 3, OOB_OCTANT],
+            [5, 7, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+        [
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
+        ],
+    ],
+];
+
 pub const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
     [1, 3, 5, 15, 17, 51, 85, 255],
     [3, 2, 15, 10, 51, 34, 255, 170],

@@ -1,50 +1,37 @@
-use crate::octree::{
-    types::{NodeChildrenArray, NodeContent},
-    Cube, Octree, V3c, VoxelData,
+use crate::{
+    octree::{
+        types::{NodeChildrenArray, NodeContent},
+        Cube, Octree, V3c, VoxelData,
+    },
+    spatial::math::step_octant,
 };
 
-use crate::spatial::math::cube_impact_normal;
 use crate::spatial::{
     math::{
-        flat_projection, hash_direction, hash_region, octant_bitmask, offset_region,
+        cube_impact_normal, flat_projection, hash_direction, hash_region, octant_bitmask,
         position_in_bitmap_64bits,
     },
     raytracing::{
-        lut::RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, lut::RAY_TO_NODE_OCCUPANCY_BITMASK_LUT, Ray,
+        lut::{OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, RAY_TO_NODE_OCCUPANCY_BITMASK_LUT},
+        Ray,
     },
     FLOAT_ERROR_TOLERANCE,
 };
 
+#[derive(Debug)]
 struct NodeStackItem {
     pub(crate) bounds: Cube,
-    pub(crate) node: u32,
-    pub(crate) target_octant: u8,
-    pub(crate) child_center: V3c<f32>,
+    node: u32,
+    target_octant: u8,
 }
 
 impl NodeStackItem {
     pub(crate) fn new(bounds: Cube, node: u32, target_octant: u8) -> Self {
-        let child_center = Into::<V3c<f32>>::into(bounds.min_position)
-            + V3c::unit(bounds.size as f32 / 4.)
-            + Into::<V3c<f32>>::into(offset_region(target_octant)) * (bounds.size as f32 / 2.);
         Self {
             bounds,
             node,
             target_octant,
-            child_center,
         }
-    }
-
-    pub(crate) fn add_point(&mut self, p: V3c<f32>) {
-        self.child_center = self.child_center + p;
-        self.target_octant = hash_region(
-            &(self.child_center - self.bounds.min_position.into()),
-            self.bounds.size as f32,
-        );
-    }
-
-    pub(crate) fn contains_target_center(&self) -> bool {
-        self.bounds.contains_point(&self.child_center)
     }
 }
 
@@ -128,7 +115,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         direction_lut_index: usize,
     ) -> Option<V3c<usize>> {
         let mut current_index = {
-            let pos = ray.point_at(*ray_current_distance) - V3c::<f32>::from(bounds.min_position);
+            let pos = ray.point_at(*ray_current_distance) - bounds.min_position;
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
@@ -299,10 +286,10 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     &ray_scale_factors,
                     direction_lut_index,
                 ) {
-                    let impact_point = ray.point_at(ray_current_distance);
                     current_bounds.size /= DIM as f32;
                     current_bounds.min_position = current_bounds.min_position
                         + V3c::<f32>::from(leaf_brick_hit) * current_bounds.size;
+                    let impact_point = ray.point_at(ray_current_distance);
                     let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
                     return Some((
                         &current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
@@ -315,7 +302,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             }
 
             if leaf_miss
-                || !node_stack_top.contains_target_center() // If current target is OOB
+                || node_stack_top.target_octant == OOB_OCTANT
                 // In case the current Node is empty
                 || 0 == current_node_occupied_bits
                 // In case there is no overlap between the node occupancy and the potential slots the ray would hit
@@ -330,7 +317,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                         &popped_target.bounds,
                         &ray_scale_factors,
                     );
-                    parent.add_point(step_vec);
+                    parent.target_octant = step_octant(parent.target_octant, step_vec);
                 }
                 continue; // Re-calculate current_bounds
             }
@@ -366,12 +353,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                     if let Some(hit) = target_hit {
                         ray_current_distance = hit.exit_distance;
                     }
-                    node_stack.last_mut().unwrap().add_point(step_vec);
-                    target_octant = node_stack.last().unwrap().target_octant;
-                    target_bounds = current_bounds.child_bounds_for(target_octant);
-                    target_child_key = self.node_children[current_node_key][target_octant as u32];
+                    target_octant = step_octant(target_octant, step_vec);
+                    if OOB_OCTANT != target_octant {
+                        target_bounds = current_bounds.child_bounds_for(target_octant);
+                        target_child_key =
+                            self.node_children[current_node_key][target_octant as u32];
+                    }
 
-                    if !node_stack.last().unwrap().contains_target_center()
+                    if target_octant == OOB_OCTANT
                         || (self.nodes.key_is_valid(target_child_key as usize)
                             // current node is occupied at target octant
                             && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
@@ -381,7 +370,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                                 NodeContent::Internal(_) | NodeContent::Leaf(_)=> self.occupied_8bit(target_child_key)
                                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                         &(ray.point_at(ray_current_distance) - target_bounds.min_position),
-                                        target_bounds.size as f32,
+                                        target_bounds.size,
                                     ) as usize]
                                     [direction_lut_index as usize],
                             })
@@ -389,6 +378,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                         // stop advancing because current target is either
                         // - OOB
                         // - or (not empty while inside bounds AND collides with the ray based on its occupancy bitmap)
+                        node_stack.last_mut().unwrap().target_octant = target_octant;
                         break;
                     }
                     target_hit = target_bounds.intersect_ray(&ray);
