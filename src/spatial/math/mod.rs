@@ -45,14 +45,14 @@ pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     hash_region(&offset, 2.)
 }
 
+/// Provides the resulting octant based on the given octant and a direction it is stepping to
+/// It returns with 8 if the resulting octant is out of bounds.
 pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
-    let step_signum_index = V3c::new(
-        ((step.x as i32).signum() + 1) as usize,
-        ((step.y as i32).signum() + 1) as usize,
-        ((step.z as i32).signum() + 1) as usize,
-    );
-    OCTANT_STEP_RESULT_LUT[octant as usize][step_signum_index.x][step_signum_index.y]
-        [step_signum_index.z]
+    let octant_pos_in_32bits = 4 * octant;
+    ((OCTANT_STEP_RESULT_LUT[((step.x as i32).signum() + 1) as usize]
+        [((step.y as i32).signum() + 1) as usize][((step.z as i32).signum() + 1) as usize]
+        & (0x0F << octant_pos_in_32bits))
+        >> octant_pos_in_32bits) as u8
 }
 
 /// Maps 3 dimensional space limited by `size` to 1 dimension

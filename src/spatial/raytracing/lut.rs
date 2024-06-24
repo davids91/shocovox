@@ -136,143 +136,75 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
     bitmap_lut
 }
 
+#[allow(dead_code)]
+fn generate_octant_step_result_lut() {
+    let octant_after_step = |step_vector: &V3c<i32>, octant: u8| {
+        const SPACE_SIZE: f32 = 12.;
+        let octant_offset = offset_region(octant);
+        let octant_center = (
+            SPACE_SIZE / 4. + octant_offset.x * (SPACE_SIZE / 2.),
+            SPACE_SIZE / 4. + octant_offset.y * (SPACE_SIZE / 2.),
+            SPACE_SIZE / 4. + octant_offset.z * (SPACE_SIZE / 2.),
+        );
+        let step_signum = (
+            step_vector.x.signum() as f32,
+            step_vector.y.signum() as f32,
+            step_vector.z.signum() as f32,
+        );
+        let center_after_step = V3c::new(
+            octant_center.0 + step_signum.0 * (SPACE_SIZE / 2.),
+            octant_center.1 + step_signum.1 * (SPACE_SIZE / 2.),
+            octant_center.2 + step_signum.2 * (SPACE_SIZE / 2.),
+        );
+
+        if center_after_step.x < 0.
+            || center_after_step.x > SPACE_SIZE
+            || center_after_step.y < 0.
+            || center_after_step.z > SPACE_SIZE
+            || center_after_step.z < 0.
+            || center_after_step.z > SPACE_SIZE
+        {
+            OOB_OCTANT
+        } else {
+            hash_region(&center_after_step, SPACE_SIZE)
+        }
+    };
+
+    let mut lut = [[[0; 3]; 3]; 3];
+    for octant in 0..8 {
+        let octant_pos_in_32bits = 4 * octant;
+        for z in -1i32..=1 {
+            for y in -1i32..=1 {
+                for x in -1i32..=1 {
+                    let result_octant = octant_after_step(&V3c::new(x, y, z), octant as u8);
+                    lut[(x + 1) as usize][(y + 1) as usize][(z + 1) as usize] |=
+                        (result_octant as u32 & 0x0F) << octant_pos_in_32bits;
+                    let octant_in_lut = (lut[(x + 1) as usize][(y + 1) as usize][(z + 1) as usize]
+                        & (0x0F << octant_pos_in_32bits))
+                        >> octant_pos_in_32bits;
+                    assert!(octant_in_lut == result_octant as u32);
+                }
+            }
+        }
+    }
+}
+
 pub const OOB_OCTANT: u8 = 8;
-pub const OCTANT_STEP_RESULT_LUT: [[[[u8; 3]; 3]; 3]; 8] = [
+pub const OCTANT_STEP_RESULT_LUT: [[[u32; 3]; 3]; 3] = [
     [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, 0, 2],
-            [OOB_OCTANT, 4, 6],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, 1, 3],
-            [OOB_OCTANT, 5, 7],
-        ],
+        [143165576, 671647880, 2284357768],
+        [1216874632, 1749559304, 2288551976],
+        [2290632840, 2290640968, 2290649192],
     ],
     [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, 0, 2],
-            [OOB_OCTANT, 4, 6],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, 1, 3],
-            [OOB_OCTANT, 5, 7],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
+        [277383304, 839944328, 2285013128],
+        [1418203272, 1985229328, 2289469490],
+        [2290635912, 2290644564, 2290649206],
     ],
     [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [0, 2, OOB_OCTANT],
-            [4, 6, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [1, 3, OOB_OCTANT],
-            [5, 7, OOB_OCTANT],
-        ],
-    ],
-    [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [0, 2, OOB_OCTANT],
-            [4, 6, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [1, 3, OOB_OCTANT],
-            [5, 7, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-    ],
-    [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, 0, 2],
-            [OOB_OCTANT, 4, 6],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, 1, 3],
-            [OOB_OCTANT, 5, 7],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-    ],
-    [
-        [
-            [OOB_OCTANT, 0, 2],
-            [OOB_OCTANT, 4, 6],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, 1, 3],
-            [OOB_OCTANT, 5, 7],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-    ],
-    [
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [0, 2, OOB_OCTANT],
-            [4, 6, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [1, 3, OOB_OCTANT],
-            [5, 7, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-    ],
-    [
-        [
-            [0, 2, OOB_OCTANT],
-            [4, 6, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [1, 3, OOB_OCTANT],
-            [5, 7, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
-        [
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-            [OOB_OCTANT, OOB_OCTANT, OOB_OCTANT],
-        ],
+        [2173208712, 2206304392, 2290321544],
+        [2240315784, 2273674113, 2290583683],
+        [2290648456, 2290648965, 2290649223],
     ],
 ];
 
