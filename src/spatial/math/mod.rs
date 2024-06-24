@@ -47,6 +47,8 @@ pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
 
 /// Provides the resulting octant based on the given octant and a direction it is stepping to
 /// It returns with 8 if the resulting octant is out of bounds.
+/// Important note: the specs of `signum` behvaes differently for f32 and i32
+/// So the conversion to i32 is absolutely required
 pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
     let octant_pos_in_32bits = 4 * octant;
     ((OCTANT_STEP_RESULT_LUT[((step.x as i32).signum() + 1) as usize]

@@ -223,7 +223,6 @@ mod raytracing_tests {
         };
         let hit = cube.intersect_ray(&ray).unwrap();
         assert!(hit.impact_distance.is_some() && hit.impact_distance.unwrap() == 0.);
-        assert!(hit.exit_distance > 0.);
     }
 
     #[test]
@@ -250,7 +249,6 @@ mod raytracing_tests {
         };
         let hit = cube.intersect_ray(&ray).unwrap();
         assert!(hit.impact_distance.is_none());
-        assert!(hit.exit_distance > 0.);
     }
 
     #[test]
@@ -276,8 +274,6 @@ mod raytracing_tests {
             size: 2.0,
         };
         let hit = cube.intersect_ray(&ray).unwrap();
-        assert!(hit
-            .impact_distance
-            .is_some_and(|d| (d > 0.0) && d < hit.exit_distance));
+        assert!(hit.impact_distance.is_some_and(|d| (d > 0.0)));
     }
 }

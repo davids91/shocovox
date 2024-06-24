@@ -326,8 +326,7 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
             let target_is_empty = !self.nodes.key_is_valid(target_child_key as usize)
                 || 0 == current_node_occupied_bits & octant_bitmask(target_octant);
-            let mut target_hit = target_bounds.intersect_ray(&ray);
-            if !target_is_empty && target_hit.is_some() {
+            if !target_is_empty {
                 // PUSH
                 let child_target_octant = hash_region(
                     &(ray.point_at(ray_current_distance) - target_bounds.min_position.into()),
@@ -350,9 +349,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                         &target_bounds,
                         &ray_scale_factors,
                     );
-                    if let Some(hit) = target_hit {
-                        ray_current_distance = hit.exit_distance;
-                    }
                     target_octant = step_octant(target_octant, step_vec);
                     if OOB_OCTANT != target_octant {
                         target_bounds = current_bounds.child_bounds_for(target_octant);
@@ -381,7 +377,6 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
                         node_stack.last_mut().unwrap().target_octant = target_octant;
                         break;
                     }
-                    target_hit = target_bounds.intersect_ray(&ray);
                 }
             }
         }

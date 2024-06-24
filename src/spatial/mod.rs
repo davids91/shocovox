@@ -34,15 +34,4 @@ impl Cube {
             size: child_size,
         }
     }
-
-    /// True if the given point is inside the cube, with coordinates in inclusive, exclusive range
-    /// Edges included
-    pub(crate) fn contains_point(&self, point: &V3c<f32>) -> bool {
-        (point.x >= self.min_position.x as f32 - FLOAT_ERROR_TOLERANCE)
-            && (point.x < (self.min_position.x + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
-            && (point.y >= self.min_position.y as f32 - FLOAT_ERROR_TOLERANCE)
-            && (point.y < (self.min_position.y + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
-            && (point.z >= self.min_position.z as f32 - FLOAT_ERROR_TOLERANCE)
-            && (point.z < (self.min_position.z + self.size) as f32 + FLOAT_ERROR_TOLERANCE)
-    }
 }

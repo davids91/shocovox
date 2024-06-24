@@ -22,7 +22,6 @@ impl Ray {
 #[derive(Debug, Copy, Clone, Default)]
 pub struct CubeRayIntersection {
     pub(crate) impact_distance: Option<f32>,
-    pub(crate) exit_distance: f32,
 }
 
 impl Cube {
@@ -53,13 +52,11 @@ impl Cube {
         if tmin < 0.0 {
             return Some(CubeRayIntersection {
                 impact_distance: None,
-                exit_distance: tmax,
             });
         }
 
         Some(CubeRayIntersection {
             impact_distance: Some(tmin),
-            exit_distance: tmax,
         })
     }
 }
