@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod raytracing_tests {
-    use crate::spatial::{math::plane_line_intersection, raytracing::Ray, Cube, V3c};
+    use crate::spatial::{raytracing::plane_line_intersection, raytracing::Ray, Cube, V3c};
 
     #[test]
     fn test_plane_line_intersection() {

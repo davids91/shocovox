@@ -1,6 +1,6 @@
 use crate::octree::{Cube, V3c};
 use crate::spatial::raytracing::Ray;
-use crate::spatial::{math::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+use crate::spatial::{raytracing::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
 
 /// Reference implementation to decide step to sibling boundary
 #[allow(dead_code)]

@@ -3,8 +3,8 @@
 mod intersection_tests {
 
     use crate::spatial::{
-        math::{cube_impact_normal, plane_line_intersection},
         raytracing::Ray,
+        raytracing::{cube_impact_normal, plane_line_intersection},
         Cube, V3c,
     };
 

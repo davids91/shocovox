@@ -3,15 +3,15 @@ use crate::{
         types::{NodeChildrenArray, NodeContent},
         Cube, Octree, V3c, VoxelData,
     },
-    spatial::math::step_octant,
+    spatial::raytracing::step_octant,
 };
 
 use crate::spatial::{
     math::{
-        cube_impact_normal, flat_projection, hash_direction, hash_region, octant_bitmask,
-        position_in_bitmap_64bits,
+        flat_projection, hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
     },
     raytracing::{
+        cube_impact_normal,
         lut::{OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, RAY_TO_NODE_OCCUPANCY_BITMASK_LUT},
         Ray,
     },
@@ -329,8 +329,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             if !target_is_empty {
                 // PUSH
                 let child_target_octant = hash_region(
-                    &(ray.point_at(ray_current_distance) - target_bounds.min_position.into()),
-                    target_bounds.size as f32,
+                    &(ray.point_at(ray_current_distance) - target_bounds.min_position),
+                    target_bounds.size,
                 );
                 node_stack.push(NodeStackItem::new(
                     target_bounds,
