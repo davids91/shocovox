@@ -11,7 +11,7 @@ use shocovox_rs::octree::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const ARRAY_DIMENSION: u32 = 64;
+const ARRAY_DIMENSION: u32 = 128;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {

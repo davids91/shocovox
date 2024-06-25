@@ -12,8 +12,8 @@ fn main() {
     // fill octree with data
     const BRICK_DIMENSION: usize = 8;
     const TREE_SIZE: u32 = 64;
-    let viewport_size_width = 128;
-    let viewport_size_height = 128;
+    let viewport_size_width = 150;
+    let viewport_size_height = 150;
     let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
         .ok()
         .unwrap();

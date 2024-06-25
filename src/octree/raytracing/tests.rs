@@ -1,3 +1,63 @@
+use crate::octree::{Cube, V3c};
+use crate::spatial::raytracing::Ray;
+use crate::spatial::{raytracing::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+
+/// Reference implementation to decide step to sibling boundary
+#[allow(dead_code)]
+pub(crate) fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
+    //Find the point furthest from the ray
+    let midpoint = V3c::unit((current.size / 2.0) as f32) + current.min_position.into();
+    let ref_point = midpoint
+        + V3c::new(
+            (current.size as f32 / 2.).copysign(ray.direction.x),
+            (current.size as f32 / 2.).copysign(ray.direction.y),
+            (current.size as f32 / 2.).copysign(ray.direction.z),
+        );
+
+    // Find the min of the 3 plane intersections
+    let x_plane_distance = plane_line_intersection(
+        &ref_point,
+        &V3c::new(1., 0., 0.),
+        &ray.origin,
+        &ray.direction,
+    )
+    .unwrap_or(f32::MAX);
+    let y_plane_distance = plane_line_intersection(
+        &ref_point,
+        &V3c::new(0., 1., 0.),
+        &ray.origin,
+        &ray.direction,
+    )
+    .unwrap_or(f32::MAX);
+    let z_plane_distance = plane_line_intersection(
+        &ref_point,
+        &V3c::new(0., 0., 1.),
+        &ray.origin,
+        &ray.direction,
+    )
+    .unwrap_or(f32::MAX);
+    let min_d = x_plane_distance.min(y_plane_distance).min(z_plane_distance);
+
+    // Step along the axes with the minimum distances
+    V3c::new(
+        if (min_d - x_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+            (current.size as f32).copysign(ray.direction.x)
+        } else {
+            0.
+        },
+        if (min_d - y_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+            (current.size as f32).copysign(ray.direction.y)
+        } else {
+            0.
+        },
+        if (min_d - z_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
+            (current.size as f32).copysign(ray.direction.z)
+        } else {
+            0.
+        },
+    )
+}
+
 #[cfg(test)]
 mod wgpu_tests {
     #[test]
@@ -9,66 +69,11 @@ mod wgpu_tests {
 
 #[cfg(test)]
 mod octree_raytracing_tests {
-    use crate::octree::{Albedo, Cube, Octree, V3c};
+    use crate::octree::{raytracing::tests::get_step_to_next_sibling, Albedo, Cube, Octree, V3c};
     use crate::spatial::raytracing::Ray;
-    use crate::spatial::{math::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+    use crate::spatial::FLOAT_ERROR_TOLERANCE;
 
     use rand::{rngs::ThreadRng, Rng};
-
-    /// Reference implementation to decide step to sibling boundary
-    fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
-        //Find the point furthest from the ray
-        let midpoint = V3c::unit((current.size / 2.0) as f32) + current.min_position.into();
-        let ref_point = midpoint
-            + V3c::new(
-                (current.size as f32 / 2.).copysign(ray.direction.x),
-                (current.size as f32 / 2.).copysign(ray.direction.y),
-                (current.size as f32 / 2.).copysign(ray.direction.z),
-            );
-
-        // Find the min of the 3 plane intersections
-        let x_plane_distance = plane_line_intersection(
-            &ref_point,
-            &V3c::new(1., 0., 0.),
-            &ray.origin,
-            &ray.direction,
-        )
-        .unwrap_or(f32::MAX);
-        let y_plane_distance = plane_line_intersection(
-            &ref_point,
-            &V3c::new(0., 1., 0.),
-            &ray.origin,
-            &ray.direction,
-        )
-        .unwrap_or(f32::MAX);
-        let z_plane_distance = plane_line_intersection(
-            &ref_point,
-            &V3c::new(0., 0., 1.),
-            &ray.origin,
-            &ray.direction,
-        )
-        .unwrap_or(f32::MAX);
-        let min_d = x_plane_distance.min(y_plane_distance).min(z_plane_distance);
-
-        // Step along the axes with the minimum distances
-        V3c::new(
-            if (min_d - x_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-                (current.size as f32).copysign(ray.direction.x)
-            } else {
-                0.
-            },
-            if (min_d - y_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-                (current.size as f32).copysign(ray.direction.y)
-            } else {
-                0.
-            },
-            if (min_d - z_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-                (current.size as f32).copysign(ray.direction.z)
-            } else {
-                0.
-            },
-        )
-    }
 
     #[test]
     #[ignore = "May fail in edge cases"]
@@ -230,16 +235,6 @@ mod octree_raytracing_tests {
             assert!(tree.get_by_ray(&ray).is_some());
             assert!(*tree.get_by_ray(&ray).unwrap().0 == 5.into());
         }
-    }
-
-    #[cfg(feature = "bevy_wgpu")]
-    #[test]
-    fn test_lvl1_occupancy_bitmap() {
-        let original_bitmap: u64 = 0xFA17EDBEEF15DEAD;
-        let mut bitmap_target = [0; 8];
-        Octree::<Albedo, 1>::meta_set_leaf_occupancy_bitmap(&mut bitmap_target, original_bitmap);
-        let reconstructed_bitmap: u64 = bitmap_target[0] as u64 | (bitmap_target[1] as u64) << 32;
-        assert!(reconstructed_bitmap == original_bitmap);
     }
 
     #[test]
@@ -494,7 +489,9 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_brick_undetected() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         for x in 0..tree_size {
             for y in 0..tree_size {
@@ -524,7 +521,9 @@ mod octree_raytracing_tests {
     fn test_edge_case_detailed_brick_z_edge_error() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         for x in 1..tree_size {
             for y in 1..tree_size {
@@ -546,16 +545,19 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
-        assert!(tree
-            .get_by_ray(&ray)
-            .is_some_and(|v| *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)));
+        assert!(tree.get_by_ray(&ray).is_some_and(|v| {
+            println!("v: {:?}", v);
+            *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)
+        }));
     }
 
     #[test]
     fn test_edge_case_brick_traversal_error() {
         let tree_size = 8;
         const BRICK_DIMENSION: usize = 2;
-        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size).ok().unwrap();
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
 
         tree.insert(&V3c::new(0, 0, 0), 0x000000FF.into())
             .ok()

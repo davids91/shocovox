@@ -29,6 +29,13 @@ impl V3c<f32> {
     pub fn normalized(self) -> V3c<f32> {
         self / self.length()
     }
+    pub fn signum(&self) -> V3c<f32> {
+        V3c {
+            x: self.x.signum(),
+            y: self.y.signum(),
+            z: self.z.signum(),
+        }
+    }
 }
 
 impl V3c<u32> {
