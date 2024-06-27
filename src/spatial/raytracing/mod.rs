@@ -3,6 +3,8 @@ use crate::spatial::{math::vector::V3c, raytracing::lut::OCTANT_STEP_RESULT_LUT,
 pub mod lut;
 mod tests;
 
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
+
 #[derive(Debug)]
 pub struct Ray {
     pub origin: V3c<f32>,
@@ -32,12 +34,12 @@ impl Cube {
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         debug_assert!(ray.is_valid());
 
-        let max_position = V3c::<f32>::from(self.min_position) + V3c::unit(self.size as f32);
-        let t1 = (self.min_position.x as f32 - ray.origin.x) / ray.direction.x;
+        let max_position = self.min_position + V3c::unit(self.size);
+        let t1 = (self.min_position.x - ray.origin.x) / ray.direction.x;
         let t2 = (max_position.x - ray.origin.x) / ray.direction.x;
-        let t3 = (self.min_position.y as f32 - ray.origin.y) / ray.direction.y;
+        let t3 = (self.min_position.y - ray.origin.y) / ray.direction.y;
         let t4 = (max_position.y - ray.origin.y) / ray.direction.y;
-        let t5 = (self.min_position.z as f32 - ray.origin.z) / ray.direction.z;
+        let t5 = (self.min_position.z - ray.origin.z) / ray.direction.z;
         let t6 = (max_position.z - ray.origin.z) / ray.direction.z;
 
         let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
@@ -98,8 +100,7 @@ pub fn plane_line_intersection(
 }
 
 pub fn cube_impact_normal(cube: &Cube, impact_point: &V3c<f32>) -> V3c<f32> {
-    let mid_to_impact =
-        V3c::from(cube.min_position) + V3c::unit(cube.size as f32 / 2.) - *impact_point;
+    let mid_to_impact = cube.min_position + V3c::unit(cube.size / 2.) - *impact_point;
     let max_component = mid_to_impact
         .x
         .abs()

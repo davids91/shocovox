@@ -1,17 +1,17 @@
 use crate::octree::{Cube, V3c};
 use crate::spatial::raytracing::Ray;
-use crate::spatial::{raytracing::plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+use crate::spatial::raytracing::{plane_line_intersection, FLOAT_ERROR_TOLERANCE};
 
 /// Reference implementation to decide step to sibling boundary
 #[allow(dead_code)]
 pub(crate) fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
     //Find the point furthest from the ray
-    let midpoint = V3c::unit((current.size / 2.0) as f32) + current.min_position.into();
+    let midpoint = V3c::unit(current.size / 2.0) + current.min_position;
     let ref_point = midpoint
         + V3c::new(
-            (current.size as f32 / 2.).copysign(ray.direction.x),
-            (current.size as f32 / 2.).copysign(ray.direction.y),
-            (current.size as f32 / 2.).copysign(ray.direction.z),
+            (current.size / 2.).copysign(ray.direction.x),
+            (current.size / 2.).copysign(ray.direction.y),
+            (current.size / 2.).copysign(ray.direction.z),
         );
 
     // Find the min of the 3 plane intersections
@@ -41,17 +41,17 @@ pub(crate) fn get_step_to_next_sibling(current: &Cube, ray: &Ray) -> V3c<f32> {
     // Step along the axes with the minimum distances
     V3c::new(
         if (min_d - x_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-            (current.size as f32).copysign(ray.direction.x)
+            (current.size).copysign(ray.direction.x)
         } else {
             0.
         },
         if (min_d - y_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-            (current.size as f32).copysign(ray.direction.y)
+            (current.size).copysign(ray.direction.y)
         } else {
             0.
         },
         if (min_d - z_plane_distance).abs() < FLOAT_ERROR_TOLERANCE {
-            (current.size as f32).copysign(ray.direction.z)
+            (current.size).copysign(ray.direction.z)
         } else {
             0.
         },
@@ -70,8 +70,7 @@ mod wgpu_tests {
 #[cfg(test)]
 mod octree_raytracing_tests {
     use crate::octree::{raytracing::tests::get_step_to_next_sibling, Albedo, Cube, Octree, V3c};
-    use crate::spatial::raytracing::Ray;
-    use crate::spatial::FLOAT_ERROR_TOLERANCE;
+    use crate::spatial::raytracing::{Ray, FLOAT_ERROR_TOLERANCE};
 
     use rand::{rngs::ThreadRng, Rng};
 

@@ -61,11 +61,11 @@ impl VoxelData for Albedo {
     }
 
     fn albedo(&self) -> Albedo {
-        self.clone()
+        *self
     }
 
     fn user_data(&self) -> u32 {
-        0u32.into()
+        0u32
     }
 
     fn clear(&mut self) {
@@ -103,23 +103,12 @@ pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
 pub struct Albedo {
     pub r: u8,
     pub g: u8,
     pub b: u8,
     pub a: u8,
-}
-
-impl Default for Albedo {
-    fn default() -> Self {
-        Self {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 0,
-        }
-    }
 }
 
 impl Albedo {

@@ -20,10 +20,7 @@ pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> b
 /// Returns with the octant value(i.e. index) of the child for the given position
 pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
     debug_assert!(bound_contains(bounds, position));
-    hash_region(
-        &(*position - bounds.min_position).into(),
-        bounds.size as f32,
-    )
+    hash_region(&(*position - bounds.min_position), bounds.size)
 }
 
 ///####################################################################################
@@ -334,7 +331,7 @@ impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
                         0
                     }
                 };
-                (((leaf_occupied_bits & 0x0000000000330033) > 0) as u8) << 0
+                (((leaf_occupied_bits & 0x0000000000330033) > 0) as u8)
                     | (((leaf_occupied_bits & 0x0000000000cc00cc) > 0) as u8) << 1
                     | (((leaf_occupied_bits & 0x0033003300000000) > 0) as u8) << 2
                     | (((leaf_occupied_bits & 0x00cc00cc00000000) > 0) as u8) << 3

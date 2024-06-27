@@ -220,7 +220,7 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
         clear_size: u32,
     ) -> Result<(), OctreeError> {
         let position = V3c::<f32>::from(*position);
-        let root_bounds = Cube::root_bounds(self.octree_size as f32 as f32);
+        let root_bounds = Cube::root_bounds(self.octree_size as f32);
         if !bound_contains(&root_bounds, &position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x as u32,
@@ -360,9 +360,9 @@ impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM
                 // If the child of this node was set to NodeContent::Nothing during this clear operation
                 // it needs to be freed up, and the child index of this node needs to be updated as well
                 let child_octant = hash_region(
-                    &(V3c::from(child_bounds.min_position - node_bounds.min_position)
-                        + V3c::unit(child_bounds.size as f32 / 2.)),
-                    node_bounds.size as f32,
+                    &((child_bounds.min_position - node_bounds.min_position)
+                        + V3c::unit(child_bounds.size / 2.)),
+                    node_bounds.size,
                 ) as usize;
                 self.node_children[node_key as usize].clear(child_octant);
                 self.nodes.free(child_key);

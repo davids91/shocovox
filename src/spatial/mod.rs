@@ -6,8 +6,6 @@ pub mod raytracing;
 
 use crate::spatial::math::{offset_region, vector::V3c};
 
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
-
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
     feature = "serialization",

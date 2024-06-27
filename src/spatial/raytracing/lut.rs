@@ -48,9 +48,9 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
                             }
                             let direction_position =
                                 hash_direction(&V3c::new(dx as f32, dy as f32, dz as f32));
-                            let moved_x = (x + dx * 4).max(0).min(3);
-                            let moved_y = (y + dy * 4).max(0).min(3);
-                            let moved_z = (z + dz * 4).max(0).min(3);
+                            let moved_x = (x + dx * 4).clamp(0, 3);
+                            let moved_y = (y + dy * 4).clamp(0, 3);
+                            let moved_z = (z + dz * 4).clamp(0, 3);
                             let min_x = moved_x.min(x);
                             let max_x = moved_x.max(x);
                             let min_y = moved_y.min(y);
@@ -72,7 +72,7 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
                                     }
                                 }
                             }
-                            bitmap_lut[bitmask_position as usize][direction_position as usize] =
+                            bitmap_lut[bitmask_position][direction_position as usize] =
                                 result_bitmask;
                         }
                     }
@@ -103,9 +103,9 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
                             }
                             let direction_position =
                                 hash_direction(&V3c::new(dx as f32, dy as f32, dz as f32));
-                            let moved_x = (x + dx * 2).max(0).min(2);
-                            let moved_y = (y + dy * 2).max(0).min(2);
-                            let moved_z = (z + dz * 2).max(0).min(2);
+                            let moved_x = (x + dx * 2).clamp(0, 2);
+                            let moved_y = (y + dy * 2).clamp(0, 2);
+                            let moved_z = (z + dz * 2).clamp(0, 2);
                             let min_x = moved_x.min(x);
                             let max_x = moved_x.max(x);
                             let min_y = moved_y.min(y);
@@ -160,7 +160,7 @@ fn generate_octant_step_result_lut() {
         if center_after_step.x < 0.
             || center_after_step.x > SPACE_SIZE
             || center_after_step.y < 0.
-            || center_after_step.z > SPACE_SIZE
+            || center_after_step.y > SPACE_SIZE
             || center_after_step.z < 0.
             || center_after_step.z > SPACE_SIZE
         {

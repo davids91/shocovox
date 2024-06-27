@@ -13,9 +13,8 @@ use crate::spatial::{
     raytracing::{
         cube_impact_normal,
         lut::{OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, RAY_TO_NODE_OCCUPANCY_BITMASK_LUT},
-        Ray,
+        Ray, FLOAT_ERROR_TOLERANCE,
     },
-    FLOAT_ERROR_TOLERANCE,
 };
 
 #[derive(Debug)]
@@ -71,12 +70,12 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
     ) -> V3c<f32> {
         let p = ray.point_at(*ray_current_distance);
         let steps_needed = V3c::new(
-            p.x - current_bounds.min_position.x as f32
-                - (current_bounds.size as f32 * ray.direction.x.signum().max(0.)),
-            p.y - current_bounds.min_position.y as f32
-                - (current_bounds.size as f32 * ray.direction.y.signum().max(0.)),
-            p.z - current_bounds.min_position.z as f32
-                - (current_bounds.size as f32 * ray.direction.z.signum().max(0.)),
+            p.x - current_bounds.min_position.x
+                - (current_bounds.size * ray.direction.x.signum().max(0.)),
+            p.y - current_bounds.min_position.y
+                - (current_bounds.size * ray.direction.y.signum().max(0.)),
+            p.z - current_bounds.min_position.z
+                - (current_bounds.size * ray.direction.z.signum().max(0.)),
         );
 
         let d_x = *ray_current_distance + (steps_needed.x * ray_scale_factors.x).abs();
@@ -86,17 +85,17 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
 
         V3c::new(
             if (*ray_current_distance - d_x).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size as f32).copysign(ray.direction.x)
+                (current_bounds.size).copysign(ray.direction.x)
             } else {
                 0.
             },
             if (*ray_current_distance - d_y).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size as f32).copysign(ray.direction.y)
+                (current_bounds.size).copysign(ray.direction.y)
             } else {
                 0.
             },
             if (*ray_current_distance - d_z).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size as f32).copysign(ray.direction.z)
+                (current_bounds.size).copysign(ray.direction.z)
             } else {
                 0.
             },
@@ -164,9 +163,9 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             if bitmap_position_full_resolution != prev_bitmap_position_full_resolution {
                 prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
                 let start_pos_in_bitmap = flat_projection(
-                    bitmap_position_full_resolution.x as usize,
-                    bitmap_position_full_resolution.y as usize,
-                    bitmap_position_full_resolution.z as usize,
+                    bitmap_position_full_resolution.x,
+                    bitmap_position_full_resolution.y,
+                    bitmap_position_full_resolution.z,
                     4,
                 );
                 if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap]
@@ -194,16 +193,14 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
             #[cfg(debug_assertions)]
             {
                 let relative_point =
-                    ray.point_at(*ray_current_distance) - V3c::from(current_bounds.min_position);
+                    ray.point_at(*ray_current_distance) - current_bounds.min_position;
                 debug_assert!(
                     (relative_point.x < FLOAT_ERROR_TOLERANCE
-                        || (relative_point.x - current_bounds.size as f32) < FLOAT_ERROR_TOLERANCE)
+                        || (relative_point.x - current_bounds.size) < FLOAT_ERROR_TOLERANCE)
                         || (relative_point.y < FLOAT_ERROR_TOLERANCE
-                            || (relative_point.y - current_bounds.size as f32)
-                                < FLOAT_ERROR_TOLERANCE)
+                            || (relative_point.y - current_bounds.size) < FLOAT_ERROR_TOLERANCE)
                         || (relative_point.z < FLOAT_ERROR_TOLERANCE
-                            || (relative_point.z - current_bounds.size as f32)
-                                < FLOAT_ERROR_TOLERANCE)
+                            || (relative_point.z - current_bounds.size) < FLOAT_ERROR_TOLERANCE)
                 );
             }
         }
@@ -243,8 +240,8 @@ impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: us
         if let Some(root_hit) = root_bounds.intersect_ray(&ray) {
             ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
             let target_octant = hash_region(
-                &(ray.point_at(ray_current_distance) - root_bounds.min_position.into()),
-                root_bounds.size as f32,
+                &(ray.point_at(ray_current_distance) - root_bounds.min_position),
+                root_bounds.size,
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
