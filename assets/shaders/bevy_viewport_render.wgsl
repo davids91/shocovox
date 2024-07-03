@@ -686,6 +686,8 @@ fn update(
     textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
 }
 
+
+
 // Note: should be const
 var<private> OCTANT_STEP_RESULT_LUT: array<array<array<u32, 3>, 3>, 3> = array<array<array<u32, 3>, 3>, 3>(
     array<array<u32, 3>, 3>(
