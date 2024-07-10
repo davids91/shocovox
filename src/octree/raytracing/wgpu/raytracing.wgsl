@@ -624,22 +624,28 @@ struct Viewport {
     fov: f32,
 }
 
-@group(0) @binding(1)
+@group(0) @binding(0)
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
+@group(0) @binding(1)
+var output_texture_render: texture_2d<f32>;
+
 @group(0) @binding(2)
-var<uniform> viewport: Viewport;
+var output_texture_sampler: sampler;
 
 @group(0) @binding(3)
+var<uniform> viewport: Viewport;
+
+@group(1) @binding(0)
 var<uniform> octreeMetaData: OctreeMetaData;
 
-@group(0) @binding(4)
+@group(1) @binding(1)
 var<storage, read_write> nodes: array<SizedNode>;
 
-@group(0) @binding(5)
+@group(1) @binding(2)
 var<storage, read_write> children_buffer: array<u32>;
 
-@group(0) @binding(6)
+@group(1) @binding(3)
 var<storage, read_write> voxels: array<Voxelement>;
 
 @compute @workgroup_size(8, 8, 1)
@@ -710,6 +716,15 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(vertex_output: VertexOutput) -> @location(0) vec4<f32> {
+    let condition = vertex_output.uv < vec2f(0.5,0.5);
+    if condition.x && condition.y {
+        //return textureLoad(output_texture, vec2u(vertex_output.uv * 100));
+        return textureSample(
+            output_texture_render, output_texture_sampler,
+            vertex_output.uv
+        );
+    }
+
     return vec4f(vertex_output.uv, 0.0, 1.0);
 }
 
