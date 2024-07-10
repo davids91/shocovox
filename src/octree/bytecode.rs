@@ -8,37 +8,37 @@ use bendy::{
 impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
     fn encode_single(data: &T, encoder: &mut Encoder) -> Result<(), BencodeError> {
         let color = data.albedo();
-        encoder.emit(color.r)?;
-        encoder.emit(color.g)?;
-        encoder.emit(color.b)?;
-        encoder.emit(color.a)?;
+        encoder.emit((color.r * 1000.) as i32)?;
+        encoder.emit((color.g * 1000.) as i32)?;
+        encoder.emit((color.b * 1000.) as i32)?;
+        encoder.emit((color.a * 1000.) as i32)?;
         encoder.emit(data.user_data())
     }
 
     fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
         let r = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            Object::Integer(i) => Ok(i.parse::<i32>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "int field red color component",
                 "Something else",
             )),
         }?;
         let g = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            Object::Integer(i) => Ok(i.parse::<i32>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "int field green color component",
                 "Something else",
             )),
         }?;
         let b = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            Object::Integer(i) => Ok(i.parse::<i32>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "int field blue color component",
                 "Something else",
             )),
         }?;
         let a = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+            Object::Integer(i) => Ok(i.parse::<i32>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "int field alpha color component",
                 "Something else",
@@ -49,10 +49,10 @@ impl<'obj, 'ser, T: Clone + VoxelData, const DIM: usize> NodeContent<T, DIM> {
             _ => 0,
         };
         let albedo = Albedo::default()
-            .with_red(r)
-            .with_green(g)
-            .with_blue(b)
-            .with_alpha(a);
+            .with_red(r as f32 / 1000.)
+            .with_green(g as f32 / 1000.)
+            .with_blue(b as f32 / 1000.)
+            .with_alpha(a as f32 / 1000.);
         Ok(VoxelData::new(albedo, user_data))
     }
 }

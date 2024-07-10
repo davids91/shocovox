@@ -620,8 +620,7 @@ struct OctreeMetaData {
 struct Viewport {
     origin: vec3f,
     direction: vec3f,
-    size: vec2f,
-    fov: f32,
+    w_h_fov: vec3f,
 }
 
 @group(0) @binding(0)
@@ -663,13 +662,13 @@ fn update(
         viewport_up_direction, viewport.direction
     ));
     let viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.fov)
-        - (viewport_right_direction * (viewport.size.x / 2.))
-        - (viewport_up_direction * (viewport.size.y / 2.))
+        + (viewport.direction * viewport.w_h_fov.z)
+        - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
+        - (viewport_up_direction * (viewport.w_h_fov.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * f32(pixel_location_normalized.x)
-        + viewport_up_direction * viewport.size.y * (1. - f32(pixel_location_normalized.y))
+        + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
+        + viewport_up_direction * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
@@ -716,7 +715,8 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(vertex_output: VertexOutput) -> @location(0) vec4<f32> {
-    let condition = vertex_output.uv < vec2f(0.5,0.5);
+    // Display initial texture
+/*    let condition = vertex_output.uv < vec2f(0.5,0.5);
     if condition.x && condition.y {
         //return textureLoad(output_texture, vec2u(vertex_output.uv * 100));
         return textureSample(
@@ -726,6 +726,11 @@ fn fs_main(vertex_output: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     return vec4f(vertex_output.uv, 0.0, 1.0);
+*/
+
+    // Display viewport
+    //return vec4f(0.,0.2,1., 1.);
+    return vec4f(viewport.origin, 1.);
 }
 
 // Note: should be const

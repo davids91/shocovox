@@ -1,20 +1,18 @@
-use bytemuck::{Pod, Zeroable};
+use crate::octree::Albedo;
+use crate::spatial::math::vector::V3cf32;
+use encase::ShaderType;
 
-use std::sync::Arc;
-use wgpu::{
-    Adapter, BindGroup, BindGroupLayout, Buffer, Device, Queue, RenderPipeline, Surface, Texture,
-};
+use std::sync::{atomic::AtomicBool, Arc};
+use wgpu::{Adapter, BindGroup, Buffer, Device, Queue, RenderPipeline, Surface, Texture};
 use winit::window::Window;
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(ShaderType)]
 pub(crate) struct Voxelement {
-    pub(crate) albedo: [f32; 4],
+    pub(crate) albedo: Albedo,
     pub(crate) content: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(ShaderType)]
 pub(crate) struct SizedNode {
     /// Composite field:
     /// - Byte 1: Boolean value, true in case node is a leaf
@@ -48,31 +46,27 @@ pub(crate) struct SizedNode {
     pub(crate) voxels_start_at: u32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(ShaderType)]
 pub struct OctreeMetaData {
     pub(crate) octree_size: u32,
     pub(crate) voxel_brick_dim: u32,
-    pub ambient_light_color: [f32; 3],
-    pub ambient_light_position: [f32; 3],
+    pub ambient_light_color: V3cf32,
+    pub ambient_light_position: V3cf32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable, PartialEq)]
+#[derive(ShaderType, PartialEq)]
 pub struct Viewport {
-    pub origin: [f32; 3],
-    pub direction: [f32; 3],
-    pub size: [f32; 2],
-    pub fov: f32,
+    pub origin: V3cf32,
+    pub direction: V3cf32,
+    pub w_h_fov: V3cf32,
 }
 
 impl Default for Viewport {
     fn default() -> Self {
         Self {
-            origin: [0., 0., -1.],
-            direction: [0., 0., 1.],
-            size: [1.5, 1.],
-            fov: 45.,
+            origin: [0., 0., -1.].into(),
+            direction: [0., 0., 1.].into(),
+            w_h_fov: [1.5, 1., 45.].into(),
         }
     }
 }
@@ -80,12 +74,13 @@ impl Default for Viewport {
 #[derive(Default)] //TODO: This isn't good to be exposed
 pub struct SvxRenderApp {
     //render data and parameters
+    pub viewport: Viewport,
     pub(crate) output_width: u32,
     pub(crate) output_height: u32,
     pub(crate) texture_extent: wgpu::Extent3d,
-    pub viewport: Viewport,
 
     // wgpu pipeline
+    pub(crate) can_render: AtomicBool,
     pub(crate) wgpu_instance: wgpu::Instance,
     pub(crate) adapter: Option<Adapter>,
     pub(crate) window: Option<Arc<Window>>,
@@ -93,6 +88,7 @@ pub struct SvxRenderApp {
     pub(crate) device: Option<Device>,
     pub(crate) pipeline: Option<RenderPipeline>,
     pub(crate) queue: Option<Queue>,
+
     //layouts, textures and buffers
     pub(crate) dynamic_group: Option<BindGroup>,
     pub(crate) tree_group: Option<BindGroup>,
@@ -103,4 +99,18 @@ pub struct SvxRenderApp {
     // pub(crate) nodes_buffer: Option<Buffer>,
     // pub(crate) children_buffer: Option<Buffer>,
     // pub(crate) voxels_buffer: Option<Buffer>,
+}
+
+#[cfg(test)]
+mod types_wgpu_byte_compatibility_tests {
+    use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
+    use encase::ShaderType;
+
+    #[test]
+    fn test_wgpu_compatibility() {
+        Viewport::assert_uniform_compat();
+        OctreeMetaData::assert_uniform_compat();
+        Voxelement::assert_uniform_compat();
+        SizedNode::assert_uniform_compat();
+    }
 }

@@ -1,4 +1,6 @@
 use crate::octree::raytracing::wgpu::SvxRenderApp;
+use crate::octree::raytracing::wgpu::Viewport;
+use encase::UniformBuffer;
 use std::borrow::Cow;
 use wgpu::{util::DeviceExt, TextureUsages};
 
@@ -115,9 +117,11 @@ impl SvxRenderApp {
         });
 
         // re-create viewport
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&self.viewport).unwrap();
         let viewport_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Octree Metadata Buffer"),
-            contents: bytemuck::cast_slice(&[self.viewport]),
+            contents: &buffer.into_inner(),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -156,7 +160,7 @@ impl SvxRenderApp {
                 // viewport
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
+                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,

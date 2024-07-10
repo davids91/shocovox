@@ -63,8 +63,9 @@ fn main() {
         }
     }
 
+    std::env::set_var("RUST_BACKTRACE", "1");
     let showcase = Arc::new(tree);
-    showcase.upload_to(&mut app);
+    //showcase.upload_to(&mut app);
     let _ = event_loop.run_app(&mut app);
 }
 

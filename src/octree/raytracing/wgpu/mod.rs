@@ -5,6 +5,7 @@ mod types;
 
 pub use crate::octree::raytracing::wgpu::types::{SvxRenderApp, Viewport};
 use crate::octree::Octree;
+use encase::UniformBuffer;
 use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
@@ -29,6 +30,8 @@ impl SvxRenderApp {
             return;
         }
 
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&viewport).unwrap();
         self.viewport = viewport;
         self.viewport_buffer = Some(
             self.device
@@ -36,7 +39,7 @@ impl SvxRenderApp {
                 .expect("Expected SvxRenderApp to have a vaild device!")
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Octree Metadata Buffer"),
-                    contents: bytemuck::cast_slice(&[viewport]),
+                    contents: &buffer.into_inner(),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 }),
         );

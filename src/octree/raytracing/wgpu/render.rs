@@ -1,6 +1,6 @@
 pub use crate::octree::raytracing::wgpu::types::SvxRenderApp;
 
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -31,7 +31,7 @@ impl ApplicationHandler for SvxRenderApp {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if self.window.is_none() {
+                if !self.can_render.load(Ordering::Relaxed) {
                     return;
                 }
                 let mut size = self.window.as_ref().unwrap().inner_size();
@@ -102,9 +102,11 @@ impl ApplicationHandler for SvxRenderApp {
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::Resized(size) => {
+                self.can_render.store(false, Ordering::Relaxed);
                 self.output_width = size.width;
                 self.output_height = size.height;
-                futures::executor::block_on(self.rebuild_pipeline())
+                futures::executor::block_on(self.rebuild_pipeline());
+                self.can_render.store(true, Ordering::Relaxed);
             }
             _ => (),
         }

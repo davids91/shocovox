@@ -3,11 +3,14 @@
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
 )]
+#[repr(C)]
 pub struct V3c<T> {
     pub x: T,
     pub y: T,
     pub z: T,
 }
+
+pub type V3cf32 = V3c<f32>;
 
 impl<T: Copy> V3c<T> {
     pub fn new(x: T, y: T, z: T) -> Self {
@@ -189,6 +192,14 @@ impl From<V3c<u32>> for V3c<f32> {
     }
 }
 
+impl From<[f32; 3]> for V3c<f32> {
+    fn from(vec: [f32; 3]) -> V3c<f32> {
+        {
+            V3c::new(vec[0], vec[1], vec[2])
+        }
+    }
+}
+
 impl From<V3c<u32>> for V3c<usize> {
     fn from(vec: V3c<u32>) -> V3c<usize> {
         {
@@ -250,5 +261,25 @@ impl From<V3c<i32>> for V3c<u32> {
         {
             V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
         }
+    }
+}
+
+#[cfg(feature = "wgpu")]
+use encase::{impl_vector, vector::AsMutVectorParts, vector::AsRefVectorParts};
+
+#[cfg(feature = "wgpu")]
+impl_vector!(3, V3cf32, f32; using From);
+
+#[cfg(feature = "wgpu")]
+impl AsRefVectorParts<f32, 3> for V3cf32 {
+    fn as_ref_parts(&self) -> &[f32; 3] {
+        unsafe { &*(self as *const V3cf32 as *const [f32; 3]) }
+    }
+}
+
+#[cfg(feature = "wgpu")]
+impl AsMutVectorParts<f32, 3> for V3cf32 {
+    fn as_mut_parts(&mut self) -> &mut [f32; 3] {
+        unsafe { &mut *(self as *mut V3cf32 as *mut [f32; 3]) }
     }
 }

@@ -1,8 +1,9 @@
+use encase::StorageBuffer;
 use std::num::NonZero;
 
 use crate::octree::{
-    empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, NodeContent,
-    Octree, VoxelData,
+    empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, Albedo,
+    NodeContent, Octree, VoxelData,
 };
 use wgpu::util::DeviceExt;
 
@@ -19,8 +20,8 @@ where
         OctreeMetaData {
             octree_size: tree.octree_size,
             voxel_brick_dim: DIM as u32,
-            ambient_light_color: [1., 1., 1.],
-            ambient_light_position: [DIM as f32, DIM as f32, DIM as f32],
+            ambient_light_color: [1., 1., 1.].into(),
+            ambient_light_position: [DIM as f32, DIM as f32, DIM as f32].into(),
         }
     }
 }
@@ -65,7 +66,7 @@ where
         meta
     }
 
-    pub fn upload_to(&self, app: &mut SvxRenderApp) {
+    pub(crate) fn upload_to(&self, app: &mut SvxRenderApp) {
         // parse octree
         let mut nodes = Vec::new();
         let mut children = Vec::new();
@@ -99,15 +100,7 @@ where
                         for x in 0..DIM {
                             let albedo = data[x][y][z].albedo();
                             let content = data[x][y][z].user_data();
-                            voxels.push(Voxelement {
-                                albedo: [
-                                    albedo.r as f32 / 255.,
-                                    albedo.g as f32 / 255.,
-                                    albedo.b as f32 / 255.,
-                                    albedo.a as f32 / 255.,
-                                ],
-                                content,
-                            })
+                            voxels.push(Voxelement { albedo, content })
                         }
                     }
                 }
@@ -179,40 +172,50 @@ where
 
         // Upload data to buffers
         let octree_meta = OctreeMetaData::from(self);
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&octree_meta).unwrap();
         let metadata_buffer = app
             .device
             .as_ref()
             .expect("Expected SvxRenderApp to have a vaild device!")
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Octree Metadata Buffer"),
-                contents: bytemuck::cast_slice(&[octree_meta]),
+                contents: &buffer.into_inner(),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&nodes).unwrap();
         let nodes_buffer = app
             .device
             .as_ref()
             .expect("Expected SvxRenderApp to have a vaild device!")
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Octree Metadata Buffer"),
-                contents: &bytemuck::try_cast_vec(nodes).ok().unwrap(),
+                contents: &buffer.into_inner(),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&children).unwrap();
         let children_buffer = app
             .device
             .as_ref()
             .expect("Expected SvxRenderApp to have a vaild device!")
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Octree Metadata Buffer"),
-                contents: &bytemuck::try_cast_vec(children).ok().unwrap(),
+                contents: &buffer.into_inner(),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&voxels).unwrap();
         let voxels_buffer = app
             .device
             .as_ref()
             .expect("Expected SvxRenderApp to have a vaild device!")
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Octree Metadata Buffer"),
-                contents: &bytemuck::try_cast_vec(voxels).ok().unwrap(),
+                contents: &buffer.into_inner(),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
