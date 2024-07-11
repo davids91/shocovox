@@ -1,8 +1,15 @@
+use core::sync::atomic::Ordering;
 use shocovox_rs::octree::raytracing::wgpu::SvxRenderApp;
 use shocovox_rs::octree::Albedo;
 use shocovox_rs::octree::V3c;
+use shocovox_rs::octree::V3cf32;
 use std::sync::Arc;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::ActiveEventLoop;
 use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::Window;
+use winit::window::WindowId;
 
 #[cfg(feature = "wgpu")]
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
@@ -11,13 +18,66 @@ const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 const ARRAY_DIMENSION: u32 = 128;
 
 #[cfg(feature = "wgpu")]
+struct SvxRenderExample {
+    app: SvxRenderApp,
+    window: Option<Arc<Window>>,
+}
+
+#[cfg(feature = "wgpu")]
+impl ApplicationHandler for SvxRenderExample {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.window = Some(Arc::new(
+            event_loop
+                .create_window(
+                    Window::default_attributes()
+                        .with_title("Voxel Raytracing Render")
+                        .with_inner_size(winit::dpi::PhysicalSize::new(
+                            self.app.output_width(),
+                            self.app.output_height(),
+                        )),
+                )
+                .unwrap(),
+        ));
+        futures::executor::block_on(
+            self.app
+                .rebuild_pipeline(self.window.as_ref().unwrap().clone()),
+        )
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            WindowEvent::RedrawRequested => {
+                self.app.execute_pipeline();
+                self.window.as_ref().unwrap().request_redraw();
+            }
+            WindowEvent::Resized(size) => {
+                futures::executor::block_on(self.app.set_output_size(
+                    size.width,
+                    size.height,
+                    self.window.as_ref().unwrap().clone(),
+                ));
+            }
+            WindowEvent::KeyboardInput {
+                device_id: _,
+                event,
+                is_synthetic: _,
+            } => {
+                if let winit::keyboard::Key::Named(named) = event.logical_key {
+                    if matches!(named, winit::keyboard::NamedKey::ArrowUp) {
+                        self.app.update_viewport_origin(V3cf32::new(0.002, 0., 0.));
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+#[cfg(feature = "wgpu")]
 fn main() {
-    let event_loop = EventLoop::new().unwrap();
-    env_logger::init();
-    event_loop.set_control_flow(ControlFlow::Poll);
-
-    let mut app = SvxRenderApp::new(DISPLAY_RESOLUTION[0], DISPLAY_RESOLUTION[1]);
-
     // fill octree with data
     let mut tree = shocovox_rs::octree::Octree::<Albedo, 16>::new(ARRAY_DIMENSION)
         .ok()
@@ -62,11 +122,17 @@ fn main() {
             }
         }
     }
-
-    std::env::set_var("RUST_BACKTRACE", "1");
     let showcase = Arc::new(tree);
+
+    // Fire up the display
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
+    let app = SvxRenderApp::new(DISPLAY_RESOLUTION[0], DISPLAY_RESOLUTION[1]);
+    let mut example = SvxRenderExample { app, window: None };
     //showcase.upload_to(&mut app);
-    let _ = event_loop.run_app(&mut app);
+
+    env_logger::init();
+    let _ = event_loop.run_app(&mut example);
 }
 
 #[cfg(not(feature = "wgpu"))]

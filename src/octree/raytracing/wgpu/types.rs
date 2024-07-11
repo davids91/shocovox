@@ -1,10 +1,7 @@
 use crate::octree::Albedo;
 use crate::spatial::math::vector::V3cf32;
 use encase::ShaderType;
-
-use std::sync::{atomic::AtomicBool, Arc};
 use wgpu::{Adapter, BindGroup, Buffer, Device, Queue, RenderPipeline, Surface, Texture};
-use winit::window::Window;
 
 #[derive(ShaderType)]
 pub(crate) struct Voxelement {
@@ -71,19 +68,16 @@ impl Default for Viewport {
     }
 }
 
-#[derive(Default)] //TODO: This isn't good to be exposed
 pub struct SvxRenderApp {
     //render data and parameters
-    pub viewport: Viewport,
+    pub(crate) viewport: Viewport,
     pub(crate) output_width: u32,
     pub(crate) output_height: u32,
     pub(crate) texture_extent: wgpu::Extent3d,
 
     // wgpu pipeline
-    pub(crate) can_render: AtomicBool,
     pub(crate) wgpu_instance: wgpu::Instance,
     pub(crate) adapter: Option<Adapter>,
-    pub(crate) window: Option<Arc<Window>>,
     pub(crate) surface: Option<Surface<'static>>,
     pub(crate) device: Option<Device>,
     pub(crate) pipeline: Option<RenderPipeline>,
@@ -91,7 +85,7 @@ pub struct SvxRenderApp {
 
     //layouts, textures and buffers
     pub(crate) dynamic_group: Option<BindGroup>,
-    pub(crate) tree_group: Option<BindGroup>,
+    // pub(crate) tree_group: Option<BindGroup>,
     pub(crate) output_texture: Option<Texture>,
     pub(crate) output_texture_render: Option<Texture>,
     pub(crate) viewport_buffer: Option<Buffer>,

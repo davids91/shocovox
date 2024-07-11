@@ -1,16 +1,13 @@
 use crate::octree::raytracing::wgpu::SvxRenderApp;
-use crate::octree::raytracing::wgpu::Viewport;
 use encase::UniformBuffer;
 use std::borrow::Cow;
+use std::sync::Arc;
 use wgpu::{util::DeviceExt, TextureUsages};
+use winit::window::Window;
 
 impl SvxRenderApp {
-    pub(crate) async fn rebuild_pipeline(&mut self) {
-        assert!(self.window.is_some());
-        let surface = self
-            .wgpu_instance
-            .create_surface(self.window.as_ref().unwrap().clone())
-            .unwrap();
+    pub async fn rebuild_pipeline(&mut self, window: Arc<Window>) {
+        let surface = self.wgpu_instance.create_surface(window).unwrap();
 
         let adapter = self
             .wgpu_instance
@@ -244,5 +241,6 @@ impl SvxRenderApp {
         self.dynamic_group = Some(bind_group);
         self.output_texture = Some(output_texture);
         self.output_texture_render = Some(output_texture_render);
+        self.viewport_buffer = Some(viewport_buffer);
     }
 }

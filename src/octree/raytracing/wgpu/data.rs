@@ -2,8 +2,8 @@ use encase::StorageBuffer;
 use std::num::NonZero;
 
 use crate::octree::{
-    empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, Albedo,
-    NodeContent, Octree, VoxelData,
+    empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, NodeContent,
+    Octree, VoxelData,
 };
 use wgpu::util::DeviceExt;
 
@@ -24,10 +24,6 @@ where
             ambient_light_position: [DIM as f32, DIM as f32, DIM as f32].into(),
         }
     }
-}
-
-impl SvxRenderApp {
-    //    fn
 }
 
 impl<T, const DIM: usize> Octree<T, DIM>
