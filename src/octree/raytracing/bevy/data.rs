@@ -1,17 +1,12 @@
 use crate::object_pool::empty_marker;
 
 use crate::octree::{
-    raytracing::{
-        bevy::create_ouput_texture,
-        bevy::types::{OctreeMetaData, ShocoVoxViewingGlass, SizedNode, Viewport, Voxelement},
-    },
+    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, SizedNode, Voxelement},
     types::{NodeChildrenArray, NodeContent},
     Octree, VoxelData,
 };
 
-use bevy::{
-    asset::Assets, ecs::system::ResMut, math::Vec3, render::color::Color, render::texture::Image,
-};
+use bevy::{math::Vec3, render::color::Color};
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -49,12 +44,7 @@ where
         meta
     }
 
-    pub fn create_bevy_view(
-        &self,
-        viewport: &Viewport,
-        resolution: [u32; 2],
-        images: ResMut<Assets<Image>>,
-    ) -> ShocoVoxViewingGlass {
+    pub fn create_bevy_view(&self) -> ShocoVoxRenderData {
         let meta = OctreeMetaData {
             octree_size: self.octree_size,
             voxel_brick_dim: DIM as u32,
@@ -115,9 +105,7 @@ where
             nodes.push(sized_node);
         }
 
-        ShocoVoxViewingGlass {
-            output_texture: create_ouput_texture(resolution, images),
-            viewport: *viewport,
+        ShocoVoxRenderData {
             meta,
             nodes,
             children_buffer,

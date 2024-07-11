@@ -31,6 +31,8 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
+    use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
+
     let origin = Vec3::new(
         ARRAY_DIMENSION as f32 * 2.,
         ARRAY_DIMENSION as f32 / 2.,
@@ -74,7 +76,10 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     };
                     tree.insert(
                         &V3c::new(x, y, z),
-                        Albedo::from(r | (g << 8) | (b << 16) | 0xFF000000),
+                        Albedo::default()
+                            .with_red(r as u8)
+                            .with_green(g as u8)
+                            .with_blue(b as u8),
                     )
                     .ok()
                     .unwrap();
@@ -82,7 +87,8 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             }
         }
     }
-    let viewing_glass = tree.create_bevy_view(
+    let render_data = tree.create_bevy_view();
+    let viewing_glass = create_viewing_glass(
         &Viewport {
             direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
             origin,
@@ -92,6 +98,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         DISPLAY_RESOLUTION,
         images,
     );
+
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),
@@ -101,6 +108,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         ..default()
     });
     commands.spawn(Camera2dBundle::default());
+    commands.insert_resource(render_data);
     commands.insert_resource(viewing_glass);
 }
 
@@ -116,7 +124,7 @@ fn rotate_camera(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 10.;
+        let addition = ARRAY_DIMENSION as f32 / 100000.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle

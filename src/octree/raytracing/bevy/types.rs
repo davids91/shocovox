@@ -77,30 +77,37 @@ pub struct ShocoVoxRenderPlugin {
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
 pub struct ShocoVoxViewingGlass {
-    #[storage_texture(1, image_format = Rgba8Unorm, access = ReadWrite)]
+    #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
 
-    #[uniform(2, visibility(compute))]
+    #[uniform(1, visibility(compute))]
     pub viewport: Viewport,
+}
 
-    #[uniform(3, visibility(compute))]
+#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::ShocoVoxRenderData"]
+pub struct ShocoVoxRenderData {
+    #[uniform(0, visibility(compute))]
     pub(crate) meta: OctreeMetaData,
 
-    #[storage(4, visibility(compute))]
+    #[storage(1, visibility(compute))]
     pub(crate) nodes: Vec<SizedNode>,
 
-    #[storage(5, visibility(compute))]
+    #[storage(2, visibility(compute))]
     pub(crate) children_buffer: Vec<u32>,
 
-    #[storage(6, visibility(compute))]
+    #[storage(3, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 }
 
 #[derive(Resource)]
 pub(crate) struct ShocoVoxRenderPipeline {
+    pub update_tree: bool,
     pub(crate) viewing_glass_bind_group_layout: BindGroupLayout,
+    pub(crate) render_data_bind_group_layout: BindGroupLayout,
     pub(crate) update_pipeline: CachedComputePipelineId,
-    pub(crate) bind_group: Option<BindGroup>,
+    pub(crate) viewing_glass_bind_group: Option<BindGroup>,
+    pub(crate) tree_bind_group: Option<BindGroup>,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]

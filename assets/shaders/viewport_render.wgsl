@@ -336,7 +336,6 @@ fn traverse_brick(
 ) -> BrickHit{
     var result: BrickHit;
     result.hit = false;
-
     let pos = (
         point_in_ray_at_distance(ray, *ray_current_distance)
         - bounds.min_position
@@ -469,7 +468,10 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         );
         node_stack_i = 1;
     }
+
+    var i = 0.;
     while(0 < node_stack_i && node_stack_i < max_depth) {
+        i += 1.;
         var current_bounds = node_stack[node_stack_i - 1].bounds;
         var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
         var target_octant = node_stack[node_stack_i - 1].target_octant;
@@ -630,22 +632,22 @@ struct Viewport {
     fov: f32,
 }
 
-@group(0) @binding(1)
+@group(0) @binding(0)
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
-@group(0) @binding(2)
+@group(0) @binding(1)
 var<uniform> viewport: Viewport;
 
-@group(0) @binding(3)
+@group(1) @binding(0)
 var<uniform> octreeMetaData: OctreeMetaData;
 
-@group(0) @binding(4)
+@group(1) @binding(1)
 var<storage, read_write> nodes: array<SizedNode>;
 
-@group(0) @binding(5)
+@group(1) @binding(2)
 var<storage, read_write> children_buffer: array<u32>;
 
-@group(0) @binding(6)
+@group(1) @binding(3)
 var<storage, read_write> voxels: array<Voxelement>;
 
 @compute @workgroup_size(8, 8, 1)
