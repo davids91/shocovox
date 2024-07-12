@@ -51,7 +51,7 @@ impl FromWorld for ShocoVoxRenderPipeline {
         let render_data_bind_group_layout = ShocoVoxRenderData::bind_group_layout(render_device);
         let shader = world
             .resource::<AssetServer>()
-            .load("shaders/viewport_render.wgsl");
+            .load("shaders/bevy_viewport_render.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let update_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: None,
