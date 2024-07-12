@@ -1,3 +1,9 @@
+// The time since startup data is in the globals binding which is part of the mesh_view_bindings import
+#import bevy_pbr::{
+    mesh_view_bindings::globals,
+    forward_io::VertexOutput
+}
+
 struct Line {
     origin: vec3f,
     direction: vec3f,
@@ -330,7 +336,6 @@ fn traverse_brick(
 ) -> BrickHit{
     var result: BrickHit;
     result.hit = false;
-
     let pos = (
         point_in_ray_at_distance(ray, *ray_current_distance)
         - bounds.min_position
@@ -463,7 +468,10 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         );
         node_stack_i = 1;
     }
+
+    var i = 0.;
     while(0 < node_stack_i && node_stack_i < max_depth) {
+        i += 1.;
         var current_bounds = node_stack[node_stack_i - 1].bounds;
         var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
         var target_octant = node_stack[node_stack_i - 1].target_octant;
@@ -620,19 +628,14 @@ struct OctreeMetaData {
 struct Viewport {
     origin: vec3f,
     direction: vec3f,
-    w_h_fov: vec3f,
+    size: vec2f,
+    fov: f32,
 }
 
 @group(0) @binding(0)
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
 @group(0) @binding(1)
-var output_texture_render: texture_2d<f32>;
-
-@group(0) @binding(2)
-var output_texture_sampler: sampler;
-
-@group(0) @binding(3)
 var<uniform> viewport: Viewport;
 
 @group(1) @binding(0)
@@ -662,13 +665,13 @@ fn update(
         viewport_up_direction, viewport.direction
     ));
     let viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.w_h_fov.z)
-        - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
-        - (viewport_up_direction * (viewport.w_h_fov.y / 2.))
+        + (viewport.direction * viewport.fov)
+        - (viewport_right_direction * (viewport.size.x / 2.))
+        - (viewport_up_direction * (viewport.size.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
-        + viewport_up_direction * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
+        + viewport_right_direction * viewport.size.x * f32(pixel_location_normalized.x)
+        + viewport_up_direction * viewport.size.y * (1. - f32(pixel_location_normalized.y))
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
@@ -683,54 +686,6 @@ fn update(
     }
 
     textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
-}
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
-    // map the input vertex index values to rectangle x,y coordinates
-    var x = 0.; var y = 0.;
-    if 0 == in_vertex_index || 3 == in_vertex_index {
-        x = -1.;
-        y = -1.;
-    }else if 1 == in_vertex_index {
-        x = -1.;
-        y = 1.;
-    }else if 2 == in_vertex_index || 4 == in_vertex_index {
-        x = 1.;
-        y = 1.;
-    }else if 5 == in_vertex_index {
-        x = 1.;
-        y = -1.;
-    }
-
-    let pos = vec4f(x, y, 0.0, 1.0);
-    let uv = vec2f((x + 1.) / 2.,(y + 1.) / 2.);
-    return VertexOutput(pos,uv);
-}
-
-@fragment
-fn fs_main(vertex_output: VertexOutput) -> @location(0) vec4<f32> {
-    // Display initial texture
-/*    let condition = vertex_output.uv < vec2f(0.5,0.5);
-    if condition.x && condition.y {
-        //return textureLoad(output_texture, vec2u(vertex_output.uv * 100));
-        return textureSample(
-            output_texture_render, output_texture_sampler,
-            vertex_output.uv
-        );
-    }
-
-    return vec4f(vertex_output.uv, 0.0, 1.0);
-*/
-
-    // Display viewport
-    //return vec4f(0.,0.2,1., 1.);
-    return vec4f(viewport.origin, 1.);
 }
 
 // Note: should be const

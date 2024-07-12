@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[cfg(feature = "bevy_wgpu")]
 mod types_byte_compatibility {
     use crate::octree::Albedo;
     use encase::{ShaderType, StorageBuffer};

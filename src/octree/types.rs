@@ -55,42 +55,6 @@ pub trait VoxelData {
     fn clear(&mut self);
 }
 
-impl VoxelData for Albedo {
-    fn new(color: Albedo, _user_data: u32) -> Self {
-        color
-    }
-
-    fn albedo(&self) -> Albedo {
-        *self
-    }
-
-    fn user_data(&self) -> u32 {
-        0u32
-    }
-
-    fn clear(&mut self) {
-        self.r = 0.;
-        self.r = 0.;
-        self.b = 0.;
-        self.a = 0.;
-    }
-}
-
-impl From<u32> for Albedo {
-    fn from(value: u32) -> Self {
-        let a = (value & 0x000000FF) as u8;
-        let b = ((value & 0x0000FF00) >> 8) as u8;
-        let g = ((value & 0x00FF0000) >> 16) as u8;
-        let r = ((value & 0xFF000000) >> 24) as u8;
-
-        Albedo::default()
-            .with_red(r as f32 / 255.)
-            .with_green(g as f32 / 255.)
-            .with_blue(b as f32 / 255.)
-            .with_alpha(a as f32 / 255.)
-    }
-}
-
 /// Sparse Octree of Nodes, where each node contains a brick of voxels.
 /// A Brick is a 3 dimensional matrix, each element of it containing a voxel.
 /// A Brick can be indexed directly, as opposed to the octree which is essentially a
@@ -103,7 +67,7 @@ pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
-#[cfg_attr(feature = "wgpu", derive(encase::ShaderType))]
+#[cfg_attr(feature = "bevy_wgpu", derive(encase::ShaderType))]
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
 pub struct Albedo {
     pub r: f32,
@@ -135,5 +99,41 @@ impl Albedo {
 
     pub fn is_transparent(&self) -> bool {
         self.a == 0.0
+    }
+}
+
+impl From<u32> for Albedo {
+    fn from(value: u32) -> Self {
+        let a = (value & 0x000000FF) as u8;
+        let b = ((value & 0x0000FF00) >> 8) as u8;
+        let g = ((value & 0x00FF0000) >> 16) as u8;
+        let r = ((value & 0xFF000000) >> 24) as u8;
+
+        Albedo::default()
+            .with_red(r as f32 / 255.)
+            .with_green(g as f32 / 255.)
+            .with_blue(b as f32 / 255.)
+            .with_alpha(a as f32 / 255.)
+    }
+}
+
+impl VoxelData for Albedo {
+    fn new(color: Albedo, _user_data: u32) -> Self {
+        color
+    }
+
+    fn albedo(&self) -> Albedo {
+        *self
+    }
+
+    fn user_data(&self) -> u32 {
+        0u32
+    }
+
+    fn clear(&mut self) {
+        self.r = 0.;
+        self.r = 0.;
+        self.b = 0.;
+        self.a = 0.;
     }
 }
