@@ -70,7 +70,7 @@ mod intersection_tests {
 #[cfg(feature = "bevy_wgpu")]
 mod wgpu_tests {
     use crate::spatial::math::vector::V3cf32;
-    use encase::StorageBuffer;
+    use bevy::render::render_resource::encase::StorageBuffer;
 
     #[test]
     fn test_buffer_readback() {

@@ -3,6 +3,9 @@ use crate::object_pool::ObjectPool;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "bevy_wgpu")]
+use bevy::render::render_resource::ShaderType;
+
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
@@ -67,7 +70,7 @@ pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
-#[cfg_attr(feature = "bevy_wgpu", derive(encase::ShaderType))]
+#[cfg_attr(feature = "bevy_wgpu", derive(ShaderType))]
 #[derive(Default, Clone, Copy, Debug, PartialEq)]
 pub struct Albedo {
     pub r: f32,
@@ -77,6 +80,13 @@ pub struct Albedo {
 }
 
 impl Albedo {
+    pub const WHITE: Albedo = Albedo {
+        r: 1.,
+        g: 1.,
+        b: 1.,
+        a: 1.,
+    };
+
     pub fn with_red(mut self, r: f32) -> Self {
         self.r = r;
         self

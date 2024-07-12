@@ -265,7 +265,9 @@ impl From<V3c<i32>> for V3c<u32> {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-use encase::{impl_vector, vector::AsMutVectorParts, vector::AsRefVectorParts};
+use bevy::render::render_resource::encase::{
+    impl_vector, vector::AsMutVectorParts, vector::AsRefVectorParts,
+};
 
 #[cfg(feature = "bevy_wgpu")]
 impl_vector!(3, V3cf32, f32; using From);

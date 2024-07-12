@@ -1,23 +1,33 @@
+use crate::octree::{Albedo, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
-    math::{Vec2, Vec3},
     reflect::TypePath,
     render::{
-        color::Color,
         extract_resource::ExtractResource,
+        prelude::Image,
         render_graph::RenderLabel,
         render_resource::{
             AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, ShaderType,
         },
-        texture::Image,
     },
 };
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct Voxelement {
-    pub(crate) albedo: Color,
+    pub(crate) albedo: Albedo,
     pub(crate) content: u32,
+    _padding: V3cf32,
+}
+
+impl Voxelement {
+    pub fn new(albedo: Albedo, content: u32) -> Self {
+        Voxelement {
+            albedo,
+            content,
+            _padding: V3cf32::new(0., 0., 0.),
+        }
+    }
 }
 
 #[derive(Clone, ShaderType)]
@@ -54,20 +64,21 @@ pub(crate) struct SizedNode {
     pub(crate) voxels_start_at: u32,
 }
 
+#[repr(C)]
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
-    pub(crate) octree_size: u32,
+    pub ambient_light_color: V3cf32,
     pub(crate) voxel_brick_dim: u32,
-    pub ambient_light_color: Color,
-    pub ambient_light_position: Vec3,
+    pub ambient_light_position: V3cf32,
+    pub(crate) octree_size: u32,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, ShaderType)]
 pub struct Viewport {
-    pub origin: Vec3,
-    pub direction: Vec3,
-    pub size: Vec2,
-    pub fov: f32,
+    pub origin: V3cf32,
+    pub direction: V3cf32,
+    pub w_h_fov: V3cf32,
 }
 
 pub struct ShocoVoxRenderPlugin {
@@ -116,4 +127,37 @@ pub(crate) struct ShocoVoxLabel;
 pub(crate) struct ShocoVoxRenderNode {
     pub(crate) ready: bool,
     pub(crate) resolution: [u32; 2],
+}
+
+#[cfg(test)]
+mod types_wgpu_byte_compatibility_tests {
+    use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
+    use bevy::render::render_resource::{encase::ShaderType, ShaderSize};
+
+    #[test]
+    fn test_wgpu_compatibility() {
+        Viewport::assert_uniform_compat();
+        assert_eq!(
+            std::mem::size_of::<Viewport>(),
+            Viewport::SHADER_SIZE.get() as usize
+        );
+
+        OctreeMetaData::assert_uniform_compat();
+        assert_eq!(
+            std::mem::size_of::<OctreeMetaData>(),
+            OctreeMetaData::SHADER_SIZE.get() as usize
+        );
+
+        Voxelement::assert_uniform_compat();
+        assert_eq!(
+            std::mem::size_of::<Voxelement>(),
+            Voxelement::SHADER_SIZE.get() as usize
+        );
+
+        SizedNode::assert_uniform_compat();
+        assert_eq!(
+            std::mem::size_of::<SizedNode>(),
+            SizedNode::SHADER_SIZE.get() as usize
+        );
+    }
 }
