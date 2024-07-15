@@ -6,7 +6,7 @@ authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = []
+default = ["bevy_wgpu"]
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
 bevy_wgpu = ["raytracing", "dep:bevy"]
