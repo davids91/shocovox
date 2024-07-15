@@ -60,23 +60,26 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                         && (ARRAY_DIMENSION / 2) <= z)
                 {
                     let r = if 0 == x % (ARRAY_DIMENSION / 4) {
-                        x as f32 / ARRAY_DIMENSION as f32
+                        (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
-                        0.5
+                        128
                     };
                     let g = if 0 == y % (ARRAY_DIMENSION / 4) {
-                        y as f32 / ARRAY_DIMENSION as f32
+                        (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
-                        0.5
+                        128
                     };
                     let b = if 0 == z % (ARRAY_DIMENSION / 4) {
-                        z as f32 / ARRAY_DIMENSION as f32
+                        (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
                     } else {
-                        0.5
+                        128
                     };
                     tree.insert(
                         &V3c::new(x, y, z),
-                        Albedo::default().with_red(r).with_green(g).with_blue(b),
+                        Albedo::default()
+                            .with_red(r as u8)
+                            .with_green(g as u8)
+                            .with_blue(b as u8),
                     )
                     .ok()
                     .unwrap();

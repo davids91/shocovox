@@ -30,10 +30,10 @@ fn main() {
                     tree.insert(
                         &V3c::new(x, y, z),
                         Albedo::default()
-                            .with_red(x as f32 / TREE_SIZE as f32)
-                            .with_green(y as f32 / TREE_SIZE as f32)
-                            .with_blue(z as f32 / TREE_SIZE as f32)
-                            .with_alpha(1.),
+                            .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                            .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                            .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
+                            .with_alpha(255),
                     )
                     .ok()
                     .unwrap();

@@ -1,10 +1,10 @@
 use crate::object_pool::empty_marker;
-
 use crate::octree::{
     raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, SizedNode, Voxelement},
     types::{NodeChildrenArray, NodeContent},
     Octree, V3c, VoxelData,
 };
+use bevy::math::Vec4;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -82,10 +82,16 @@ where
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
-                            voxels.push(Voxelement::new(
-                                data[x][y][z].albedo(),
-                                data[x][y][z].user_data(),
-                            ))
+                            let albedo = data[x][y][z].albedo();
+                            voxels.push(Voxelement {
+                                albedo: Vec4::new(
+                                    albedo.r as f32 / 255.,
+                                    albedo.g as f32 / 255.,
+                                    albedo.b as f32 / 255.,
+                                    albedo.a as f32 / 255.,
+                                ),
+                                content: data[x][y][z].user_data(),
+                            })
                         }
                     }
                 }

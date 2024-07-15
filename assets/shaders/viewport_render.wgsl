@@ -597,7 +597,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 }
 
 struct Voxelement {
-    albedo : vec4<f32>,
+    albedo : vec4f,
     content: u32,
 }
 
@@ -619,10 +619,10 @@ struct SizedNode {
 
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
+    ambient_light_color: vec3f,
+    ambient_light_position: vec3f,
     octree_size: u32,
     voxel_brick_dim: u32,
-    ambient_light_color: vec4f,
-    ambient_light_position: vec3f,
 }
 
 struct Viewport {

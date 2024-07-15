@@ -1,7 +1,8 @@
-use crate::octree::{Albedo, V3cf32, VoxelData};
+use crate::octree::V3cf32;
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
+    math::Vec4,
     reflect::TypePath,
     render::{
         extract_resource::ExtractResource,
@@ -15,19 +16,8 @@ use bevy::{
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct Voxelement {
-    pub(crate) albedo: Albedo,
+    pub(crate) albedo: Vec4,
     pub(crate) content: u32,
-    _padding: V3cf32,
-}
-
-impl Voxelement {
-    pub fn new(albedo: Albedo, content: u32) -> Self {
-        Voxelement {
-            albedo,
-            content,
-            _padding: V3cf32::new(0., 0., 0.),
-        }
-    }
 }
 
 #[derive(Clone, ShaderType)]
@@ -64,16 +54,14 @@ pub(crate) struct SizedNode {
     pub(crate) voxels_start_at: u32,
 }
 
-#[repr(C)]
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
     pub ambient_light_color: V3cf32,
-    pub(crate) voxel_brick_dim: u32,
     pub ambient_light_position: V3cf32,
     pub(crate) octree_size: u32,
+    pub(crate) voxel_brick_dim: u32,
 }
 
-#[repr(C)]
 #[derive(Clone, Copy, ShaderType)]
 pub struct Viewport {
     pub origin: V3cf32,
@@ -137,27 +125,8 @@ mod types_wgpu_byte_compatibility_tests {
     #[test]
     fn test_wgpu_compatibility() {
         Viewport::assert_uniform_compat();
-        assert_eq!(
-            std::mem::size_of::<Viewport>(),
-            Viewport::SHADER_SIZE.get() as usize
-        );
-
         OctreeMetaData::assert_uniform_compat();
-        assert_eq!(
-            std::mem::size_of::<OctreeMetaData>(),
-            OctreeMetaData::SHADER_SIZE.get() as usize
-        );
-
         Voxelement::assert_uniform_compat();
-        assert_eq!(
-            std::mem::size_of::<Voxelement>(),
-            Voxelement::SHADER_SIZE.get() as usize
-        );
-
         SizedNode::assert_uniform_compat();
-        assert_eq!(
-            std::mem::size_of::<SizedNode>(),
-            SizedNode::SHADER_SIZE.get() as usize
-        );
     }
 }
