@@ -1,4 +1,45 @@
 #[cfg(test)]
+#[cfg(feature = "bevy_wgpu")]
+mod types_byte_compatibility {
+    use crate::octree::Albedo;
+    use bevy::render::render_resource::{
+        encase::{ShaderSize, StorageBuffer},
+        ShaderType,
+    };
+
+    #[test]
+    fn albedo_size_is_as_expected() {
+        const SIZE: usize = std::mem::size_of::<Albedo>();
+        const EXPECTED_SIZE: usize = 4 * std::mem::size_of::<f32>();
+        assert_eq!(
+            SIZE, EXPECTED_SIZE,
+            "RGBA should be {} bytes wide but was {}",
+            EXPECTED_SIZE, SIZE
+        );
+    }
+
+    #[test]
+    fn test_wgpu_compatibility() {
+        Albedo::assert_uniform_compat();
+    }
+
+    #[test]
+    fn test_buffer_readback() {
+        let original_value = Albedo::default()
+            .with_red(1.)
+            .with_blue(0.5)
+            .with_alpha(0.6);
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&original_value).unwrap();
+        let mut byte_buffer = buffer.into_inner();
+        let buffer = StorageBuffer::new(&mut byte_buffer);
+        let mut value = Albedo::default();
+        buffer.read(&mut value).unwrap();
+        assert_eq!(value, original_value);
+    }
+}
+
+#[cfg(test)]
 mod octree_serialization_tests {
     use crate::octree::types::Albedo;
     use bendy::decoding::FromBencode;

@@ -7,7 +7,7 @@ pub mod update;
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
 
-pub use crate::spatial::math::vector::V3c;
+pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{Albedo, Octree, VoxelData};
 
 use crate::object_pool::{empty_marker, ObjectPool};

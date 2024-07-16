@@ -1,22 +1,22 @@
+use crate::octree::V3cf32;
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
-    math::{Vec2, Vec3},
+    math::Vec4,
     reflect::TypePath,
     render::{
-        color::Color,
         extract_resource::ExtractResource,
+        prelude::Image,
         render_graph::RenderLabel,
         render_resource::{
             AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, ShaderType,
         },
-        texture::Image,
     },
 };
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct Voxelement {
-    pub(crate) albedo: Color,
+    pub(crate) albedo: Vec4,
     pub(crate) content: u32,
 }
 
@@ -56,18 +56,17 @@ pub(crate) struct SizedNode {
 
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
+    pub ambient_light_color: V3cf32,
+    pub ambient_light_position: V3cf32,
     pub(crate) octree_size: u32,
     pub(crate) voxel_brick_dim: u32,
-    pub ambient_light_color: Color,
-    pub ambient_light_position: Vec3,
 }
 
 #[derive(Clone, Copy, ShaderType)]
 pub struct Viewport {
-    pub origin: Vec3,
-    pub direction: Vec3,
-    pub size: Vec2,
-    pub fov: f32,
+    pub origin: V3cf32,
+    pub direction: V3cf32,
+    pub w_h_fov: V3cf32,
 }
 
 pub struct ShocoVoxRenderPlugin {
@@ -116,4 +115,18 @@ pub(crate) struct ShocoVoxLabel;
 pub(crate) struct ShocoVoxRenderNode {
     pub(crate) ready: bool,
     pub(crate) resolution: [u32; 2],
+}
+
+#[cfg(test)]
+mod types_wgpu_byte_compatibility_tests {
+    use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
+    use bevy::render::render_resource::{encase::ShaderType, ShaderSize};
+
+    #[test]
+    fn test_wgpu_compatibility() {
+        Viewport::assert_uniform_compat();
+        OctreeMetaData::assert_uniform_compat();
+        Voxelement::assert_uniform_compat();
+        SizedNode::assert_uniform_compat();
+    }
 }

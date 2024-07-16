@@ -1,5 +1,5 @@
-#[cfg(feature = "raytracing")]
 #[cfg(test)]
+#[cfg(feature = "raytracing")]
 mod intersection_tests {
 
     use crate::spatial::{
@@ -63,5 +63,24 @@ mod intersection_tests {
         assert!(V3c::new(0., 0., -1.) == cube_impact_normal(&cube, &V3c::new(1., 1., 0.)));
         assert!(V3c::new(0., -1., 0.) == cube_impact_normal(&cube, &V3c::new(1., 0., 1.)));
         assert!(V3c::new(-1., 0., 0.) == cube_impact_normal(&cube, &V3c::new(0., 1., 1.)));
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "bevy_wgpu")]
+mod wgpu_tests {
+    use crate::spatial::math::vector::V3cf32;
+    use bevy::render::render_resource::encase::StorageBuffer;
+
+    #[test]
+    fn test_buffer_readback() {
+        let original_value = V3cf32::new(0.666, 0.69, 420.0);
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&original_value).unwrap();
+        let mut byte_buffer = buffer.into_inner();
+        let buffer = StorageBuffer::new(&mut byte_buffer);
+        let mut value = V3cf32::default();
+        buffer.read(&mut value).unwrap();
+        assert_eq!(value, original_value);
     }
 }

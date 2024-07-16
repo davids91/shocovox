@@ -17,6 +17,7 @@ use bevy::{
     prelude::IntoSystemConfigs,
     render::{
         extract_resource::ExtractResourcePlugin,
+        prelude::Image,
         render_asset::{RenderAssetUsages, RenderAssets},
         render_graph,
         render_graph::RenderGraph,
@@ -25,7 +26,7 @@ use bevy::{
             Extent3d, PipelineCache, TextureDimension, TextureFormat, TextureUsages,
         },
         renderer::{RenderContext, RenderDevice},
-        texture::{FallbackImage, Image},
+        texture::{FallbackImage, GpuImage},
         Render, RenderApp, RenderSet,
     },
 };
@@ -77,7 +78,7 @@ impl FromWorld for ShocoVoxRenderPipeline {
 }
 
 fn prepare_bind_groups(
-    gpu_images: Res<RenderAssets<Image>>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
     fallback_image: Res<FallbackImage>,
     render_device: Res<RenderDevice>,
     mut pipeline: ResMut<ShocoVoxRenderPipeline>,
@@ -140,7 +141,7 @@ impl Plugin for ShocoVoxRenderPlugin {
             prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
         );
 
-        let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
+        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(
             ShocoVoxLabel,
             ShocoVoxRenderNode {

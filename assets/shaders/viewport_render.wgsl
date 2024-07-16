@@ -597,7 +597,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 }
 
 struct Voxelement {
-    albedo : vec4<f32>,
+    albedo : vec4f,
     content: u32,
 }
 
@@ -619,17 +619,16 @@ struct SizedNode {
 
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
+    ambient_light_color: vec3f,
+    ambient_light_position: vec3f,
     octree_size: u32,
     voxel_brick_dim: u32,
-    ambient_light_color: vec4f,
-    ambient_light_position: vec3f,
 }
 
 struct Viewport {
     origin: vec3f,
     direction: vec3f,
-    size: vec2f,
-    fov: f32,
+    w_h_fov: vec3f,
 }
 
 @group(0) @binding(0)
@@ -665,13 +664,13 @@ fn update(
         viewport_up_direction, viewport.direction
     ));
     let viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.fov)
-        - (viewport_right_direction * (viewport.size.x / 2.))
-        - (viewport_up_direction * (viewport.size.y / 2.))
+        + (viewport.direction * viewport.w_h_fov.z)
+        - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
+        - (viewport_up_direction * (viewport.w_h_fov.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * f32(pixel_location_normalized.x)
-        + viewport_up_direction * viewport.size.y * (1. - f32(pixel_location_normalized.y))
+        + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
+        + viewport_up_direction * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 

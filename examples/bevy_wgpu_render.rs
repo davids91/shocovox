@@ -33,7 +33,7 @@ fn main() {
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
 
-    let origin = Vec3::new(
+    let origin = V3c::new(
         ARRAY_DIMENSION as f32 * 2.,
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 * -2.,
@@ -90,10 +90,9 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let render_data = tree.create_bevy_view();
     let viewing_glass = create_viewing_glass(
         &Viewport {
-            direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
             origin,
-            size: Vec2::new(10., 10.),
-            fov: 3.,
+            direction: (V3c::new(0., 0., 0.) - origin).normalized(),
+            w_h_fov: V3c::new(10., 10., 3.),
         },
         DISPLAY_RESOLUTION,
         images,
@@ -124,7 +123,7 @@ fn rotate_camera(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 100000.;
+        let addition = ARRAY_DIMENSION as f32 / 10000.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle
@@ -135,26 +134,30 @@ fn rotate_camera(
     angles_query.single_mut().yaw = angle;
 
     let radius = ARRAY_DIMENSION as f32 * 1.3;
-    viewing_glass.viewport.origin = Vec3::new(
+    viewing_glass.viewport.origin = V3c::new(
         ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
-        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 + angle.cos() * angle.sin() * radius / 2.,
         ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
     );
-    viewing_glass.viewport.direction = (Vec3::new(
+    viewing_glass.viewport.direction = (V3c::new(
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 / 2.,
     ) - viewing_glass.viewport.origin)
-        .normalize();
+        .normalized();
 }
 
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
     if keys.pressed(KeyCode::ArrowUp) {
-        viewing_glass.viewport.size *= 1.1;
+        //viewing_glass.viewport.w_h_fov *= 1.1;
+        viewing_glass.viewport.w_h_fov.x *= 1.1;
+        viewing_glass.viewport.w_h_fov.y *= 1.1;
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        viewing_glass.viewport.size *= 0.9;
+        //viewing_glass.viewport.w_h_fov *= 0.9;
+        viewing_glass.viewport.w_h_fov.x *= 0.9;
+        viewing_glass.viewport.w_h_fov.y *= 0.9;
     }
 }
 
