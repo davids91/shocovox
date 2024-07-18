@@ -13,4 +13,4 @@ pub use bevy::types::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport};
 pub mod wgpu;
 
 #[cfg(feature = "wgpu")]
-pub use wgpu::types::{SvxRenderApp, Viewport};
+pub use wgpu::types::{SvxRenderBackend, Viewport};

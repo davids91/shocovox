@@ -1,6 +1,6 @@
-pub use crate::octree::raytracing::wgpu::types::SvxRenderApp;
+pub use crate::octree::raytracing::wgpu::types::SvxRenderBackend;
 
-impl SvxRenderApp {
+impl SvxRenderBackend {
     pub fn execute_pipeline(&self) {
         let frame = self
             .surface
@@ -18,6 +18,29 @@ impl SvxRenderApp {
             .expect("Device Encoder not found")
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
+        if let Some(tree_group) = &self.tree_group {
+            // Raytracing
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("raytracing_compute_pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(
+                self.compute_pipeline
+                    .as_ref()
+                    .expect("Expected Raytracing pipeline to be valid"),
+            );
+            compute_pass.set_bind_group(
+                0,
+                &self
+                    .dynamic_group
+                    .as_ref()
+                    .expect("Expected Dynamic Bind Group"),
+                &[],
+            );
+            compute_pass.set_bind_group(1, tree_group, &[]);
+            compute_pass.dispatch_workgroups(self.output_width / 8, self.output_height / 8, 1);
+        }
+
         encoder.copy_texture_to_texture(
             self.output_texture
                 .as_ref()
@@ -31,6 +54,7 @@ impl SvxRenderApp {
         );
 
         {
+            // Rendering
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -45,7 +69,12 @@ impl SvxRenderApp {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            render_pass.set_pipeline(&self.pipeline.as_ref().unwrap());
+            render_pass.set_pipeline(
+                &self
+                    .render_pipeline
+                    .as_ref()
+                    .expect("Expected Rendering pipeline to be valid"),
+            );
             render_pass.set_bind_group(
                 0,
                 &self
@@ -54,6 +83,9 @@ impl SvxRenderApp {
                     .expect("Expected Dynamic Bind Group"),
                 &[],
             );
+            if let Some(tree_group) = &self.tree_group {
+                render_pass.set_bind_group(1, tree_group, &[]);
+            }
             render_pass.draw(0..6, 0..1);
         }
 

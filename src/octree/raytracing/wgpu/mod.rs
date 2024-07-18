@@ -3,13 +3,15 @@ mod pipeline;
 mod render;
 pub mod types;
 
-pub use crate::octree::raytracing::{SvxRenderApp, Viewport};
+pub use crate::octree::raytracing::{SvxRenderBackend, Viewport};
+use crate::octree::Octree;
+use crate::octree::VoxelData;
 use crate::spatial::math::vector::V3cf32;
 use encase::UniformBuffer;
 use std::sync::Arc;
 use winit::window::Window;
 
-impl<'a> SvxRenderApp {
+impl<'a> SvxRenderBackend {
     pub fn new(output_width: u32, output_height: u32) -> Self {
         Self {
             viewport: Viewport::default(),
@@ -20,17 +22,22 @@ impl<'a> SvxRenderApp {
                 height: output_height,
                 depth_or_array_layers: 1,
             },
-            can_render: false.into(),
             wgpu_instance: wgpu::Instance::default(),
             adapter: None,
             surface: None,
             device: None,
-            pipeline: None,
+            compute_pipeline: None,
+            render_pipeline: None,
             queue: None,
             dynamic_group: None,
             output_texture: None,
             output_texture_render: None,
             viewport_buffer: None,
+            metadata_buffer: None,
+            nodes_buffer: None,
+            children_buffer: None,
+            voxels_buffer: None,
+            tree_group: None,
         }
     }
 
@@ -42,34 +49,50 @@ impl<'a> SvxRenderApp {
         self.output_height
     }
 
-    pub async fn set_output_size(&mut self, width: u32, height: u32, window: Arc<Window>) {
+    pub async fn set_output_size<T, const DIM: usize>(
+        &mut self,
+        width: u32,
+        height: u32,
+        window: Arc<Window>,
+        tree: Option<&Octree<T, DIM>>,
+    ) where
+        T: Default + Clone + VoxelData,
+    {
         self.output_width = width;
         self.output_height = height;
-        self.rebuild_pipeline(window).await;
+        self.texture_extent = wgpu::Extent3d {
+            width: self.output_width,
+            height: self.output_height,
+            depth_or_array_layers: 1,
+        };
+        self.viewport_buffer = None;
+        self.metadata_buffer = None;
+        self.nodes_buffer = None;
+        self.children_buffer = None;
+        self.voxels_buffer = None;
+        self.rebuild_pipeline(window, tree).await;
     }
 
     pub fn viewport(&self) -> &Viewport {
         &self.viewport
     }
 
-    pub fn set_viewport(&mut self, viewport: Viewport) {
+    pub fn with_viewport(mut self, viewport: Viewport) -> Self {
         if viewport == self.viewport {
-            return;
+            return self;
         }
 
-        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&viewport).unwrap();
         self.viewport = viewport;
-        self.queue
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild rendering queue!")
-            .write_buffer(
-                self.viewport_buffer
-                    .as_ref()
-                    .expect("Expected SvxRenderApp to have a vaild Viewport buffer!"),
-                0,
-                &buffer.into_inner(),
-            )
+
+        if let Some(viewport_buffer) = &self.viewport_buffer {
+            let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+            buffer.write(&self.viewport).unwrap();
+            self.queue
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+                .write_buffer(&viewport_buffer, 0, &buffer.into_inner())
+        }
+        self
     }
 
     pub fn set_viewport_origin(&mut self, origin: V3cf32) {

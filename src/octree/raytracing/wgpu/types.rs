@@ -1,7 +1,9 @@
 use crate::octree::Albedo;
 use crate::spatial::math::vector::V3cf32;
 use encase::ShaderType;
-use wgpu::{Adapter, BindGroup, Buffer, Device, Queue, RenderPipeline, Surface, Texture};
+use wgpu::{
+    Adapter, BindGroup, Buffer, ComputePipeline, Device, Queue, RenderPipeline, Surface, Texture,
+};
 
 #[derive(ShaderType)]
 pub(crate) struct Voxelement {
@@ -68,7 +70,7 @@ impl Default for Viewport {
     }
 }
 
-pub struct SvxRenderApp {
+pub struct SvxRenderBackend {
     //render data and parameters
     pub(crate) viewport: Viewport,
     pub(crate) output_width: u32,
@@ -80,19 +82,20 @@ pub struct SvxRenderApp {
     pub(crate) adapter: Option<Adapter>,
     pub(crate) surface: Option<Surface<'static>>,
     pub(crate) device: Option<Device>,
-    pub(crate) pipeline: Option<RenderPipeline>,
+    pub(crate) compute_pipeline: Option<ComputePipeline>,
+    pub(crate) render_pipeline: Option<RenderPipeline>,
     pub(crate) queue: Option<Queue>,
 
     //layouts, textures and buffers
     pub(crate) dynamic_group: Option<BindGroup>,
-    // pub(crate) tree_group: Option<BindGroup>,
+    pub(crate) tree_group: Option<BindGroup>,
     pub(crate) output_texture: Option<Texture>,
     pub(crate) output_texture_render: Option<Texture>,
     pub(crate) viewport_buffer: Option<Buffer>,
-    // pub(crate) metadata_buffer: Option<Buffer>,
-    // pub(crate) nodes_buffer: Option<Buffer>,
-    // pub(crate) children_buffer: Option<Buffer>,
-    // pub(crate) voxels_buffer: Option<Buffer>,
+    pub(crate) metadata_buffer: Option<Buffer>,
+    pub(crate) nodes_buffer: Option<Buffer>,
+    pub(crate) children_buffer: Option<Buffer>,
+    pub(crate) voxels_buffer: Option<Buffer>,
 }
 
 #[cfg(test)]

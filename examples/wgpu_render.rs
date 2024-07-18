@@ -1,8 +1,10 @@
-use core::sync::atomic::Ordering;
-use shocovox_rs::octree::raytracing::wgpu::SvxRenderApp;
+use shocovox_rs::octree::raytracing::wgpu::SvxRenderBackend;
+use shocovox_rs::octree::raytracing::Viewport;
 use shocovox_rs::octree::Albedo;
+use shocovox_rs::octree::Octree;
 use shocovox_rs::octree::V3c;
 use shocovox_rs::octree::V3cf32;
+use shocovox_rs::octree::VoxelData;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -15,16 +17,23 @@ use winit::window::WindowId;
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "wgpu")]
-const ARRAY_DIMENSION: u32 = 128;
+const ARRAY_DIMENSION: u32 = 64;
 
 #[cfg(feature = "wgpu")]
-struct SvxRenderExample {
-    app: SvxRenderApp,
+struct SvxRenderExample<T, const DIM: usize>
+where
+    T: Default + Clone + VoxelData,
+{
+    backend: SvxRenderBackend,
     window: Option<Arc<Window>>,
+    tree: Arc<Octree<T, DIM>>,
 }
 
 #[cfg(feature = "wgpu")]
-impl ApplicationHandler for SvxRenderExample {
+impl<T, const DIM: usize> ApplicationHandler for SvxRenderExample<T, DIM>
+where
+    T: Default + Clone + VoxelData,
+{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.window = Some(Arc::new(
             event_loop
@@ -32,16 +41,16 @@ impl ApplicationHandler for SvxRenderExample {
                     Window::default_attributes()
                         .with_title("Voxel Raytracing Render")
                         .with_inner_size(winit::dpi::PhysicalSize::new(
-                            self.app.output_width(),
-                            self.app.output_height(),
+                            self.backend.output_width(),
+                            self.backend.output_height(),
                         )),
                 )
                 .unwrap(),
         ));
         futures::executor::block_on(
-            self.app
-                .rebuild_pipeline(self.window.as_ref().unwrap().clone()),
-        )
+            self.backend
+                .rebuild_pipeline(self.window.as_ref().unwrap().clone(), Some(&self.tree)),
+        );
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -50,14 +59,15 @@ impl ApplicationHandler for SvxRenderExample {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.app.execute_pipeline();
+                self.backend.execute_pipeline();
                 self.window.as_ref().unwrap().request_redraw();
             }
             WindowEvent::Resized(size) => {
-                futures::executor::block_on(self.app.set_output_size(
+                futures::executor::block_on(self.backend.set_output_size(
                     size.width,
                     size.height,
                     self.window.as_ref().unwrap().clone(),
+                    Some(&self.tree),
                 ));
             }
             WindowEvent::KeyboardInput {
@@ -66,8 +76,22 @@ impl ApplicationHandler for SvxRenderExample {
                 is_synthetic: _,
             } => {
                 if let winit::keyboard::Key::Named(named) = event.logical_key {
-                    if matches!(named, winit::keyboard::NamedKey::ArrowUp) {
-                        self.app.update_viewport_origin(V3cf32::new(0.002, 0., 0.));
+                    match named {
+                        winit::keyboard::NamedKey::ArrowUp => {
+                            self.backend.update_viewport_origin(V3cf32::new(0., 1., 0.));
+                        }
+                        winit::keyboard::NamedKey::ArrowDown => {
+                            self.backend
+                                .update_viewport_origin(V3cf32::new(0., -1., 0.));
+                        }
+                        winit::keyboard::NamedKey::ArrowLeft => {
+                            self.backend
+                                .update_viewport_origin(V3cf32::new(-1., 0., 0.));
+                        }
+                        winit::keyboard::NamedKey::ArrowRight => {
+                            self.backend.update_viewport_origin(V3cf32::new(1., 0., 0.));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -125,11 +149,26 @@ fn main() {
     let showcase = Arc::new(tree);
 
     // Fire up the display
+    let origin = V3c::new(
+        ARRAY_DIMENSION as f32 * 2.,
+        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 * -2.,
+    );
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
-    let app = SvxRenderApp::new(DISPLAY_RESOLUTION[0], DISPLAY_RESOLUTION[1]);
-    let mut example = SvxRenderExample { app, window: None };
-    //showcase.upload_to(&mut app);
+    let backend = SvxRenderBackend::new(DISPLAY_RESOLUTION[0], DISPLAY_RESOLUTION[1])
+        .with_viewport(Viewport {
+            direction: (V3c::new(0., 0., 0.) - origin).normalized(),
+            origin,
+            w_h_fov: V3c::new(10., 10., 10.),
+        });
+
+    let mut example = SvxRenderExample {
+        backend,
+        window: None,
+        tree: showcase.clone(),
+    };
 
     env_logger::init();
     let _ = event_loop.run_app(&mut example);

@@ -1,31 +1,39 @@
-use crate::octree::raytracing::wgpu::SvxRenderApp;
+use crate::octree::raytracing::wgpu::SvxRenderBackend;
+use crate::octree::Octree;
+use crate::octree::VoxelData;
 use encase::UniformBuffer;
 use std::borrow::Cow;
 use std::sync::Arc;
+use wgpu::Features;
 use wgpu::{util::DeviceExt, TextureUsages};
 use winit::window::Window;
 
-impl SvxRenderApp {
-    pub async fn rebuild_pipeline(&mut self, window: Arc<Window>) {
+impl SvxRenderBackend {
+    pub async fn rebuild_pipeline<T, const DIM: usize>(
+        &mut self,
+        window: Arc<Window>,
+        tree: Option<&Octree<T, DIM>>,
+    ) where
+        T: Default + Clone + VoxelData,
+    {
+        //Request WGPU backend
         let surface = self.wgpu_instance.create_surface(window).unwrap();
-
         let adapter = self
             .wgpu_instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
-                // Request an adapter which can render to our surface
                 compatible_surface: Some(&surface),
             })
             .await
             .expect("Failed to find an appropriate adapter");
-
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                    label: Some("svc_requested_device"),
+                    required_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                        | Features::BUFFER_BINDING_ARRAY
+                        | Features::STORAGE_RESOURCE_BINDING_ARRAY,
                     required_limits: wgpu::Limits::downlevel_defaults()
                         .using_resolution(adapter.limits()),
                 },
@@ -54,7 +62,7 @@ impl SvxRenderApp {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            label: Some("output_texture"),
+            label: Some("output_texture_render"),
             view_formats: &[],
         });
         let mut default_image = image::DynamicImage::ImageRgba8(image::RgbaImage::new(
@@ -121,102 +129,186 @@ impl SvxRenderApp {
             contents: &buffer.into_inner(),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        self.viewport_buffer = Some(viewport_buffer);
 
-        // Create bind group layout
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                // output_texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::ReadWrite,
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+        // Configuring surface and setting object state
+        let config = surface
+            .get_default_config(&adapter, self.output_width, self.output_height)
+            .unwrap();
+        surface.configure(&device, &config);
+
+        self.adapter = Some(adapter);
+        self.surface = Some(surface);
+        self.queue = Some(queue);
+        self.device = Some(device);
+        self.output_texture = Some(output_texture);
+        self.output_texture_render = Some(output_texture_render);
+
+        // Create dynamic group
+        let dynamic_group_layout = self.device.as_ref().unwrap().create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // output_texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::ReadWrite,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // output_texture_render
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    // output_texture_render
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // output_texture sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // viewport
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // output_texture sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-            label: Some("Dynamic_layout"),
-        });
+                    // viewport
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("dynamic_bind_group_layout"),
+            },
+        );
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&output_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&output_texture_render_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&output_texture_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: viewport_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("Dynamic_bind_group"),
-        });
+        self.dynamic_group = Some(
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &dynamic_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&output_texture_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(
+                                &output_texture_render_view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&output_texture_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self
+                                .viewport_buffer
+                                .as_ref()
+                                .expect("Expected SvxRenderBackend to have a valid Viewport Buffer")
+                                .as_entire_binding(),
+                        },
+                    ],
+                    label: Some("dynamic_bind_group"),
+                }),
+        );
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
-        });
+        // create tree group
+        let tree_group_layout;
+        if let Some(tree) = tree {
+            let (tree_bind_group_layout, tree_bind_group) = tree.upload_to(self);
+            tree_group_layout = Some(tree_bind_group_layout);
+            self.tree_group = Some(tree_bind_group);
+        } else {
+            tree_group_layout = None;
+        }
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("raytracing.wgsl"))),
-        });
+        // create pipelines
+        let compute_shader =
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("svx_raytracing_shader"),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!(
+                        "raytracing.wgsl"
+                    ))),
+                });
+        let render_shader =
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("svx_rendering_shader"),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("rendering.wgsl"))),
+                });
 
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let pipeline_layout;
+        let debug_label;
+        if tree_group_layout.is_some() {
+            pipeline_layout = self.device.as_ref().unwrap().create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("svx_render_layout_with_tree"),
+                    bind_group_layouts: &[
+                        &dynamic_group_layout,
+                        tree_group_layout.as_ref().unwrap(),
+                    ],
+                    push_constant_ranges: &[],
+                },
+            );
+            self.compute_pipeline = Some(self.device.as_ref().unwrap().create_compute_pipeline(
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some("svx_compute_layout_with_tree"),
+                    layout: Some(&pipeline_layout),
+                    module: &compute_shader,
+                    entry_point: "update",
+                    compilation_options: Default::default(),
+                },
+            ));
+            debug_label = "_with_tree";
+        } else {
+            pipeline_layout = self.device.as_ref().unwrap().create_pipeline_layout(
+                &wgpu::PipelineLayoutDescriptor {
+                    label: Some("svx_layout_wo_tree"),
+                    bind_group_layouts: &[&dynamic_group_layout],
+                    push_constant_ranges: &[],
+                },
+            );
+            debug_label = "_wo_tree";
+        };
+
+        let swapchain_capabilities = self
+            .surface
+            .as_ref()
+            .unwrap()
+            .get_capabilities(self.adapter.as_ref().unwrap());
         let swapchain_format = swapchain_capabilities.formats[0];
-        self.pipeline = Some(
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
+        self.render_pipeline = Some(self.device.as_ref().unwrap().create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some(&("svx_render_layout".to_owned() + debug_label)),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: &render_shader,
                     entry_point: "vs_main",
                     buffers: &[],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: &render_shader,
                     entry_point: "fs_main",
                     compilation_options: Default::default(),
                     targets: &[Some(swapchain_format.into())],
@@ -225,22 +317,7 @@ impl SvxRenderApp {
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
-            }),
-        );
-
-        let config = surface
-            .get_default_config(&adapter, self.output_width, self.output_height)
-            .unwrap();
-        surface.configure(&device, &config);
-
-        // Set object state
-        self.adapter = Some(adapter);
-        self.surface = Some(surface);
-        self.queue = Some(queue);
-        self.device = Some(device);
-        self.dynamic_group = Some(bind_group);
-        self.output_texture = Some(output_texture);
-        self.output_texture_render = Some(output_texture_render);
-        self.viewport_buffer = Some(viewport_buffer);
+            },
+        ));
     }
 }

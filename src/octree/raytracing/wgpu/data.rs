@@ -1,15 +1,14 @@
 use encase::StorageBuffer;
-use std::num::NonZero;
 
 use crate::octree::{
     empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, NodeContent,
     Octree, VoxelData,
 };
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout};
 
 use super::{
     types::{OctreeMetaData, SizedNode},
-    SvxRenderApp,
+    SvxRenderBackend,
 };
 
 impl<T, const DIM: usize> From<&Octree<T, DIM>> for OctreeMetaData
@@ -62,7 +61,7 @@ where
         meta
     }
 
-    pub(crate) fn upload_to(&self, app: &mut SvxRenderApp) {
+    pub fn upload_to(&self, app: &mut SvxRenderBackend) -> (BindGroupLayout, BindGroup) {
         // parse octree
         let mut nodes = Vec::new();
         let mut children = Vec::new();
@@ -112,13 +111,13 @@ where
         debug_assert!(0 < voxels.len());
 
         // Create bind group layout
-        let layout = app
+        let tree_group_layout = app
             .device
             .as_ref()
             .expect("Expected Render Device")
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    // metadata
+                    // octree_metadata
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -138,7 +137,7 @@ where
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: Some(NonZero::new(nodes.len() as u32).unwrap()),
+                        count: None,
                     },
                     // children
                     wgpu::BindGroupLayoutEntry {
@@ -149,7 +148,7 @@ where
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: Some(NonZero::new(children.len() as u32).unwrap()),
+                        count: None,
                     },
                     // voxels
                     wgpu::BindGroupLayoutEntry {
@@ -160,100 +159,137 @@ where
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: Some(NonZero::new(voxels.len() as u32).unwrap()),
+                        count: None,
                     },
                 ],
-                label: Some("Octree_Layout"),
+                label: Some("tree_bind_group_layout"),
             });
 
         // Upload data to buffers
         let octree_meta = OctreeMetaData::from(self);
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&octree_meta).unwrap();
-        let metadata_buffer = app
-            .device
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild device!")
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Octree Metadata Buffer"),
-                contents: &buffer.into_inner(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        if let Some(metadata_buffer) = &app.metadata_buffer {
+            app.queue
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+                .write_buffer(metadata_buffer, 0, &buffer.into_inner())
+        } else {
+            let metadata_buffer = app
+                .device
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild device!")
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Octree Metadata Buffer"),
+                    contents: &buffer.into_inner(),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+            app.metadata_buffer = Some(metadata_buffer);
+        }
+
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&nodes).unwrap();
-        let nodes_buffer = app
-            .device
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild device!")
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Octree Metadata Buffer"),
-                contents: &buffer.into_inner(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        if let Some(nodes_buffer) = &app.nodes_buffer {
+            app.queue
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+                .write_buffer(nodes_buffer, 0, &buffer.into_inner())
+        } else {
+            let nodes_buffer = app
+                .device
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild device!")
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Octree Nodes Buffer"),
+                    contents: &buffer.into_inner(),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
+            app.nodes_buffer = Some(nodes_buffer);
+        }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&children).unwrap();
-        let children_buffer = app
-            .device
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild device!")
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Octree Metadata Buffer"),
-                contents: &buffer.into_inner(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        if let Some(children_buffer) = &app.children_buffer {
+            app.queue
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+                .write_buffer(children_buffer, 0, &buffer.into_inner())
+        } else {
+            let children_buffer = app
+                .device
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild device!")
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Octree Children Buffer"),
+                    contents: &buffer.into_inner(),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
+            app.children_buffer = Some(children_buffer);
+        }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&voxels).unwrap();
-        let voxels_buffer = app
-            .device
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild device!")
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Octree Metadata Buffer"),
-                contents: &buffer.into_inner(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        if let Some(voxels_buffer) = &app.voxels_buffer {
+            app.queue
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+                .write_buffer(voxels_buffer, 0, &buffer.into_inner())
+        } else {
+            let voxels_buffer = app
+                .device
+                .as_ref()
+                .expect("Expected SvxRenderApp to have a vaild device!")
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Octree Voxels Buffer"),
+                    contents: &buffer.into_inner(),
+                    usage: wgpu::BufferUsages::STORAGE,
+                });
+            app.voxels_buffer = Some(voxels_buffer);
+        }
 
         // Create bind group
-        let group = app
+        let tree_bind_group = app
             .device
             .as_ref()
             .expect("Expected SvxRenderApp to have a vaild device!")
             .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &layout,
+                layout: &tree_group_layout,
                 entries: &[
-                    // wgpu::BindGroupEntry {
-                    //     binding: 0,
-                    //     resource: ??.as_entire_binding(),
-                    // },
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: metadata_buffer.as_entire_binding(),
+                        resource: app
+                            .metadata_buffer
+                            .as_ref()
+                            .expect("Expected SvxRenderBackend to have a valid metadata buffer")
+                            .as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: nodes_buffer.as_entire_binding(),
+                        resource: app
+                            .nodes_buffer
+                            .as_ref()
+                            .expect("Expected SvxRenderBackend to have a valid nodes buffer")
+                            .as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: children_buffer.as_entire_binding(),
+                        resource: app
+                            .children_buffer
+                            .as_ref()
+                            .expect("Expected SvxRenderBackend to have a valid children buffer")
+                            .as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: voxels_buffer.as_entire_binding(),
+                        resource: app
+                            .voxels_buffer
+                            .as_ref()
+                            .expect("Expected SvxRenderBackend to have a valid voxels buffer")
+                            .as_entire_binding(),
                     },
                 ],
-                label: Some("camera_bind_group"),
+                label: Some("tree_bind_group"),
             });
-        let render_pipeline_layout = app
-            .device
-            .as_ref()
-            .expect("Expected SvxRenderApp to have a vaild device!")
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&layout],
-                push_constant_ranges: &[],
-            });
+        (tree_group_layout, tree_bind_group)
     }
 }
