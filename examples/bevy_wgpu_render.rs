@@ -41,7 +41,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<Albedo, 16>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, 32>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 

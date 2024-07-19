@@ -11,7 +11,10 @@ use crate::spatial::{
     Cube,
 };
 
-impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+impl<T, const DIM: usize> Octree<T, DIM>
+where
+    T: Default + PartialEq + Clone + Copy + VoxelData,
+{
     /// Inserts the given data into the octree into the intended voxel position
     pub fn insert(&mut self, position: &V3c<u32>, data: T) -> Result<(), OctreeError> {
         self.insert_at_lod(position, 1, data)

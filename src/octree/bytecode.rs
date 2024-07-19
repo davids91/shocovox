@@ -89,7 +89,7 @@ use bendy::decoding::{FromBencode, Object};
 use super::types::Albedo;
 impl<T, const DIM: usize> FromBencode for NodeContent<T, DIM>
 where
-    T: PartialEq + Default + Clone + VoxelData,
+    T: PartialEq + Default + Clone + Copy + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -132,13 +132,10 @@ where
                     };
                     Ok(NodeContent::Internal(count as u8))
                 } else {
-                    Ok(NodeContent::<T, DIM>::Leaf(array_init::array_init(|_| {
-                        array_init::array_init(|_| {
-                            array_init::array_init(|_| {
-                                NodeContent::<T, DIM>::decode_single(&mut list).unwrap()
-                            })
-                        })
-                    })))
+                    Ok(NodeContent::<T, DIM>::Leaf(
+                        [[[NodeContent::<T, DIM>::decode_single(&mut list).unwrap(); DIM]; DIM];
+                            DIM],
+                    ))
                 }
             }
             Object::Bytes(b) => {
@@ -244,7 +241,7 @@ where
 
 impl<T, const DIM: usize> FromBencode for Octree<T, DIM>
 where
-    T: PartialEq + Default + Clone + VoxelData,
+    T: PartialEq + Default + Clone + Copy + VoxelData,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
