@@ -127,7 +127,23 @@ impl<'a> SvxRenderBackend {
             )
     }
 
-    pub fn update_viewport_direction(&mut self, direction: V3cf32) {
+    pub fn update_viewport_direction(&mut self, delta: V3cf32) {
+        self.viewport.direction = (self.viewport.direction + delta).normalized();
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&self.viewport).unwrap();
+        self.queue
+            .as_ref()
+            .expect("Expected SvxRenderApp to have a vaild rendering queue!")
+            .write_buffer(
+                self.viewport_buffer
+                    .as_ref()
+                    .expect("Expected SvxRenderApp to have a vaild Viewport buffer!"),
+                0,
+                &buffer.into_inner(),
+            )
+    }
+
+    pub fn set_viewport_direction(&mut self, direction: V3cf32) {
         self.viewport.direction = direction;
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&self.viewport).unwrap();

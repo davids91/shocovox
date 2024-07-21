@@ -1,4 +1,4 @@
-use encase::StorageBuffer;
+use encase::{ShaderSize, StorageBuffer};
 
 use crate::octree::{
     empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, NodeContent,
@@ -167,7 +167,7 @@ where
 
         // Upload data to buffers
         let octree_meta = OctreeMetaData::from(self);
-        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        let mut buffer = encase::UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&octree_meta).unwrap();
         if let Some(metadata_buffer) = &app.metadata_buffer {
             app.queue

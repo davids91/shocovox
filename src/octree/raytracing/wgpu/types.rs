@@ -70,6 +70,30 @@ impl Default for Viewport {
     }
 }
 
+impl Viewport {
+    pub fn new_with_delta_origin(&self, delta: V3cf32) -> Viewport {
+        Viewport {
+            origin: self.origin + delta,
+            direction: self.direction,
+            w_h_fov: self.w_h_fov,
+        }
+    }
+    pub fn new_with_delta_direction(&self, delta: V3cf32) -> Viewport {
+        Viewport {
+            origin: self.origin,
+            direction: self.direction + delta,
+            w_h_fov: self.w_h_fov,
+        }
+    }
+    pub fn new_with_delta_w_h_fov(&self, delta: V3cf32) -> Viewport {
+        Viewport {
+            origin: self.origin,
+            direction: self.direction,
+            w_h_fov: self.w_h_fov + delta,
+        }
+    }
+}
+
 pub struct SvxRenderBackend {
     //render data and parameters
     pub(crate) viewport: Viewport,
