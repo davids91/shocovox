@@ -18,7 +18,10 @@ use crate::octree::{
 use crate::spatial::{math::hash_region, Cube};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
-impl<T: Default + PartialEq + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+impl<T, const DIM: usize> Octree<T, DIM>
+where
+    T: Default + PartialEq + Clone + Copy + VoxelData,
+{
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {
         self.to_bencode().ok().unwrap()

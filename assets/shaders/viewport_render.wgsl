@@ -336,7 +336,6 @@ fn traverse_brick(
 ) -> BrickHit{
     var result: BrickHit;
     result.hit = false;
-
     let pos = (
         point_in_ray_at_distance(ray, *ray_current_distance)
         - bounds.min_position
@@ -469,7 +468,11 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         );
         node_stack_i = 1;
     }
-    while(0 < node_stack_i && node_stack_i < max_depth) {
+    // +++ DEBUG +++
+    var i = 0.;
+    // --- DEBUG ---
+    while(0 < node_stack_i && node_stack_i < max_depth && i < 15.) {
+        i = i + 1.;
         var current_bounds = node_stack[node_stack_i - 1].bounds;
         var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
         var target_octant = node_stack[node_stack_i - 1].target_octant;
@@ -492,7 +495,22 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 current_bounds.min_position = current_bounds.min_position
                     + vec3f(leaf_brick_hit.index) * current_bounds.size;
                 result.hit = true;
-                result.albedo = voxels[hit_in_voxels].albedo;
+                result.albedo.r = voxels[hit_in_voxels].r;
+                result.albedo.g = voxels[hit_in_voxels].g;
+                result.albedo.b = voxels[hit_in_voxels].b;
+                result.albedo.a = voxels[hit_in_voxels].a;
+
+                // +++ DEBUG +++
+                if(i <= 15.){
+                    result.albedo.r = i / 15.;
+                }else{
+                    result.albedo.r = 0.;
+                    result.albedo.g = 0.;
+                    result.albedo.b = 0.;
+                }
+                // --- DEBUG ---
+
+
                 result.content = voxels[hit_in_voxels].content;
                 result.collision_point = point_in_ray_at_distance(ray, ray_current_distance);
                 result.impact_normal = cube_impact_normal(current_bounds, result.collision_point);
@@ -595,16 +613,16 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 }
 
 struct Voxelement {
-    albedo : vec4<f32>,
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
     content: u32,
 }
 
 fn is_empty(e: Voxelement) -> bool {
     return (
-        0. == e.albedo.r
-        && 0. == e.albedo.g
-        && 0. == e.albedo.b
-        && 0. == e.albedo.a
+        0. == e.r && 0. == e.g && 0. == e.b && 0. == e.a
         && 0 == e.content
     );
 }
@@ -617,76 +635,91 @@ struct SizedNode {
 
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
+    ambient_light_color: vec3f,
+    ambient_light_position: vec3f,
     octree_size: u32,
     voxel_brick_dim: u32,
-    ambient_light_color: vec4f,
-    ambient_light_position: vec3f,
 }
 
 struct Viewport {
     origin: vec3f,
     direction: vec3f,
-    size: vec2f,
-    fov: f32,
+    w_h_fov: vec3f,
 }
 
-@group(0) @binding(1)
+@group(0) @binding(0)
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
-@group(0) @binding(2)
+@group(0) @binding(1)
 var<uniform> viewport: Viewport;
 
-@group(0) @binding(3)
+@group(1) @binding(0)
 var<uniform> octreeMetaData: OctreeMetaData;
 
-@group(0) @binding(4)
-var<storage, read_write> nodes: array<SizedNode>;
+@group(1) @binding(1)
+var<storage, read> nodes: array<SizedNode>;
 
-@group(0) @binding(5)
-var<storage, read_write> children_buffer: array<u32>;
+@group(1) @binding(2)
+var<storage, read> children_buffer: array<u32>;
 
-@group(0) @binding(6)
-var<storage, read_write> voxels: array<Voxelement>;
+@group(1) @binding(3)
+var<storage, read> voxels: array<Voxelement>;
 
 @compute @workgroup_size(8, 8, 1)
 fn update(
     @builtin(global_invocation_id) invocation_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
-    let pixel_location = vec2u(invocation_id.xy);
+    let screen_size = num_workgroups * 8;
+    let pixel_location = vec2u(
+        invocation_id.x,
+        screen_size.y - invocation_id.y,
+    );
     let pixel_location_normalized = vec2f(
-        f32(invocation_id.x) / f32(num_workgroups.x * 8),
-        f32(invocation_id.y) / f32(num_workgroups.y * 8)
+        f32(invocation_id.x) / f32(screen_size.x),
+        f32(invocation_id.y) / f32(screen_size.y)
     );
     let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
         viewport_up_direction, viewport.direction
     ));
     let viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.fov)
-        - (viewport_right_direction * (viewport.size.x / 2.))
-        - (viewport_up_direction * (viewport.size.y / 2.))
+        + (viewport.direction * viewport.w_h_fov.z)
+        - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
+        - (viewport_up_direction * (viewport.w_h_fov.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.size.x * f32(pixel_location_normalized.x)
-        + viewport_up_direction * viewport.size.y * (1. - f32(pixel_location_normalized.y))
+        + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
+        + viewport_up_direction * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
-    var ray_result = get_by_ray(ray);
     var rgb_result = vec3f(0.5,0.5,0.5);
+    var ray_result = get_by_ray(ray);
     if ray_result.hit == true {
         let diffuse_light_strength = (
             dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
         );
-        let result_with_lights = ray_result.albedo.rgb * diffuse_light_strength;
+        let result_with_lights = vec3f(
+            ray_result.albedo.r, ray_result.albedo.g, ray_result.albedo.b
+        ) * diffuse_light_strength;
         rgb_result = result_with_lights.rgb;
     }
 
+    // +++ DEBUG +++
+    // root bounds hit ray 
+/*    var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
+    if cube_intersect_ray(root_bounds, ray).hit == true {
+        rgb_result.b = 1.;
+    }
+
+    rgb_result.r = pixel_location_normalized.x;
+    rgb_result.g = pixel_location_normalized.y; */
+
+    // --- DEBUG ---
+
     textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
 }
-
-
 
 // Note: should be const
 var<private> OCTANT_STEP_RESULT_LUT: array<array<array<u32, 3>, 3>, 3> = array<array<array<u32, 3>, 3>, 3>(

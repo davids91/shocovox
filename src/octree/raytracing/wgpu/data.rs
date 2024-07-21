@@ -1,4 +1,4 @@
-use encase::{ShaderSize, StorageBuffer};
+use encase::StorageBuffer;
 
 use crate::octree::{
     empty_marker, raytracing::wgpu::types::Voxelement, types::NodeChildrenArray, NodeContent,

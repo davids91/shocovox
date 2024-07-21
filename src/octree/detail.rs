@@ -94,7 +94,7 @@ where
         }
     }
 
-    #[cfg(any(feature = "bevy_wgpu", feature = "wgpu"))]
+    #[cfg(any(feature = "wgpu", feature = "bevy_wgpu"))]
     pub(in crate::octree) fn get_full(&self) -> [T; 8] {
         match &self.content {
             NodeChildrenArray::Children(c) => c.clone(),
@@ -149,7 +149,7 @@ where
 ///####################################################################################
 impl<T, const DIM: usize> NodeContent<T, DIM>
 where
-    T: VoxelData + PartialEq + Clone + Default,
+    T: VoxelData + PartialEq + Clone + Copy + Default,
 {
     pub fn is_leaf(&self) -> bool {
         matches!(self, NodeContent::Leaf(_))
@@ -221,9 +221,7 @@ where
     }
 
     pub fn leaf_from(data: T) -> Self {
-        NodeContent::Leaf(array_init::array_init(|_| {
-            array_init::array_init(|_| array_init::array_init(|_| data.clone()))
-        }))
+        NodeContent::Leaf([[[data; DIM]; DIM]; DIM])
     }
 }
 

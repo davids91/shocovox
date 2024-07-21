@@ -34,8 +34,9 @@ impl NodeStackItem {
     }
 }
 
-impl<T: Default + PartialEq + Clone + std::fmt::Debug + VoxelData, const DIM: usize>
-    Octree<T, DIM>
+impl<T, const DIM: usize> Octree<T, DIM>
+where
+    T: Default + PartialEq + Clone + Copy + VoxelData,
 {
     pub(in crate::octree) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(

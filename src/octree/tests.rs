@@ -1,7 +1,11 @@
 #[cfg(test)]
+#[cfg(feature = "bevy_wgpu")]
 mod types_byte_compatibility {
     use crate::octree::Albedo;
-    use encase::{ShaderType, StorageBuffer};
+    use bevy::render::render_resource::{
+        encase::{ShaderSize, StorageBuffer},
+        ShaderType,
+    };
 
     #[test]
     fn albedo_size_is_as_expected() {

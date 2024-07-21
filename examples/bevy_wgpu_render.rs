@@ -31,7 +31,9 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    let origin = Vec3::new(
+    use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
+
+    let origin = V3c::new(
         ARRAY_DIMENSION as f32 * 2.,
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 * -2.,
@@ -39,7 +41,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<Albedo, 16>::new(ARRAY_DIMENSION)
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, 32>::new(ARRAY_DIMENSION)
         .ok()
         .unwrap();
 
@@ -74,7 +76,10 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     };
                     tree.insert(
                         &V3c::new(x, y, z),
-                        Albedo::from(r | (g << 8) | (b << 16) | 0xFF000000),
+                        Albedo::default()
+                            .with_red(r as u8)
+                            .with_green(g as u8)
+                            .with_blue(b as u8),
                     )
                     .ok()
                     .unwrap();
@@ -82,16 +87,17 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             }
         }
     }
-    let viewing_glass = tree.create_bevy_view(
+    let render_data = tree.create_bevy_view();
+    let viewing_glass = create_viewing_glass(
         &Viewport {
-            direction: (Vec3::new(0., 0., 0.) - origin).normalize(),
             origin,
-            size: Vec2::new(10., 10.),
-            fov: 3.,
+            direction: (V3c::new(0., 0., 0.) - origin).normalized(),
+            w_h_fov: V3c::new(10., 10., 3.),
         },
         DISPLAY_RESOLUTION,
         images,
     );
+
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),
@@ -101,6 +107,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         ..default()
     });
     commands.spawn(Camera2dBundle::default());
+    commands.insert_resource(render_data);
     commands.insert_resource(viewing_glass);
 }
 
@@ -116,7 +123,7 @@ fn rotate_camera(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 10.;
+        let addition = ARRAY_DIMENSION as f32 / 10000.;
         let angle = angles_query.single().yaw + addition;
         if angle < 360. {
             angle
@@ -127,26 +134,30 @@ fn rotate_camera(
     angles_query.single_mut().yaw = angle;
 
     let radius = ARRAY_DIMENSION as f32 * 1.3;
-    viewing_glass.viewport.origin = Vec3::new(
+    viewing_glass.viewport.origin = V3c::new(
         ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
-        ARRAY_DIMENSION as f32 / 2.,
+        ARRAY_DIMENSION as f32 + angle.cos() * angle.sin() * radius / 2.,
         ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
     );
-    viewing_glass.viewport.direction = (Vec3::new(
+    viewing_glass.viewport.direction = (V3c::new(
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 / 2.,
         ARRAY_DIMENSION as f32 / 2.,
     ) - viewing_glass.viewport.origin)
-        .normalize();
+        .normalized();
 }
 
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
     if keys.pressed(KeyCode::ArrowUp) {
-        viewing_glass.viewport.size *= 1.1;
+        //viewing_glass.viewport.w_h_fov *= 1.1;
+        viewing_glass.viewport.w_h_fov.x *= 1.1;
+        viewing_glass.viewport.w_h_fov.y *= 1.1;
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        viewing_glass.viewport.size *= 0.9;
+        //viewing_glass.viewport.w_h_fov *= 0.9;
+        viewing_glass.viewport.w_h_fov.x *= 0.9;
+        viewing_glass.viewport.w_h_fov.y *= 0.9;
     }
 }
 

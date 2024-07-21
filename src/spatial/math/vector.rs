@@ -264,20 +264,25 @@ impl From<V3c<i32>> for V3c<u32> {
     }
 }
 
+#[cfg(feature = "bevy_wgpu")]
+use bevy::render::render_resource::encase::{
+    impl_vector, vector::AsMutVectorParts, vector::AsRefVectorParts,
+};
+
 #[cfg(feature = "wgpu")]
 use encase::{impl_vector, vector::AsMutVectorParts, vector::AsRefVectorParts};
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(feature = "wgpu", feature = "bevy_wgpu"))]
 impl_vector!(3, V3cf32, f32; using From);
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(feature = "wgpu", feature = "bevy_wgpu"))]
 impl AsRefVectorParts<f32, 3> for V3cf32 {
     fn as_ref_parts(&self) -> &[f32; 3] {
         unsafe { &*(self as *const V3cf32 as *const [f32; 3]) }
     }
 }
 
-#[cfg(feature = "wgpu")]
+#[cfg(any(feature = "wgpu", feature = "bevy_wgpu"))]
 impl AsMutVectorParts<f32, 3> for V3cf32 {
     fn as_mut_parts(&mut self) -> &mut [f32; 3] {
         unsafe { &mut *(self as *mut V3cf32 as *mut [f32; 3]) }

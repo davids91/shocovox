@@ -1,17 +1,10 @@
 use crate::object_pool::empty_marker;
-
 use crate::octree::{
-    raytracing::{
-        bevy::create_ouput_texture,
-        bevy::types::{OctreeMetaData, ShocoVoxViewingGlass, SizedNode, Viewport, Voxelement},
-    },
+    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, SizedNode, Voxelement},
     types::{NodeChildrenArray, NodeContent},
-    Octree, VoxelData,
+    Octree, V3c, VoxelData,
 };
-
-use bevy::{
-    asset::Assets, ecs::system::ResMut, math::Vec3, render::color::Color, render::texture::Image,
-};
+use bevy::math::Vec4;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -49,17 +42,12 @@ where
         meta
     }
 
-    pub fn create_bevy_view(
-        &self,
-        viewport: &Viewport,
-        resolution: [u32; 2],
-        images: ResMut<Assets<Image>>,
-    ) -> ShocoVoxViewingGlass {
+    pub fn create_bevy_view(&self) -> ShocoVoxRenderData {
         let meta = OctreeMetaData {
             octree_size: self.octree_size,
             voxel_brick_dim: DIM as u32,
-            ambient_light_color: Color::rgba(1., 1., 1., 1.),
-            ambient_light_position: Vec3::new(
+            ambient_light_color: V3c::new(1., 1., 1.),
+            ambient_light_position: V3c::new(
                 self.octree_size as f32,
                 self.octree_size as f32,
                 self.octree_size as f32,
@@ -95,15 +83,14 @@ where
                     for y in 0..DIM {
                         for x in 0..DIM {
                             let albedo = data[x][y][z].albedo();
-                            let content = data[x][y][z].user_data();
                             voxels.push(Voxelement {
-                                albedo: Color::rgba(
+                                albedo: Vec4::new(
                                     albedo.r as f32 / 255.,
                                     albedo.g as f32 / 255.,
                                     albedo.b as f32 / 255.,
                                     albedo.a as f32 / 255.,
                                 ),
-                                content,
+                                content: data[x][y][z].user_data(),
                             })
                         }
                     }
@@ -115,9 +102,7 @@ where
             nodes.push(sized_node);
         }
 
-        ShocoVoxViewingGlass {
-            output_texture: create_ouput_texture(resolution, images),
-            viewport: *viewport,
+        ShocoVoxRenderData {
             meta,
             nodes,
             children_buffer,
