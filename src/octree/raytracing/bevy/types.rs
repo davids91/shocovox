@@ -16,7 +16,7 @@ use bevy::{
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct Voxelement {
-    pub(crate) albedo: Vec4,
+    pub(crate) albedo_index: u32, // in color palette
     pub(crate) content: u32,
 }
 
@@ -97,6 +97,9 @@ pub struct ShocoVoxRenderData {
 
     #[storage(3, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
+
+    #[storage(4, visibility(compute))]
+    pub(crate) color_palette: Vec<Vec4>,
 }
 
 #[derive(Resource)]
@@ -120,7 +123,7 @@ pub(crate) struct ShocoVoxRenderNode {
 #[cfg(test)]
 mod types_wgpu_byte_compatibility_tests {
     use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
-    use bevy::render::render_resource::{encase::ShaderType, ShaderSize};
+    use bevy::render::render_resource::encase::ShaderType;
 
     #[test]
     fn test_wgpu_compatibility() {

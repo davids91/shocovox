@@ -20,7 +20,7 @@ use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + PartialEq + Clone + Copy + VoxelData,
+    T: Default + Eq + Clone + Copy + VoxelData,
 {
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {

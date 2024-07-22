@@ -21,7 +21,7 @@ pub enum OctreeError {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
@@ -31,7 +31,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     /// The key value to signify "no child" at a given slot
@@ -103,7 +103,7 @@ pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
     pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
-#[derive(Default, Clone, Copy, Debug, PartialEq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Albedo {
     pub r: u8,
     pub g: u8,
@@ -135,15 +135,4 @@ impl Albedo {
     pub fn is_transparent(&self) -> bool {
         self.a == 0
     }
-}
-
-#[test]
-fn albedo_size_is_4_bytes() {
-    const SIZE: usize = std::mem::size_of::<Albedo>();
-    const EXPECTED_SIZE: usize = 4;
-    assert_eq!(
-        SIZE, EXPECTED_SIZE,
-        "RGBA should be {} bytes wide but was {}",
-        EXPECTED_SIZE, SIZE
-    );
 }

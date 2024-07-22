@@ -494,7 +494,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                 current_bounds.min_position = current_bounds.min_position
                     + vec3f(leaf_brick_hit.index) * current_bounds.size;
                 result.hit = true;
-                result.albedo = voxels[hit_in_voxels].albedo;
+                result.albedo = color_palette[voxels[hit_in_voxels].albedo_index];
                 result.content = voxels[hit_in_voxels].content;
                 result.collision_point = point_in_ray_at_distance(ray, ray_current_distance);
                 result.impact_normal = cube_impact_normal(current_bounds, result.collision_point);
@@ -597,16 +597,17 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 }
 
 struct Voxelement {
-    albedo : vec4f,
+    albedo_index: u32,
     content: u32,
 }
 
 fn is_empty(e: Voxelement) -> bool {
+    let albedo = color_palette[e.albedo_index];
     return (
-        0. == e.albedo.r
-        && 0. == e.albedo.g
-        && 0. == e.albedo.b
-        && 0. == e.albedo.a
+        0. == albedo.r
+        && 0. == albedo.g
+        && 0. == albedo.b
+        && 0. == albedo.a
         && 0 == e.content
     );
 }
@@ -648,6 +649,9 @@ var<storage, read_write> children_buffer: array<u32>;
 
 @group(1) @binding(3)
 var<storage, read_write> voxels: array<Voxelement>;
+
+@group(1) @binding(4)
+var<storage, read_write> color_palette: array<vec4f>;
 
 @compute @workgroup_size(8, 8, 1)
 fn update(

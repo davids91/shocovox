@@ -5,6 +5,7 @@ use crate::octree::{
     Octree, V3c, VoxelData,
 };
 use bevy::math::Vec4;
+use std::collections::HashMap;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -56,6 +57,8 @@ where
         let mut nodes = Vec::new();
         let mut children_buffer = Vec::new();
         let mut voxels = Vec::new();
+        let mut color_palette = Vec::new();
+        let mut map_to_color_index_in_palette = HashMap::new();
         for i in 0..self.nodes.len() {
             if !self.nodes.key_is_valid(i) {
                 continue;
@@ -83,13 +86,19 @@ where
                     for y in 0..DIM {
                         for x in 0..DIM {
                             let albedo = data[x][y][z].albedo();
-                            voxels.push(Voxelement {
-                                albedo: Vec4::new(
+                            if !map_to_color_index_in_palette.contains_key(&albedo) {
+                                map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                                color_palette.push(Vec4::new(
                                     albedo.r as f32 / 255.,
                                     albedo.g as f32 / 255.,
                                     albedo.b as f32 / 255.,
                                     albedo.a as f32 / 255.,
-                                ),
+                                ));
+                            }
+                            let albedo_index = map_to_color_index_in_palette[&albedo];
+
+                            voxels.push(Voxelement {
+                                albedo_index: albedo_index as u32,
                                 content: data[x][y][z].user_data(),
                             })
                         }
@@ -107,6 +116,7 @@ where
             nodes,
             children_buffer,
             voxels,
+            color_palette,
         }
     }
 }

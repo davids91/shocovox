@@ -28,7 +28,7 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) ->
 ///####################################################################################
 impl<T> NodeChildren<T>
 where
-    T: Default + Clone + PartialEq,
+    T: Default + Clone + Eq,
 {
     pub(in crate::octree) fn is_empty(&self) -> bool {
         match &self.content {
