@@ -94,7 +94,7 @@ where
         }
     }
 
-    #[cfg(feature = "bevy_wgpu")]
+    #[cfg(any(feature = "wgpu", feature = "bevy_wgpu"))]
     pub(in crate::octree) fn get_full(&self) -> [T; 8] {
         match &self.content {
             NodeChildrenArray::Children(c) => c.clone(),

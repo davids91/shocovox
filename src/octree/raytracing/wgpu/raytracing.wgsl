@@ -1,9 +1,3 @@
-// The time since startup data is in the globals binding which is part of the mesh_view_bindings import
-#import bevy_pbr::{
-    mesh_view_bindings::globals,
-    forward_io::VertexOutput
-}
-
 struct Line {
     origin: vec3f,
     direction: vec3f,
@@ -336,6 +330,7 @@ fn traverse_brick(
 ) -> BrickHit{
     var result: BrickHit;
     result.hit = false;
+
     let pos = (
         point_in_ray_at_distance(ray, *ray_current_distance)
         - bounds.min_position
@@ -613,6 +608,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
 }
 
 struct Voxelement {
+    // albedo : vec4f,
     r: f32,
     g: f32,
     b: f32,
@@ -635,10 +631,10 @@ struct SizedNode {
 
 const OCTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
-    ambient_light_color: vec3f,
-    ambient_light_position: vec3f,
     octree_size: u32,
     voxel_brick_dim: u32,
+    ambient_light_color: vec4f,
+    ambient_light_position: vec3f,
 }
 
 struct Viewport {
@@ -651,6 +647,12 @@ struct Viewport {
 var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
 @group(0) @binding(1)
+var output_texture_render: texture_2d<f32>;
+
+@group(0) @binding(2)
+var output_texture_sampler: sampler;
+
+@group(0) @binding(3)
 var<uniform> viewport: Viewport;
 
 @group(1) @binding(0)

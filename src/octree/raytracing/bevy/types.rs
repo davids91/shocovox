@@ -120,7 +120,12 @@ pub(crate) struct ShocoVoxRenderNode {
 #[cfg(test)]
 mod types_wgpu_byte_compatibility_tests {
     use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
+
+    #[cfg(feature = "bevy_wgpu")]
     use bevy::render::render_resource::{encase::ShaderType, ShaderSize};
+
+    #[cfg(feature = "wgpu")]
+    use encase::{ShaderSize, ShaderType};
 
     #[test]
     fn test_wgpu_compatibility() {
