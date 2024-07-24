@@ -1,8 +1,9 @@
-pub mod bytecode;
-pub mod detail;
-pub mod tests;
 pub mod types;
 pub mod update;
+
+mod convert;
+mod detail;
+mod tests;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing;

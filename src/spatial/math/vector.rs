@@ -248,6 +248,14 @@ impl From<V3c<f32>> for V3c<i32> {
     }
 }
 
+impl From<Vec<i32>> for V3c<i32> {
+    fn from(vec: Vec<i32>) -> V3c<i32> {
+        {
+            V3c::new(vec[0], vec[1], vec[2])
+        }
+    }
+}
+
 impl From<V3c<u32>> for V3c<i32> {
     fn from(vec: V3c<u32>) -> V3c<i32> {
         {
