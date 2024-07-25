@@ -221,7 +221,7 @@ where
     }
 
     pub fn leaf_from(data: T) -> Self {
-        NodeContent::Leaf([[[data; DIM]; DIM]; DIM])
+        NodeContent::Leaf(Box::new([[[data; DIM]; DIM]; DIM]))
     }
 }
 
@@ -273,7 +273,7 @@ impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
 
     pub(in crate::octree) fn make_uniform_children(
         &mut self,
-        content: [[[T; DIM]; DIM]; DIM],
+        content: Box<[[[T; DIM]; DIM]; DIM]>,
     ) -> [u32; 8] {
         // Create new children leaf nodes based on the provided content
         let occupancy_bitmap = Self::bruteforce_occupancy_bitmask(&content);

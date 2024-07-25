@@ -132,10 +132,10 @@ where
                     };
                     Ok(NodeContent::Internal(count as u8))
                 } else {
-                    Ok(NodeContent::<T, DIM>::Leaf(
+                    Ok(NodeContent::<T, DIM>::Leaf(Box::new(
                         [[[NodeContent::<T, DIM>::decode_single(&mut list).unwrap(); DIM]; DIM];
                             DIM],
-                    ))
+                    )))
                 }
             }
             Object::Bytes(b) => {

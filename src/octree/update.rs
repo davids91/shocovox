@@ -74,7 +74,7 @@ where
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity
                         let new_children =
-                            self.make_uniform_children(current_node.leaf_data().clone());
+                            self.make_uniform_children(Box::new(current_node.leaf_data().clone()));
 
                         // Set node type as internal; Since this node in this function will only have
                         // at most 1 child node( the currently inserted node ), so the occupancy bitmap
@@ -264,7 +264,7 @@ where
                         // The contained data does not match the given data to set the position to, so all of the Nodes' children need to be created
                         // as separate Nodes with the same data as their parent to keep integrity, the cleared node will update occupancy bitmap correctly
                         let current_data = current_node.leaf_data().clone();
-                        let new_children = self.make_uniform_children(current_data);
+                        let new_children = self.make_uniform_children(Box::new(current_data));
                         *self.nodes.get_mut(current_node_key) = NodeContent::Internal(0xFF);
                         self.node_children[current_node_key].set(new_children);
                         node_stack.push((
@@ -400,7 +400,7 @@ where
                 if self.nodes.key_is_valid(child_key as usize) {
                     if let Some(leaf_data) = self.nodes.get(child_key as usize).as_leaf_ref() {
                         if !data.is_leaf() {
-                            data = NodeContent::Leaf(leaf_data.clone());
+                            data = NodeContent::Leaf(Box::new(leaf_data.clone()));
                         } else if data.leaf_data() != leaf_data {
                             return false;
                         }

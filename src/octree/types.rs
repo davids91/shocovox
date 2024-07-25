@@ -9,7 +9,7 @@ pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
     #[default]
     Nothing,
     Internal(u8), // cache data to store the enclosed nodes
-    Leaf([[[T; DIM]; DIM]; DIM]),
+    Leaf(Box<[[[T; DIM]; DIM]; DIM]>),
 }
 
 /// error types during usage or creation of the octree
