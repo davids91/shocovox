@@ -1,4 +1,7 @@
 #[cfg(feature = "bevy_wgpu")]
+use shocovox_rs::octree::Octree;
+
+#[cfg(feature = "bevy_wgpu")]
 use bevy::{prelude::*, window::WindowPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
@@ -41,12 +44,18 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_magica_voxel_file(
-        "assets/models/minecraft.vox",
-    ) {
-        Ok(tree_) => tree_,
-        Err(message) => panic!("Parsing model file failed with message: {message}"),
-    };
+    let tree;
+    if std::path::Path::new("example_junk_minecraft_tree").exists() {
+        tree = Octree::<Albedo, 16>::load("test_junk_octree").ok().unwrap();
+    } else {
+        tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_magica_voxel_file(
+            "assets/models/minecraft.vox",
+        ) {
+            Ok(tree_) => tree_,
+            Err(message) => panic!("Parsing model file failed with message: {message}"),
+        };
+        tree.save("example_junk_minecraft_tree");
+    }
 
     let render_data = tree.create_bevy_view();
     let viewing_glass = create_viewing_glass(
@@ -94,10 +103,11 @@ fn rotate_camera(
     // angles_query.single_mut().yaw = angle;
 
     let radius = TREE_SIZE as f32 * 2.5;
+    let angle = angles_query.single().yaw;
     viewing_glass.viewport.origin = V3c::new(
-        TREE_SIZE as f32 / 2. + angles_query.single().yaw.sin() * radius,
-        TREE_SIZE as f32,
-        TREE_SIZE as f32 / 2. + angles_query.single().yaw.cos() * radius,
+        TREE_SIZE as f32 / 2. + angle.sin() * radius,
+        TREE_SIZE as f32 + angle.cos() * angle.sin() * radius / 2.,
+        TREE_SIZE as f32 / 2. + angle.cos() * radius,
     );
     viewing_glass.viewport.direction = (V3c::new(
         TREE_SIZE as f32 / 2.,
