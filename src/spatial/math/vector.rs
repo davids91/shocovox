@@ -236,6 +236,22 @@ impl From<V3c<f32>> for V3c<u32> {
     }
 }
 
+impl From<V3c<i32>> for V3c<u32> {
+    fn from(vec: V3c<i32>) -> V3c<u32> {
+        {
+            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
+        }
+    }
+}
+
+impl From<V3c<u8>> for V3c<u32> {
+    fn from(vec: V3c<u8>) -> V3c<u32> {
+        {
+            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
+        }
+    }
+}
+
 impl From<V3c<f32>> for V3c<i32> {
     fn from(vec: V3c<f32>) -> V3c<i32> {
         {
@@ -260,14 +276,6 @@ impl From<V3c<u32>> for V3c<i32> {
     fn from(vec: V3c<u32>) -> V3c<i32> {
         {
             V3c::new(vec.x as i32, vec.y as i32, vec.z as i32)
-        }
-    }
-}
-
-impl From<V3c<i32>> for V3c<u32> {
-    fn from(vec: V3c<i32>) -> V3c<u32> {
-        {
-            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
         }
     }
 }

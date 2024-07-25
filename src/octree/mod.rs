@@ -34,7 +34,7 @@ where
     }
 
     /// saves the data structure to the given file path
-    pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
+    pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
         use std::fs::File;
         use std::io::Write;
         let mut file = File::create(path)?;

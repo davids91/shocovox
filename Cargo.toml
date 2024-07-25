@@ -6,7 +6,7 @@ authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = []
+default = ["bevy_wgpu", "magica_voxel"]
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
 magica_voxel = ["dep:dot_vox"]
