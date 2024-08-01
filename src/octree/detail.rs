@@ -319,7 +319,6 @@ where
         &mut self,
         content: Box<[[[T; DIM]; DIM]; DIM]>,
     ) -> [u32; 8] {
-        println!("Making uniform children!");
         // Create new children leaf nodes based on the provided content
         let occupancy_bitmap = Self::bruteforce_occupancy_bitmask(&content);
         let children = [
