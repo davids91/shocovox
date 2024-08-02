@@ -62,7 +62,7 @@ pub struct OctreeMetaData {
     pub(crate) voxel_brick_dim: u32,
 }
 
-#[derive(Clone, Copy, ShaderType)]
+#[derive(Debug, Clone, Copy, ShaderType)]
 pub struct Viewport {
     pub origin: V3cf32,
     pub direction: V3cf32,

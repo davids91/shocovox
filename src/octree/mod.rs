@@ -153,4 +153,9 @@ where
             }
         }
     }
+
+    /// Tells the radius of the area covered by the octree
+    pub fn get_size(&self) -> u32 {
+        self.octree_size
+    }
 }

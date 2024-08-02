@@ -236,8 +236,8 @@ fn dda_step_to_next_sibling(
     var signum_vec = sign(ray.direction);
     let p = point_in_ray_at_distance(ray, *ray_current_distance);
     let steps_needed = (
-        p - current_bounds.min_position
-        - (current_bounds.size * max(sign(ray.direction), vec3f(0.,0.,0.)))
+        current_bounds.size * max(signum_vec, vec3f(0.,0.,0.))
+        - signum_vec * (p - current_bounds.min_position)
     );
 
     let d = (
@@ -248,13 +248,13 @@ fn dda_step_to_next_sibling(
 
     var result = vec3f(0., 0., 0.);
     if abs(*ray_current_distance - d.x) < FLOAT_ERROR_TOLERANCE {
-        result.x = f32(abs(current_bounds.size)) * signum_vec.x;
+        result.x = signum_vec.x;
     }
     if abs(*ray_current_distance - d.y) < FLOAT_ERROR_TOLERANCE {
-        result.y = f32(abs(current_bounds.size)) * signum_vec.y;
+        result.y = signum_vec.y;
     }
     if abs(*ray_current_distance - d.z) < FLOAT_ERROR_TOLERANCE {
-        result.z = f32(abs(current_bounds.size)) * signum_vec.z;
+        result.z = signum_vec.z;
     }
     return result;
 }
@@ -328,26 +328,26 @@ fn traverse_brick(
     brick_index_start: u32,
     occupancy_bitmap_lsb: u32,
     occupancy_bitmap_msb: u32,
-    bounds: Cube,
+    brick_bounds: Cube,
     ray_scale_factors: vec3f,
     direction_lut_index: u32,
-    unit_in_bitmap_space: f32, 
+    unit_in_bitmap_space: f32,
     dimension: u32
 ) -> BrickHit{
     var result: BrickHit;
     result.hit = false;
     let pos = (
         point_in_ray_at_distance(ray, *ray_current_distance)
-        - bounds.min_position
+        - brick_bounds.min_position
     );
     var current_index = vec3i(
         clamp(i32(pos.x), 0, i32(dimension - 1)),
         clamp(i32(pos.y), 0, i32(dimension - 1)),
         clamp(i32(pos.z), 0, i32(dimension - 1))
     );
-    let brick_unit = bounds.size / f32(dimension);
+    let brick_unit = brick_bounds.size / f32(dimension);
     var current_bounds = Cube(
-        bounds.min_position + vec3f(current_index) * brick_unit,
+        brick_bounds.min_position + vec3f(current_index) * brick_unit,
         brick_unit
     );
 
@@ -410,8 +410,8 @@ fn traverse_brick(
             current_bounds,
             ray_scale_factors
         );
-        current_bounds.min_position = current_bounds.min_position + vec3f(step);
-        current_index = current_index + vec3i(step);
+        current_bounds.min_position = current_bounds.min_position + vec3f(step) * brick_unit;
+        current_index = current_index + vec3i(round(step));
     }
     return result;
 }
@@ -488,7 +488,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
             if leaf_brick_hit.hit == true {
                 let hit_in_voxels = (
                     current_node.voxels_start_at
-                    + u32(flat_projection( leaf_brick_hit.index, vec2u(dimension, dimension )))
+                    + u32(flat_projection( leaf_brick_hit.index, vec2u(dimension, dimension) ))
                 );
                 current_bounds.size /= f32(dimension);
                 current_bounds.min_position = current_bounds.min_position
@@ -575,7 +575,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                         target_child_key < node_count //crate::object_pool::key_is_valid
                         && 0 != (
                             get_node_occupancy_bitmap( current_node.sized_node_meta )
-                            & (0x00000001u << (target_octant & 0x000000FF)) // crate::spatial::math::octant_bitmask
+                            & (0x00000001u << target_octant) // crate::spatial::math::octant_bitmask
                         )
                         && 0 != (
                             get_node_occupancy_bitmap(nodes[target_child_key].sized_node_meta)
@@ -678,8 +678,8 @@ fn update(
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
 
-    var ray_result = get_by_ray(ray);
     var rgb_result = vec3f(0.5,0.5,0.5);
+    var ray_result = get_by_ray(ray);
     if ray_result.hit == true {
         let diffuse_light_strength = (
             dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
