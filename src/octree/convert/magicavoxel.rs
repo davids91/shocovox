@@ -2,7 +2,7 @@ use crate::{
     octree::{Albedo, Octree, V3c, VoxelData},
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
-use dot_vox::{Color, DotVoxData, Model, SceneNode};
+use dot_vox::{Color, DotVoxData, Model, SceneNode, Voxel};
 
 impl From<Albedo> for Color {
     fn from(color: Albedo) -> Self {
@@ -22,6 +22,16 @@ impl From<Color> for Albedo {
             g: color.g,
             b: color.b,
             a: color.a,
+        }
+    }
+}
+
+impl From<Voxel> for V3c<i32> {
+    fn from(other: Voxel) -> Self {
+        Self {
+            x: other.x as i32,
+            y: other.y as i32,
+            z: other.z as i32,
         }
     }
 }
@@ -54,14 +64,6 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>) -> ()>(vox_tree: &DotVoxData, mu
             child,
             layer_id: _,
         } => {
-            // let transform_position: Vec<i32> = frames[0]
-            //     .attributes
-            //     .get("_t")
-            //     .unwrap(
-            //     .split(" ")
-            //     .map(|x| x.parse().expect("Not an integer!"))
-            //     .collect();
-            // node_stack.push((*child, transform_position.into(), 0));
             node_stack.push((*child, V3c::unit(0), 0));
         }
         _ => {
@@ -125,12 +127,13 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>) -> ()>(vox_tree: &DotVoxData, mu
                 attributes: _,
                 models,
             } => {
+                //TODO: convert to correct coordinate system, offset by half of the size
                 // println!("Processing shape");
-                // let transform = convert_coordinate(
-                //     transform,
-                //     CoordinateSystemType::LeftHandedZup,
-                //     CoordinateSystemType::LeftHandedYup,
-                // );
+                let transform = convert_coordinate(
+                    transform,
+                    CoordinateSystemType::LZUP,
+                    CoordinateSystemType::LYUP,
+                );
                 for model in models {
                     fun(&vox_tree.models[model.model_id as usize], &transform);
                 }
@@ -163,7 +166,6 @@ where
         // }
         // panic!("AH");
 
-        std::env::set_var("RUST_BACKTRACE", "1");
         let mut min_position = V3c::new(0, 0, 0);
         let mut max_position = V3c::new(0, 0, 0);
         iterate_vox_tree(&vox_tree, |model, position| {
@@ -189,24 +191,24 @@ where
         println!("octree size: {max_dimension}");
         let mut shocovox_octree = Octree::<T, DIM>::new(max_dimension).ok().unwrap();
         iterate_vox_tree(&vox_tree, |model, position| {
-            let current_position = *position - V3c::<i32>::from(min_position);
-            for v in &model.voxels {
+            let current_position = *position - min_position;
+            for voxel in &model.voxels {
                 let voxel_position = convert_coordinate(
-                    V3c::new(v.x as i32, v.y as i32, v.z as i32),
-                    CoordinateSystemType::LZUP,
+                    V3c::from(*voxel),
+                    CoordinateSystemType::RZUP,
                     CoordinateSystemType::LYUP,
                 );
-
+                // println!("voxel position: {:?} ==> {:?}", v_pos, voxel_position);
                 // println!("{:?} + {:?} = ? ", current_position, voxel_position);
                 shocovox_octree
                     .insert(
                         &V3c::<u32>::from(current_position + voxel_position.into()),
-                        T::new(vox_tree.palette[v.i as usize].into(), 0),
+                        T::new(vox_tree.palette[voxel.i as usize].into(), 0),
                     )
                     .ok();
             }
         });
-        println!("Tree built form model!");
+        println!("Tree built from model!");
         Ok(shocovox_octree)
     }
 }

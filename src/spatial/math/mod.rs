@@ -102,6 +102,7 @@ pub(crate) fn octant_bitmask(octant: u8) -> u8 {
     0x01 << octant
 }
 
+#[cfg(feature = "dot_vox_support")]
 pub(crate) enum CoordinateSystemType {
     LZUP, // Left handed Z Up
     LYUP, // Left handed Y Up
@@ -109,6 +110,7 @@ pub(crate) enum CoordinateSystemType {
     RYUP, // Right handed Y Up
 }
 
+#[cfg(feature = "dot_vox_support")]
 pub(crate) fn convert_coordinate<T: Copy + Neg<Output = T>>(
     c: V3c<T>,
     src_type: CoordinateSystemType,

@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 default = ["bevy_wgpu", "magica_voxel"]
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
-magica_voxel = ["dep:dot_vox"]
+dot_vox_support = ["dep:dot_vox"]
 bevy_wgpu = ["raytracing", "dep:bevy"]
 
 [dependencies]

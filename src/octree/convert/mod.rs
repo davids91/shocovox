@@ -1,4 +1,4 @@
 mod bytecode;
 
-#[cfg(feature = "magica_voxel")]
+#[cfg(feature = "dot_vox_support")]
 mod magicavoxel;
