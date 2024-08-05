@@ -71,10 +71,10 @@ where
             }),
             NodeContent::Leaf(data) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                for x in data.iter().take(DIM) {
-                    for y in x.iter().take(DIM) {
-                        for z in y.iter().take(DIM) {
-                            NodeContent::<T, DIM>::encode_single(z, e)?;
+                for z in 0..DIM {
+                    for y in 0..DIM {
+                        for x in 0..DIM {
+                            NodeContent::<T, DIM>::encode_single(&data[x][y][z], e)?;
                         }
                     }
                 }
@@ -132,10 +132,16 @@ where
                     };
                     Ok(NodeContent::Internal(count as u8))
                 } else {
-                    Ok(NodeContent::<T, DIM>::Leaf(Box::new(
-                        [[[NodeContent::<T, DIM>::decode_single(&mut list).unwrap(); DIM]; DIM];
-                            DIM],
-                    )))
+                    let mut leaf_data = Box::new([[[T::default(); DIM]; DIM]; DIM]);
+                    for z in 0..DIM {
+                        for y in 0..DIM {
+                            for x in 0..DIM {
+                                leaf_data[x][y][z] =
+                                    NodeContent::<T, DIM>::decode_single(&mut list).unwrap();
+                            }
+                        }
+                    }
+                    Ok(NodeContent::<T, DIM>::Leaf(leaf_data))
                 }
             }
             Object::Bytes(b) => {

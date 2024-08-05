@@ -114,14 +114,12 @@ mod octree_serialization_tests {
 
     #[test]
     fn test_big_octree_serialize() {
-        let red: Albedo = 0xFF0000FF.into();
-
-        let mut tree = Octree::<Albedo>::new(512).ok().unwrap();
-        for x in 256..300 {
-            for y in 256..300 {
-                for z in 256..300 {
+        let mut tree = Octree::<Albedo>::new(128).ok().unwrap();
+        for x in 100..128 {
+            for y in 100..128 {
+                for z in 100..128 {
                     let pos = V3c::new(x, y, z);
-                    tree.insert(&pos, red).ok().unwrap();
+                    tree.insert(&pos, (x + y + z).into()).ok().unwrap();
                 }
             }
         }
@@ -129,11 +127,70 @@ mod octree_serialization_tests {
         let serialized = tree.to_bytes();
         let deserialized = Octree::<Albedo>::from_bytes(serialized);
 
-        for x in 256..300 {
-            for y in 256..300 {
-                for z in 256..300 {
+        for x in 100..128 {
+            for y in 100..128 {
+                for z in 100..128 {
                     let pos = V3c::new(x, y, z);
-                    assert!(deserialized.get(&pos).is_some_and(|v| *v == (red)));
+                    assert!(deserialized
+                        .get(&pos)
+                        .is_some_and(|v| *v == ((x + y + z).into())));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_octree_serialize_where_dim_is_2() {
+        let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    let pos = V3c::new(x, y, z);
+                    let albedo: Albedo = ((x << 24) + (y << 16) + (z << 8) + 0xFF).into();
+                    tree.insert(&pos, albedo).ok().unwrap();
+                }
+            }
+        }
+
+        let serialized = tree.to_bytes();
+        let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
+
+        for x in 0..4 {
+            for y in 0..4 {
+                for z in 0..4 {
+                    let pos = V3c::new(x, y, z);
+                    assert!(deserialized.get(&pos).is_some_and(|v| {
+                        *v == ((x << 24) + (y << 16) + (z << 8) + 0xFF).into()
+                    }));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_big_octree_serialize_where_dim_is_2() {
+        let mut tree = Octree::<Albedo, 2>::new(128).ok().unwrap();
+        for x in 100..128 {
+            for y in 100..128 {
+                for z in 100..128 {
+                    let pos = V3c::new(x, y, z);
+                    tree.insert(&pos, ((x << 24) + (y << 16) + (z << 8) + 0xFF).into())
+                        .ok()
+                        .unwrap();
+                }
+            }
+        }
+
+        let serialized = tree.to_bytes();
+        let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
+
+        for x in 100..128 {
+            for y in 100..128 {
+                for z in 100..128 {
+                    let pos = V3c::new(x, y, z);
+                    assert!(deserialized
+                        .get(&pos)
+                        .is_some_and(|v| *v == (((x << 24) + (y << 16) + (z << 8) + 0xFF).into())));
                 }
             }
         }
