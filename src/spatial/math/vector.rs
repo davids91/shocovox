@@ -41,6 +41,12 @@ impl V3c<f32> {
     }
 }
 
+impl V3c<i32> {
+    pub fn length(&self) -> f32 {
+        (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
+    }
+}
+
 impl V3c<u32> {
     pub fn length(&self) -> f32 {
         (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()

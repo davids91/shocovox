@@ -16,9 +16,6 @@ use shocovox_rs::octree::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const TREE_SIZE: u32 = 64;
-
-#[cfg(feature = "bevy_wgpu")]
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
@@ -36,17 +33,12 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    let origin = V3c::new(
-        TREE_SIZE as f32 * 2.,
-        TREE_SIZE as f32 / 2.,
-        TREE_SIZE as f32 * -2.,
-    );
-    commands.spawn(DomePosition { yaw: 0. });
-
     // fill octree with data
     let tree;
-    if std::path::Path::new("example_junk_minecraft_tree").exists() {
-        tree = Octree::<Albedo, 16>::load("test_junk_octree").ok().unwrap();
+    let tree_path = "example_junk_minecraft_tree"; // instead of test_junk_octree
+    if false {
+        //std::path::Path::new(tree_path).exists() {
+        tree = Octree::<Albedo, 16>::load(&tree_path).ok().unwrap();
     } else {
         tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_magica_voxel_file(
             "assets/models/minecraft.vox",
@@ -54,14 +46,33 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             Ok(tree_) => tree_,
             Err(message) => panic!("Parsing model file failed with message: {message}"),
         };
-        tree.save("example_junk_minecraft_tree");
+        tree.save(&tree_path).ok().unwrap();
     }
+
+    let origin = V3c::new(
+        tree.get_size() as f32 * 2.,
+        tree.get_size() as f32 / 2.,
+        tree.get_size() as f32 * -2.,
+    );
+    commands.spawn(DomePosition {
+        yaw: 0.,
+        roll: 0.,
+        radius: tree.get_size() as f32 * 2.2,
+    });
 
     let render_data = tree.create_bevy_view();
     let viewing_glass = create_viewing_glass(
         &Viewport {
-            origin,
-            direction: (V3c::new(0., 0., 0.) - origin).normalized(),
+            origin: V3c {
+                x: 6.15997,
+                y: 5.9686174,
+                z: 5.3837276,
+            },
+            direction: V3c {
+                x: -0.6286289,
+                y: -0.5966367,
+                z: -0.49884903,
+            },
             w_h_fov: V3c::new(10., 10., 3.),
         },
         DISPLAY_RESOLUTION,
@@ -83,7 +94,9 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 #[cfg(feature = "bevy_wgpu")]
 #[derive(Component)]
 struct DomePosition {
+    radius: f32,
     yaw: f32,
+    roll: f32,
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -91,30 +104,16 @@ fn rotate_camera(
     angles_query: Query<&mut DomePosition>,
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
-    // let angle = {
-    //     let addition = ARRAY_DIMENSION as f32 / 10.;
-    //     let angle = angles_query.single().yaw + addition;
-    //     if angle < 360. {
-    //         angle
-    //     } else {
-    //         0.
-    //     }
-    // };
-    // angles_query.single_mut().yaw = angle;
+    let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
 
-    let radius = TREE_SIZE as f32 * 2.5;
-    let angle = angles_query.single().yaw;
+    let radius = angles_query.single().radius;
     viewing_glass.viewport.origin = V3c::new(
-        TREE_SIZE as f32 / 2. + angle.sin() * radius,
-        TREE_SIZE as f32 + angle.cos() * angle.sin() * radius / 2.,
-        TREE_SIZE as f32 / 2. + angle.cos() * radius,
+        radius / 2. + yaw.sin() * radius,
+        radius / 2. + roll.sin() * radius,
+        radius / 2. + yaw.cos() * radius,
     );
-    viewing_glass.viewport.direction = (V3c::new(
-        TREE_SIZE as f32 / 2.,
-        TREE_SIZE as f32 / 2.,
-        TREE_SIZE as f32 / 2.,
-    ) - viewing_glass.viewport.origin)
-        .normalized();
+    viewing_glass.viewport.direction =
+        (V3c::unit(radius / 2.) - viewing_glass.viewport.origin).normalized();
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -123,36 +122,40 @@ fn handle_zoom(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
     mut angles_query: Query<&mut DomePosition>,
 ) {
+    const ADDITION: f32 = 0.05;
+    let angle_update_fn = |angle, delta| -> f32 {
+        let new_angle = angle + delta;
+        if new_angle < 360. {
+            new_angle
+        } else {
+            0.
+        }
+    };
     if keys.pressed(KeyCode::ArrowUp) {
-        viewing_glass.viewport.w_h_fov.x *= 1.1;
-        viewing_glass.viewport.w_h_fov.y *= 1.1;
+        // viewing_glass.viewport.w_h_fov.x *= 1.1;
+        // viewing_glass.viewport.w_h_fov.y *= 1.1;
+        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        viewing_glass.viewport.w_h_fov.x *= 0.9;
-        viewing_glass.viewport.w_h_fov.y *= 0.9;
+        // viewing_glass.viewport.w_h_fov.x *= 0.9;
+        // viewing_glass.viewport.w_h_fov.y *= 0.9;
+        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, -ADDITION);
     }
-    let addition = TREE_SIZE as f32 / 10.;
     if keys.pressed(KeyCode::ArrowLeft) {
-        let angle = {
-            let angle = angles_query.single().yaw - addition;
-            if angle < 360. {
-                angle
-            } else {
-                0.
-            }
-        };
-        angles_query.single_mut().yaw = angle;
+        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, ADDITION);
+        // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::ArrowRight) {
-        let angle = {
-            let angle = angles_query.single().yaw + addition;
-            if angle < 360. {
-                angle
-            } else {
-                0.
-            }
-        };
-        angles_query.single_mut().yaw = angle;
+        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, -ADDITION);
+        // println!("viewport: {:?}", viewing_glass.viewport);
+    }
+    if keys.pressed(KeyCode::PageUp) {
+        angles_query.single_mut().radius *= 0.9;
+        // println!("viewport: {:?}", viewing_glass.viewport);
+    }
+    if keys.pressed(KeyCode::PageDown) {
+        angles_query.single_mut().radius *= 1.1;
+        // println!("viewport: {:?}", viewing_glass.viewport);
     }
 }
 
