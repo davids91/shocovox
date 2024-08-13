@@ -685,6 +685,30 @@ fn update(
         rgb_result = result_with_lights.rgb;
     }
 
+    /*// +++ DEBUG +++
+    // Display the xyz axes
+    let root_hit = cube_intersect_ray(
+        Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size)), ray
+    );
+    if root_hit.hit == true {
+        if root_hit. impact_hit == true {
+            let axes_length = f32(octreeMetaData.octree_size) / 2.;
+            let axes_width = f32(octreeMetaData.octree_size) / 50.;
+            let entry_point = point_in_ray_at_distance(ray, root_hit.impact_distance);
+            if entry_point.x < axes_length && entry_point.y < axes_width && entry_point.z < axes_width {
+                rgb_result.r = 1.;
+            }
+            if entry_point.x < axes_width && entry_point.y < axes_length && entry_point.z < axes_width {
+                rgb_result.g = 1.;
+            }
+            if entry_point.x < axes_width && entry_point.y < axes_width && entry_point.z < axes_length {
+                rgb_result.b = 1.;
+            }
+        }
+
+    }
+    */// --- DEBUG ---
+
     textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
 }
 

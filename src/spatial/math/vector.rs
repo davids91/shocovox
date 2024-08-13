@@ -25,6 +25,18 @@ impl<T: Copy> V3c<T> {
     }
 }
 
+impl<T> V3c<T>
+where
+    T: num_traits::Signed + Clone,
+{
+    pub fn abs(&mut self) -> V3c<T> {
+        self.x = self.x.abs();
+        self.y = self.y.abs();
+        self.z = self.z.abs();
+        self.clone()
+    }
+}
+
 impl V3c<f32> {
     pub fn length(&self) -> f32 {
         ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()

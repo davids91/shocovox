@@ -35,12 +35,11 @@ fn main() {
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // fill octree with data
     let tree;
-    let tree_path = "example_junk_minecraft_tree"; // instead of test_junk_octree
-    if false {
-        //std::path::Path::new(tree_path).exists() {
+    let tree_path = "example_junk_minecraft";
+    if std::path::Path::new(tree_path).exists() {
         tree = Octree::<Albedo, 16>::load(&tree_path).ok().unwrap();
     } else {
-        tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_magica_voxel_file(
+        tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_vox_file(
             "assets/models/minecraft.vox",
         ) {
             Ok(tree_) => tree_,
@@ -64,14 +63,14 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let viewing_glass = create_viewing_glass(
         &Viewport {
             origin: V3c {
-                x: 6.15997,
-                y: 5.9686174,
-                z: 5.3837276,
+                x: 0.,
+                y: 0.,
+                z: 0.,
             },
             direction: V3c {
-                x: -0.6286289,
-                y: -0.5966367,
-                z: -0.49884903,
+                x: 0.,
+                y: 0.,
+                z: -1.,
             },
             w_h_fov: V3c::new(10., 10., 3.),
         },
@@ -109,7 +108,7 @@ fn rotate_camera(
     let radius = angles_query.single().radius;
     viewing_glass.viewport.origin = V3c::new(
         radius / 2. + yaw.sin() * radius,
-        radius / 2. + roll.sin() * radius,
+        radius + roll.sin() * radius * 2.,
         radius / 2. + yaw.cos() * radius,
     );
     viewing_glass.viewport.direction =
@@ -132,13 +131,9 @@ fn handle_zoom(
         }
     };
     if keys.pressed(KeyCode::ArrowUp) {
-        // viewing_glass.viewport.w_h_fov.x *= 1.1;
-        // viewing_glass.viewport.w_h_fov.y *= 1.1;
         angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        // viewing_glass.viewport.w_h_fov.x *= 0.9;
-        // viewing_glass.viewport.w_h_fov.y *= 0.9;
         angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, -ADDITION);
     }
     if keys.pressed(KeyCode::ArrowLeft) {
@@ -151,11 +146,9 @@ fn handle_zoom(
     }
     if keys.pressed(KeyCode::PageUp) {
         angles_query.single_mut().radius *= 0.9;
-        // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::PageDown) {
         angles_query.single_mut().radius *= 1.1;
-        // println!("viewport: {:?}", viewing_glass.viewport);
     }
 }
 
