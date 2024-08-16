@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 default = []
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
-bevy_wgpu = ["raytracing", "dep:bevy"]
+bevy_wgpu = ["raytracing", "dep:bevy", "dep:iyes_perf_ui"]
 
 [dependencies]
 serde = { version = "1.0.183", features = ["derive"], optional = true }
@@ -20,6 +20,7 @@ show-image = { version = "0.14.0", optional = true }
 
 # for example bevy_wgpu
 bevy = { version = "0.14.0", features = [], optional = true}
+iyes_perf_ui = { version = "0.3.0", features = [], optional = true}
 
 # debugging
 #linker = "/usr/bin/clang"

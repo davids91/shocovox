@@ -1,10 +1,18 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::{prelude::*, window::WindowPlugin};
+#[cfg(feature = "bevy_wgpu")]
+use iyes_perf_ui::{
+    entries::diagnostics::{PerfUiEntryFPS, PerfUiEntryFPSWorst},
+    ui::root::PerfUiRoot,
+    PerfUiPlugin,
+};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport},
-    Albedo, V3c,
+    raytracing::{
+        bevy::create_viewing_glass, ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
+    },
+    Albedo, Octree, V3c,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -22,6 +30,8 @@ fn main() {
             ShocoVoxRenderPlugin {
                 resolution: DISPLAY_RESOLUTION,
             },
+            bevy::diagnostic::FrameTimeDiagnosticsPlugin,
+            PerfUiPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
@@ -31,7 +41,7 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
+    // use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
 
     let origin = V3c::new(
         ARRAY_DIMENSION as f32 * 2.,
@@ -41,52 +51,60 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<Albedo, 32>::new(ARRAY_DIMENSION)
-        .ok()
-        .unwrap();
+    let tree_path = "example_junk_dotcube";
+    let mut tree;
+    if std::path::Path::new(tree_path).exists() {
+        tree = Octree::<Albedo, 32>::load(&tree_path).ok().unwrap();
+    } else {
+        tree = shocovox_rs::octree::Octree::<Albedo, 32>::new(ARRAY_DIMENSION)
+            .ok()
+            .unwrap();
 
-    tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
-        .ok()
-        .unwrap();
-    for x in 0..ARRAY_DIMENSION {
-        for y in 0..ARRAY_DIMENSION {
-            for z in 0..ARRAY_DIMENSION {
-                if ((x < (ARRAY_DIMENSION / 4)
-                    || y < (ARRAY_DIMENSION / 4)
-                    || z < (ARRAY_DIMENSION / 4))
-                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
-                    || ((ARRAY_DIMENSION / 2) <= x
-                        && (ARRAY_DIMENSION / 2) <= y
-                        && (ARRAY_DIMENSION / 2) <= z)
-                {
-                    let r = if 0 == x % (ARRAY_DIMENSION / 4) {
-                        (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
-                    } else {
-                        128
-                    };
-                    let g = if 0 == y % (ARRAY_DIMENSION / 4) {
-                        (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
-                    } else {
-                        128
-                    };
-                    let b = if 0 == z % (ARRAY_DIMENSION / 4) {
-                        (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
-                    } else {
-                        128
-                    };
-                    tree.insert(
-                        &V3c::new(x, y, z),
-                        Albedo::default()
-                            .with_red(r as u8)
-                            .with_green(g as u8)
-                            .with_blue(b as u8),
-                    )
-                    .ok()
-                    .unwrap();
+        tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
+            .ok()
+            .unwrap();
+        for x in 0..ARRAY_DIMENSION {
+            for y in 0..ARRAY_DIMENSION {
+                for z in 0..ARRAY_DIMENSION {
+                    if ((x < (ARRAY_DIMENSION / 4)
+                        || y < (ARRAY_DIMENSION / 4)
+                        || z < (ARRAY_DIMENSION / 4))
+                        && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                        || ((ARRAY_DIMENSION / 2) <= x
+                            && (ARRAY_DIMENSION / 2) <= y
+                            && (ARRAY_DIMENSION / 2) <= z)
+                    {
+                        let r = if 0 == x % (ARRAY_DIMENSION / 4) {
+                            (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        } else {
+                            128
+                        };
+                        let g = if 0 == y % (ARRAY_DIMENSION / 4) {
+                            (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        } else {
+                            128
+                        };
+                        let b = if 0 == z % (ARRAY_DIMENSION / 4) {
+                            (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        } else {
+                            128
+                        };
+                        tree.insert(
+                            &V3c::new(x, y, z),
+                            Albedo::default()
+                                .with_red(r as u8)
+                                .with_green(g as u8)
+                                .with_blue(b as u8),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
                 }
             }
         }
+        tree.save(&tree_path).ok().unwrap();
     }
+
     let render_data = tree.create_bevy_view();
     let viewing_glass = create_viewing_glass(
         &Viewport {
@@ -109,6 +127,24 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2dBundle::default());
     commands.insert_resource(render_data);
     commands.insert_resource(viewing_glass);
+
+    commands.spawn((
+        PerfUiRoot::default(),
+        PerfUiEntryFPS {
+            label: "Frame Rate (current)".into(),
+            threshold_highlight: Some(60.0),
+            digits: 5,
+            precision: 2,
+            ..default()
+        },
+        PerfUiEntryFPSWorst {
+            label: "Frame Rate (worst)".into(),
+            threshold_highlight: Some(60.0),
+            digits: 5,
+            precision: 2,
+            ..default()
+        },
+    ));
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -150,12 +186,10 @@ fn rotate_camera(
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
     if keys.pressed(KeyCode::ArrowUp) {
-        //viewing_glass.viewport.w_h_fov *= 1.1;
         viewing_glass.viewport.w_h_fov.x *= 1.1;
         viewing_glass.viewport.w_h_fov.y *= 1.1;
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        //viewing_glass.viewport.w_h_fov *= 0.9;
         viewing_glass.viewport.w_h_fov.x *= 0.9;
         viewing_glass.viewport.w_h_fov.y *= 0.9;
     }
