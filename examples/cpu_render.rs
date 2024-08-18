@@ -2,7 +2,7 @@
 use rand::Rng;
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::octree::{raytracing::Ray, Octree, V3c};
+use shocovox_rs::octree::{raytracing::Ray, V3c};
 
 #[cfg(feature = "raytracing")]
 #[show_image::main]
@@ -14,23 +14,32 @@ fn main() {
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 150;
     let viewport_size_height = 150;
-    // let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
-    //     .ok()
-    //     .unwrap();
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
+        .ok()
+        .unwrap();
 
-    let tree;
-    if std::path::Path::new("example_junk_minecraft_tree").exists() {
-        tree = Octree::<Albedo, 16>::load("example_junk_minecraft_tree")
-            .ok()
-            .unwrap();
-    } else {
-        tree = match shocovox_rs::octree::Octree::<Albedo, 16>::load_magica_voxel_file(
-            "assets/models/minecraft.vox",
-        ) {
-            Ok(tree_) => tree_,
-            Err(message) => panic!("Parsing model file failed with message: {message}"),
-        };
-        tree.save("example_junk_minecraft_tree").ok().unwrap();
+    tree.insert(&V3c::new(1, 3, 3), voxel_color)
+        .expect("insert of voxel to work");
+    for x in 0..TREE_SIZE {
+        for y in 0..TREE_SIZE {
+            for z in 0..TREE_SIZE {
+                if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                    || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
+                {
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        Albedo::default()
+                            .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                            .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                            .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
+                            .with_alpha(255),
+                    )
+                    .ok()
+                    .unwrap();
+                }
+            }
+        }
     }
 
     use shocovox_rs::octree::types::Albedo;
@@ -66,17 +75,10 @@ fn main() {
         angle = angle + velos.x / 10.;
 
         // Set the viewport
+        let origin = V3c::new(angle.sin() * radius, radius, angle.cos() * radius);
         let viewport_ray = Ray {
-            origin: V3c {
-                x: 6.15997,
-                y: 5.9686174,
-                z: 5.3837276,
-            },
-            direction: V3c {
-                x: -0.6286289,
-                y: -0.5966367,
-                z: -0.49884903,
-            },
+            direction: (V3c::unit(0.) - origin).normalized(),
+            origin,
         };
         let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction
@@ -135,17 +137,15 @@ fn main() {
             }
         }
 
-        img.save("example_junk_cpu_render.png").ok().unwrap();
-        std::process::exit(0);
-        // use show_image::{ImageInfo, ImageView};
-        // let binding = img.into_raw();
-        // let image = ImageView::new(
-        //     ImageInfo::rgb8(viewport_size_width, viewport_size_height),
-        //     &binding,
-        // );
+        use show_image::{ImageInfo, ImageView};
+        let binding = img.into_raw();
+        let image = ImageView::new(
+            ImageInfo::rgb8(viewport_size_width, viewport_size_height),
+            &binding,
+        );
 
-        // // Create a window with default options and display the image.
-        // window.set_image("image-001", image).ok().unwrap();
+        // Create a window with default options and display the image.
+        window.set_image("image-001", image).ok().unwrap();
     }
 }
 
