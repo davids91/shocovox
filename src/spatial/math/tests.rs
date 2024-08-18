@@ -84,3 +84,51 @@ mod wgpu_tests {
         assert_eq!(value, original_value);
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "dot_vox_support")]
+mod dot_vox_tests {
+
+    use crate::octree::V3c;
+    use crate::spatial::math::convert_coordinate;
+    use crate::spatial::math::CoordinateSystemType;
+
+    #[test]
+    fn test_coordinate_conversion() {
+        assert_eq!(
+            V3c::new(1., 2., 3.),
+            convert_coordinate(
+                V3c::new(1., 2., 3.),
+                CoordinateSystemType::RZUP,
+                CoordinateSystemType::RZUP,
+            ),
+        );
+
+        assert_eq!(
+            V3c::new(1., 3., 2.),
+            convert_coordinate(
+                V3c::new(1., 2., 3.),
+                CoordinateSystemType::LZUP,
+                CoordinateSystemType::RYUP,
+            ),
+        );
+
+        assert_eq!(
+            V3c::new(1., 3., -2.),
+            convert_coordinate(
+                V3c::new(1., 2., 3.),
+                CoordinateSystemType::RZUP,
+                CoordinateSystemType::RYUP,
+            ),
+        );
+
+        assert_eq!(
+            V3c::new(1., 2., -3.),
+            convert_coordinate(
+                V3c::new(1., 2., 3.),
+                CoordinateSystemType::LYUP,
+                CoordinateSystemType::RYUP,
+            ),
+        );
+    }
+}

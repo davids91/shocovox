@@ -2,6 +2,7 @@ mod tests;
 pub mod vector;
 
 use crate::spatial::math::vector::V3c;
+use std::ops::Neg;
 
 ///####################################################################################
 /// Octant
@@ -99,4 +100,42 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
 /// Creates a bitmask for a single octant position in an 8bit bitmask
 pub(crate) fn octant_bitmask(octant: u8) -> u8 {
     0x01 << octant
+}
+
+#[cfg(feature = "dot_vox_support")]
+pub(crate) enum CoordinateSystemType {
+    LZUP, // Left handed Z Up
+    LYUP, // Left handed Y Up
+    RZUP, // Right handed Z Up
+    RYUP, // Right handed Y Up
+}
+
+#[cfg(feature = "dot_vox_support")]
+pub(crate) fn convert_coordinate<T: Copy + Neg<Output = T>>(
+    c: V3c<T>,
+    src_type: CoordinateSystemType,
+    dst_type: CoordinateSystemType,
+) -> V3c<T> {
+    match (src_type, dst_type) {
+        (CoordinateSystemType::LZUP, CoordinateSystemType::LZUP) => c,
+        (CoordinateSystemType::LYUP, CoordinateSystemType::LYUP) => c,
+        (CoordinateSystemType::RZUP, CoordinateSystemType::RZUP) => c,
+        (CoordinateSystemType::RYUP, CoordinateSystemType::RYUP) => c,
+
+        (CoordinateSystemType::LYUP, CoordinateSystemType::RYUP)
+        | (CoordinateSystemType::RYUP, CoordinateSystemType::LYUP) => V3c::new(c.x, c.y, -c.z),
+
+        (CoordinateSystemType::LZUP, CoordinateSystemType::RZUP)
+        | (CoordinateSystemType::RZUP, CoordinateSystemType::LZUP) => V3c::new(c.x, -c.y, c.z),
+
+        (CoordinateSystemType::LYUP, CoordinateSystemType::LZUP)
+        | (CoordinateSystemType::RYUP, CoordinateSystemType::RZUP) => V3c::new(c.x, -c.z, c.y),
+        (CoordinateSystemType::LZUP, CoordinateSystemType::LYUP)
+        | (CoordinateSystemType::RZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, -c.y),
+
+        (CoordinateSystemType::LYUP, CoordinateSystemType::RZUP)
+        | (CoordinateSystemType::RZUP, CoordinateSystemType::LYUP)
+        | (CoordinateSystemType::RYUP, CoordinateSystemType::LZUP)
+        | (CoordinateSystemType::LZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, c.y),
+    }
 }

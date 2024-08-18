@@ -468,10 +468,7 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
         );
         node_stack_i = 1;
     }
-
-    var i = 0.;
     while(0 < node_stack_i && node_stack_i < max_depth) {
-        i += 1.;
         var current_bounds = node_stack[node_stack_i - 1].bounds;
         var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
         var target_octant = node_stack[node_stack_i - 1].target_octant;
@@ -687,6 +684,30 @@ fn update(
         let result_with_lights = ray_result.albedo.rgb * diffuse_light_strength;
         rgb_result = result_with_lights.rgb;
     }
+
+    /*// +++ DEBUG +++
+    // Display the xyz axes
+    let root_hit = cube_intersect_ray(
+        Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size)), ray
+    );
+    if root_hit.hit == true {
+        if root_hit. impact_hit == true {
+            let axes_length = f32(octreeMetaData.octree_size) / 2.;
+            let axes_width = f32(octreeMetaData.octree_size) / 50.;
+            let entry_point = point_in_ray_at_distance(ray, root_hit.impact_distance);
+            if entry_point.x < axes_length && entry_point.y < axes_width && entry_point.z < axes_width {
+                rgb_result.r = 1.;
+            }
+            if entry_point.x < axes_width && entry_point.y < axes_length && entry_point.z < axes_width {
+                rgb_result.g = 1.;
+            }
+            if entry_point.x < axes_width && entry_point.y < axes_width && entry_point.z < axes_length {
+                rgb_result.b = 1.;
+            }
+        }
+
+    }
+    */// --- DEBUG ---
 
     textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
 }
