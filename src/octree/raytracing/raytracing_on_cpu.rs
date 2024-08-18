@@ -36,7 +36,7 @@ impl NodeStackItem {
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + PartialEq + Clone + Copy + VoxelData,
+    T: Default + Eq + Clone + Copy + VoxelData,
 {
     pub(in crate::octree) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(
@@ -70,13 +70,16 @@ where
         ray_scale_factors: &V3c<f32>,
     ) -> V3c<f32> {
         let p = ray.point_at(*ray_current_distance);
+        let diff_from_min = p - current_bounds.min_position;
+        let signum_vec = V3c::new(
+            ray.direction.x.signum(),
+            ray.direction.y.signum(),
+            ray.direction.z.signum(),
+        );
         let steps_needed = V3c::new(
-            p.x - current_bounds.min_position.x
-                - (current_bounds.size * ray.direction.x.signum().max(0.)),
-            p.y - current_bounds.min_position.y
-                - (current_bounds.size * ray.direction.y.signum().max(0.)),
-            p.z - current_bounds.min_position.z
-                - (current_bounds.size * ray.direction.z.signum().max(0.)),
+            current_bounds.size * signum_vec.x.max(0.) - signum_vec.x * diff_from_min.x,
+            current_bounds.size * signum_vec.y.max(0.) - signum_vec.y * diff_from_min.y,
+            current_bounds.size * signum_vec.z.max(0.) - signum_vec.z * diff_from_min.z,
         );
 
         let d_x = *ray_current_distance + (steps_needed.x * ray_scale_factors.x).abs();
@@ -86,17 +89,17 @@ where
 
         V3c::new(
             if (*ray_current_distance - d_x).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size).copysign(ray.direction.x)
+                signum_vec.x
             } else {
                 0.
             },
             if (*ray_current_distance - d_y).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size).copysign(ray.direction.y)
+                signum_vec.y
             } else {
                 0.
             },
             if (*ray_current_distance - d_z).abs() < FLOAT_ERROR_TOLERANCE {
-                (current_bounds.size).copysign(ray.direction.z)
+                signum_vec.z
             } else {
                 0.
             },
@@ -110,21 +113,21 @@ where
         ray_current_distance: &mut f32,
         brick: &[[[T; DIM]; DIM]; DIM],
         brick_occupied_bits: u64,
-        bounds: &Cube,
+        brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
         direction_lut_index: usize,
     ) -> Option<V3c<usize>> {
         let mut current_index = {
-            let pos = ray.point_at(*ray_current_distance) - bounds.min_position;
+            let pos = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
             V3c::new(
                 (pos.x as i32).clamp(0, (DIM - 1) as i32),
                 (pos.y as i32).clamp(0, (DIM - 1) as i32),
                 (pos.z as i32).clamp(0, (DIM - 1) as i32),
             )
         };
-        let brick_unit = bounds.size / DIM as f32;
+        let brick_unit = brick_bounds.size / DIM as f32;
         let mut current_bounds = Cube {
-            min_position: bounds.min_position + V3c::from(current_index) * brick_unit,
+            min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
             size: brick_unit,
         };
         let start_pos_in_bitmap = position_in_bitmap_64bits(
@@ -189,7 +192,7 @@ where
                 &current_bounds,
                 ray_scale_factors,
             );
-            current_bounds.min_position = current_bounds.min_position + step;
+            current_bounds.min_position = current_bounds.min_position + step * brick_unit;
             current_index = current_index + V3c::<i32>::from(step);
             #[cfg(debug_assertions)]
             {
@@ -209,7 +212,7 @@ where
 
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
-    pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
+    pub fn get_by_ray(&self, ray: &Ray) -> Option<(T, V3c<f32>, V3c<f32>)> {
         let ray = Ray {
             origin: ray.origin,
             direction: V3c::new(
@@ -290,7 +293,7 @@ where
                     let impact_point = ray.point_at(ray_current_distance);
                     let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
                     return Some((
-                        &current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
+                        current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
                             [leaf_brick_hit.z],
                         impact_point,
                         impact_normal,

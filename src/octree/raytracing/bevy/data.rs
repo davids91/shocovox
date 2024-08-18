@@ -5,6 +5,7 @@ use crate::octree::{
     Octree, V3c, VoxelData,
 };
 use bevy::math::Vec4;
+use std::collections::HashMap;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -53,18 +54,33 @@ where
                 self.octree_size as f32,
             ),
         };
+
         let mut nodes = Vec::new();
         let mut children_buffer = Vec::new();
         let mut voxels = Vec::new();
+        let mut color_palette = Vec::new();
+
+        // Build up Nodes
+        let mut map_to_node_index_in_nodes_buffer = HashMap::new();
+        for i in 0..self.nodes.len() {
+            if self.nodes.key_is_valid(i) {
+                map_to_node_index_in_nodes_buffer.insert(i as usize, nodes.len());
+                nodes.push(SizedNode {
+                    sized_node_meta: self.create_meta(i),
+                    children_start_at: empty_marker(),
+                    voxels_start_at: empty_marker(),
+                });
+            }
+        }
+
+        // Build up voxel content
+        let mut map_to_color_index_in_palette = HashMap::new();
         for i in 0..self.nodes.len() {
             if !self.nodes.key_is_valid(i) {
                 continue;
             }
-            let mut sized_node = SizedNode {
-                sized_node_meta: self.create_meta(i),
-                children_start_at: children_buffer.len() as u32,
-                voxels_start_at: empty_marker(),
-            };
+            nodes[map_to_node_index_in_nodes_buffer[&i]].children_start_at =
+                children_buffer.len() as u32;
             if let NodeContent::Leaf(data) = self.nodes.get(i) {
                 debug_assert!(matches!(
                     self.node_children[i].content,
@@ -78,18 +94,24 @@ where
                     (occupied_bits & 0x00000000FFFFFFFF) as u32,
                     ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
                 ]);
-                sized_node.voxels_start_at = voxels.len() as u32;
+                nodes[map_to_node_index_in_nodes_buffer[&i]].voxels_start_at = voxels.len() as u32;
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
                             let albedo = data[x][y][z].albedo();
-                            voxels.push(Voxelement {
-                                albedo: Vec4::new(
+                            if !map_to_color_index_in_palette.contains_key(&albedo) {
+                                map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                                color_palette.push(Vec4::new(
                                     albedo.r as f32 / 255.,
                                     albedo.g as f32 / 255.,
                                     albedo.b as f32 / 255.,
                                     albedo.a as f32 / 255.,
-                                ),
+                                ));
+                            }
+                            let albedo_index = map_to_color_index_in_palette[&albedo];
+
+                            voxels.push(Voxelement {
+                                albedo_index: albedo_index as u32,
                                 content: data[x][y][z].user_data(),
                             })
                         }
@@ -97,9 +119,19 @@ where
                 }
             } else {
                 //Internal nodes
-                children_buffer.extend_from_slice(&self.node_children[i].get_full());
+                for c in 0..8 {
+                    let child_index = &self.node_children[i][c];
+                    if *child_index != self.node_children[i].empty_marker {
+                        debug_assert!(map_to_node_index_in_nodes_buffer
+                            .contains_key(&(*child_index as usize)));
+                        children_buffer.push(
+                            map_to_node_index_in_nodes_buffer[&(*child_index as usize)] as u32,
+                        );
+                    } else {
+                        children_buffer.push(*child_index);
+                    }
+                }
             }
-            nodes.push(sized_node);
         }
 
         ShocoVoxRenderData {
@@ -107,6 +139,7 @@ where
             nodes,
             children_buffer,
             voxels,
+            color_palette,
         }
     }
 }

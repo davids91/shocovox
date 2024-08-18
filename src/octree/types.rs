@@ -9,7 +9,7 @@ pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
     #[default]
     Nothing,
     Internal(u8), // cache data to store the enclosed nodes
-    Leaf([[[T; DIM]; DIM]; DIM]),
+    Leaf(Box<[[[T; DIM]; DIM]; DIM]>),
 }
 
 /// error types during usage or creation of the octree
@@ -21,7 +21,7 @@ pub enum OctreeError {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) enum NodeChildrenArray<T: Default> {
     #[default]
@@ -31,7 +31,7 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(in crate::octree) struct NodeChildren<T: Default> {
     /// The key value to signify "no child" at a given slot
@@ -96,7 +96,10 @@ impl From<u32> for Albedo {
 /// A Brick can be indexed directly, as opposed to the octree which is essentially a
 /// tree-graph where each node has 8 children.
 #[cfg_attr(feature = "serialization", derive(Serialize))]
-pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
+pub struct Octree<T, const DIM: usize = 1>
+where
+    T: Default + Clone + VoxelData,
+{
     pub auto_simplify: bool,
     pub(in crate::octree) octree_size: u32,
     pub(in crate::octree) nodes: ObjectPool<NodeContent<T, DIM>>,
@@ -104,7 +107,7 @@ pub struct Octree<T: Default + Clone + VoxelData, const DIM: usize = 1> {
 }
 
 #[cfg_attr(feature = "wgpu", derive(encase::ShaderType))]
-#[derive(Default, Clone, Copy, Debug, PartialEq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Albedo {
     pub r: f32,
     pub g: f32,

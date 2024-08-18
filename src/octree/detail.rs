@@ -1,6 +1,8 @@
 use crate::object_pool::empty_marker;
-use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData};
-use crate::octree::{hash_region, Cube, V3c};
+use crate::octree::{
+    types::{Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData},
+    {hash_region, Cube, V3c},
+};
 use crate::spatial::math::{octant_bitmask, set_occupancy_in_bitmap_64bits};
 
 ///####################################################################################
@@ -24,11 +26,50 @@ pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) ->
 }
 
 ///####################################################################################
+/// Type implements
+///####################################################################################
+impl VoxelData for Albedo {
+    fn new(color: Albedo, _user_data: u32) -> Self {
+        color
+    }
+
+    fn albedo(&self) -> Albedo {
+        *self
+    }
+
+    fn user_data(&self) -> u32 {
+        0u32
+    }
+
+    fn clear(&mut self) {
+        self.r = 0;
+        self.g = 0;
+        self.b = 0;
+        self.a = 0;
+    }
+}
+
+impl From<u32> for Albedo {
+    fn from(value: u32) -> Self {
+        let a = (value & 0x000000FF) as u8;
+        let b = ((value & 0x0000FF00) >> 8) as u8;
+        let g = ((value & 0x00FF0000) >> 16) as u8;
+        let r = ((value & 0xFF000000) >> 24) as u8;
+
+        Albedo::default()
+            .with_red(r)
+            .with_green(g)
+            .with_blue(b)
+            .with_alpha(a)
+    }
+}
+
+///####################################################################################
 /// NodeChildren
 ///####################################################################################
 impl<T> NodeChildren<T>
 where
-    T: Default + Clone + PartialEq,
+    T: Default + Clone + Eq,
 {
     pub(in crate::octree) fn is_empty(&self) -> bool {
         match &self.content {
@@ -221,7 +262,7 @@ where
     }
 
     pub fn leaf_from(data: T) -> Self {
-        NodeContent::Leaf([[[data; DIM]; DIM]; DIM])
+        NodeContent::Leaf(Box::new([[[data; DIM]; DIM]; DIM]))
     }
 }
 
@@ -236,7 +277,10 @@ where
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
 }
 
-impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
+impl<T, const DIM: usize> Octree<T, DIM>
+where
+    T: Default + Clone + VoxelData,
+{
     pub(in crate::octree) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
         // --> In case the smallest possible node the contained matrix of voxels
         // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
@@ -273,8 +317,9 @@ impl<T: Default + Clone + VoxelData, const DIM: usize> Octree<T, DIM> {
 
     pub(in crate::octree) fn make_uniform_children(
         &mut self,
-        content: [[[T; DIM]; DIM]; DIM],
+        content: Box<[[[T; DIM]; DIM]; DIM]>,
     ) -> [u32; 8] {
+        println!("Making uniform children!");
         // Create new children leaf nodes based on the provided content
         let occupancy_bitmap = Self::bruteforce_occupancy_bitmask(&content);
         let children = [

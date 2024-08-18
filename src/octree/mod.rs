@@ -1,8 +1,9 @@
-pub mod bytecode;
-pub mod detail;
-pub mod tests;
 pub mod types;
 pub mod update;
+
+mod convert;
+mod detail;
+mod tests;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
@@ -20,7 +21,7 @@ use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + PartialEq + Clone + Copy + VoxelData,
+    T: Default + Eq + Clone + Copy + VoxelData,
 {
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -33,7 +34,7 @@ where
     }
 
     /// saves the data structure to the given file path
-    pub fn save(&mut self, path: &str) -> Result<(), std::io::Error> {
+    pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
         use std::fs::File;
         use std::io::Write;
         let mut file = File::create(path)?;
@@ -152,5 +153,10 @@ where
                 }
             }
         }
+    }
+
+    /// Tells the radius of the area covered by the octree
+    pub fn get_size(&self) -> u32 {
+        self.octree_size
     }
 }

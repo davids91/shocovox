@@ -25,6 +25,18 @@ impl<T: Copy> V3c<T> {
     }
 }
 
+impl<T> V3c<T>
+where
+    T: num_traits::Signed + Clone,
+{
+    pub fn abs(&mut self) -> V3c<T> {
+        self.x = self.x.abs();
+        self.y = self.y.abs();
+        self.z = self.z.abs();
+        self.clone()
+    }
+}
+
 impl V3c<f32> {
     pub fn length(&self) -> f32 {
         ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()
@@ -38,6 +50,12 @@ impl V3c<f32> {
             y: self.y.signum(),
             z: self.z.signum(),
         }
+    }
+}
+
+impl V3c<i32> {
+    pub fn length(&self) -> f32 {
+        (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
     }
 }
 
@@ -236,6 +254,22 @@ impl From<V3c<f32>> for V3c<u32> {
     }
 }
 
+impl From<V3c<i32>> for V3c<u32> {
+    fn from(vec: V3c<i32>) -> V3c<u32> {
+        {
+            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
+        }
+    }
+}
+
+impl From<V3c<u8>> for V3c<u32> {
+    fn from(vec: V3c<u8>) -> V3c<u32> {
+        {
+            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
+        }
+    }
+}
+
 impl From<V3c<f32>> for V3c<i32> {
     fn from(vec: V3c<f32>) -> V3c<i32> {
         {
@@ -248,18 +282,18 @@ impl From<V3c<f32>> for V3c<i32> {
     }
 }
 
-impl From<V3c<u32>> for V3c<i32> {
-    fn from(vec: V3c<u32>) -> V3c<i32> {
+impl From<Vec<i32>> for V3c<i32> {
+    fn from(vec: Vec<i32>) -> V3c<i32> {
         {
-            V3c::new(vec.x as i32, vec.y as i32, vec.z as i32)
+            V3c::new(vec[0], vec[1], vec[2])
         }
     }
 }
 
-impl From<V3c<i32>> for V3c<u32> {
-    fn from(vec: V3c<i32>) -> V3c<u32> {
+impl From<V3c<u32>> for V3c<i32> {
+    fn from(vec: V3c<u32>) -> V3c<i32> {
         {
-            V3c::new(vec.x as u32, vec.y as u32, vec.z as u32)
+            V3c::new(vec.x as i32, vec.y as i32, vec.z as i32)
         }
     }
 }
