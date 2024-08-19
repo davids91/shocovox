@@ -1,9 +1,9 @@
 use crate::object_pool::empty_marker;
 use crate::octree::{
     types::{Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData},
-    {hash_region, Cube, V3c},
+    {Cube, V3c},
 };
-use crate::spatial::math::{octant_bitmask, set_occupancy_in_bitmap_64bits};
+use crate::spatial::math::{hash_region, octant_bitmask, set_occupancy_in_bitmap_64bits};
 
 ///####################################################################################
 /// Utility functions
