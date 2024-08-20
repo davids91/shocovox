@@ -212,7 +212,7 @@ where
 
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
-    pub fn get_by_ray(&self, ray: &Ray) -> Option<(T, V3c<f32>, V3c<f32>)> {
+    pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
         let ray = Ray {
             origin: ray.origin,
             direction: V3c::new(
@@ -245,7 +245,7 @@ where
             ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
             let target_octant = hash_region(
                 &(ray.point_at(ray_current_distance) - root_bounds.min_position),
-                root_bounds.size,
+                root_bounds.size / 2.,
             );
             node_stack.push(NodeStackItem::new(
                 root_bounds,
@@ -293,7 +293,7 @@ where
                     let impact_point = ray.point_at(ray_current_distance);
                     let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
                     return Some((
-                        current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
+                        &current_node.leaf_data()[leaf_brick_hit.x][leaf_brick_hit.y]
                             [leaf_brick_hit.z],
                         impact_point,
                         impact_normal,
@@ -331,7 +331,7 @@ where
                 // PUSH
                 let child_target_octant = hash_region(
                     &(ray.point_at(ray_current_distance) - target_bounds.min_position),
-                    target_bounds.size,
+                    target_bounds.size / 2.,
                 );
                 node_stack.push(NodeStackItem::new(
                     target_bounds,
@@ -367,7 +367,7 @@ where
                                 NodeContent::Internal(_) | NodeContent::Leaf(_)=> self.occupied_8bit(target_child_key)
                                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                         &(ray.point_at(ray_current_distance) - target_bounds.min_position),
-                                        target_bounds.size,
+                                        target_bounds.size / 2.,
                                     ) as usize]
                                     [direction_lut_index as usize],
                             })

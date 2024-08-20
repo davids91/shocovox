@@ -16,7 +16,7 @@ use crate::octree::{
     detail::{bound_contains, child_octant_for},
     types::{NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::{math::hash_region, Cube};
+use crate::spatial::Cube;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl<T, const DIM: usize> Octree<T, DIM>

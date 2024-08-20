@@ -25,22 +25,21 @@ pub(crate) fn offset_region(octant: u8) -> V3c<f32> {
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
 /// * `offset` - From range 0..size in each dimensions
 /// * `size` - Size of the region to check for child octants
-pub fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
+pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
     // The below is rewritten to be branchless
-    let half_size = size / 2.0;
     // (if offset.x < half_size { 0 } else { 1 })
     //     + if offset.z < half_size{ 0 } else { 2 }
     //     + if offset.y < half_size { 0 } else { 4 }
-    (offset.x >= half_size) as u8
-        + (offset.z >= half_size) as u8 * 2
-        + (offset.y >= half_size) as u8 * 4
+    (offset.x >= size_half) as u8
+        + (offset.z >= size_half) as u8 * 2
+        + (offset.y >= size_half) as u8 * 4
 }
 
 /// Maps direction vector to the octant it points to
 pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1.0 - direction.length()).abs() < 0.1);
     let offset = V3c::unit(1.) + *direction;
-    hash_region(&offset, 2.)
+    hash_region(&offset, 1.)
 }
 
 /// Maps 3 dimensional space limited by `size` to 1 dimension

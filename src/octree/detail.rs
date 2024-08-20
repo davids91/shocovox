@@ -22,7 +22,7 @@ pub(in crate::octree) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> b
 /// Returns with the octant value(i.e. index) of the child for the given position
 pub(in crate::octree) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
     debug_assert!(bound_contains(bounds, position));
-    hash_region(&(*position - bounds.min_position), bounds.size)
+    hash_region(&(*position - bounds.min_position), bounds.size / 2.)
 }
 
 ///####################################################################################

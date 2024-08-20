@@ -24,10 +24,13 @@ const OOB_OCTANT = 8u;
 
 //crate::spatial::raytracing::Cube::contains_point
 fn cube_contains_point(cube: Cube, p: vec3f) -> bool{
-    let min_cn = p >= cube.min_position - FLOAT_ERROR_TOLERANCE;
-    let max_cn = p < (cube.min_position + cube.size + FLOAT_ERROR_TOLERANCE);
     return (
-        min_cn.x && min_cn.y && min_cn.z && max_cn.x && max_cn.y && max_cn.z
+        (p.x >= cube.min_position.x - FLOAT_ERROR_TOLERANCE)
+        &&(p.y >= cube.min_position.y - FLOAT_ERROR_TOLERANCE)
+        &&(p.z >= cube.min_position.z - FLOAT_ERROR_TOLERANCE)
+        &&(p.x < (cube.min_position.x + cube.size + FLOAT_ERROR_TOLERANCE))
+        &&(p.y < (cube.min_position.y + cube.size + FLOAT_ERROR_TOLERANCE))
+        &&(p.z < (cube.min_position.z + cube.size + FLOAT_ERROR_TOLERANCE))
     );
 }
 
@@ -40,11 +43,10 @@ fn impact_or(impact: CubeRayIntersection, or: f32) -> f32{
 }
 
 //crate::spatial::math::hash_region
-fn hash_region(offset: vec3f, size: f32) -> u32 {
-    let midpoint = vec3f(size / 2., size / 2., size / 2.);
-    return u32(offset.x >= midpoint.x)
-        + u32(offset.z >= midpoint.z) * 2u
-        + u32(offset.y >= midpoint.y) * 4u;
+fn hash_region(offset: vec3f, size_half: f32) -> u32 {
+    return u32(offset.x >= size_half)
+        + u32(offset.z >= size_half) * 2u
+        + u32(offset.y >= size_half) * 4u;
 }
 
 //crate::spatial::math::offset_region
@@ -63,11 +65,10 @@ fn offset_region(octant: u32) -> vec3f {
 
 //crate::spatial::mod::Cube::child_bounds_for
 fn child_bounds_for(bounds: Cube, octant: u32) -> Cube{
-    var result: Cube;
-    let child_size = bounds.size / 2.;
-    result.min_position = bounds.min_position + (offset_region(octant) * child_size);
-    result.size = child_size;
-    return result;
+    return Cube(
+        bounds.min_position + (offset_region(octant) * bounds.size / 2.),
+        bounds.size / 2.
+    );
 }
 
 struct PlaneLineIntersection {
@@ -75,44 +76,41 @@ struct PlaneLineIntersection {
     d: f32,
 }
 
+
 //crate::spatial::math::plane_line_intersection
 fn plane_line_intersection(plane: Plane, line: Line) -> PlaneLineIntersection {
-    var result: PlaneLineIntersection;
-    let origins_diff = plane.point - line.origin;
-    let plane_line_dot_to_plane = dot(origins_diff, plane.normal);
     let directions_dot = dot(line.direction, plane.normal);
-
     if 0. == directions_dot {
         // line and plane is paralell
-        if 0. == dot(origins_diff, plane.normal) {
+        if 0. == dot(plane.point - line.origin, plane.normal) {
             // The distance is zero because the origin is already on the plane
-            result.hit = true;
-            result.d = 0.;
+            return PlaneLineIntersection(true, 0.);
         } else {
-            result.hit = false;
+            return PlaneLineIntersection(false, 0.);
         }
     } else {
-        result.hit = true;
-        result.d = plane_line_dot_to_plane / directions_dot;
+        return PlaneLineIntersection(
+            true,
+            dot(plane.point - line.origin, plane.normal) / directions_dot
+        );
     }
-    return result;
 }
 
 //crate::spatial::raytracing::Cube::face
 fn get_cube_face(cube: Cube, face_index: u32) -> Plane{
-    var result: Plane;
+    var result_normal: vec3f;
     switch(face_index){
-        case 0u { result.normal = vec3f(0.,0.,-1.); }
-        case 1u { result.normal = vec3f(-1.,0.,0.); }
-        case 2u { result.normal = vec3f(0.,0.,1.); }
-        case 3u { result.normal = vec3f(1.,0.,0.); }
-        case 4u { result.normal = vec3f(0.,1.,0.); }
-        case 5u, default { result.normal = vec3f(0.,-1.,0.); }
+        case 0u { result_normal = vec3f(0.,0.,-1.); }
+        case 1u { result_normal = vec3f(-1.,0.,0.); }
+        case 2u { result_normal = vec3f(0.,0.,1.); }
+        case 3u { result_normal = vec3f(1.,0.,0.); }
+        case 4u { result_normal = vec3f(0.,1.,0.); }
+        case 5u, default { result_normal = vec3f(0.,-1.,0.); }
     }
-    let half_size = cube.size / 2.;
-    let midpoint = cube.min_position + half_size;
-    result.point = midpoint + result.normal * half_size;
-    return result;
+    return Plane(
+        cube.min_position + cube.size / 2. + result_normal * cube.size / 2.,
+        result_normal
+    );
 }
 
 struct CubeRayIntersection {
@@ -129,80 +127,68 @@ fn point_in_ray_at_distance(ray: Line, d: f32) -> vec3f{
 
 //crate::spatial::raytracing::Cube::intersect_ray
 fn cube_intersect_ray(cube: Cube, ray: Line) -> CubeRayIntersection{
-    var result: CubeRayIntersection;
     let max_position = cube.min_position + vec3f(cube.size, cube.size, cube.size);
-    let t1 = (cube.min_position.x - ray.origin.x) / ray.direction.x;
-    let t2 = (max_position.x - ray.origin.x) / ray.direction.x;
-    let t3 = (cube.min_position.y - ray.origin.y) / ray.direction.y;
-    let t4 = (max_position.y - ray.origin.y) / ray.direction.y;
-    let t5 = (cube.min_position.z - ray.origin.z) / ray.direction.z;
-    let t6 = (max_position.z - ray.origin.z) / ray.direction.z;
-
-    let tmin = max(max(min(t1, t2), min(t3, t4)), min(t5, t6));
-    let tmax = min(min(max(t1, t2), max(t3, t4)), max(t5, t6));
+    let tmin = max(
+        max(
+            min(
+                (cube.min_position.x - ray.origin.x) / ray.direction.x,
+                (max_position.x - ray.origin.x) / ray.direction.x
+            ),
+            min(
+                (cube.min_position.y - ray.origin.y) / ray.direction.y,
+                (max_position.y - ray.origin.y) / ray.direction.y
+            )
+        ),
+        min(
+            (cube.min_position.z - ray.origin.z) / ray.direction.z,
+            (max_position.z - ray.origin.z) / ray.direction.z
+        )
+    );
+    let tmax = min(
+        min(
+            max(
+                (cube.min_position.x - ray.origin.x) / ray.direction.x,
+                (max_position.x - ray.origin.x) / ray.direction.x
+            ),
+            max(
+                (cube.min_position.y - ray.origin.y) / ray.direction.y,
+                (max_position.y - ray.origin.y) / ray.direction.y
+            )
+        ),
+        max(
+            (cube.min_position.z - ray.origin.z) / ray.direction.z,
+            (max_position.z - ray.origin.z) / ray.direction.z
+        )
+    );
 
     if tmax < 0. || tmin > tmax{
-        result.hit = false;
-        return result;
+        return CubeRayIntersection(false, false, 0., 0.);
     }
-
-    let p = point_in_ray_at_distance(ray, tmin);
-
 
     if tmin < 0.0 {
-        result.hit = true;
-        result.impact_hit = false;
-        result.exit_distance = tmax;
-        return result;
+        return CubeRayIntersection(true, false, 0., tmax);
     }
 
-    result.hit = true;
-    result.impact_hit = true;
-    result.impact_distance = tmin;
-    result.exit_distance = tmax;
-    return result;
+    return CubeRayIntersection(true, true, tmin, tmax);
 }
 
 fn cube_impact_normal(cube: Cube, impact_point: vec3f) -> vec3f{
     var impact_normal = vec3f(0.,0.,0.);
     let mid_to_impact = cube.min_position + vec3f(cube.size / 2.) - impact_point;
-    let mid_to_impact_abs = abs(mid_to_impact);
     let max_component = max(
-        mid_to_impact_abs.x,
-        max(mid_to_impact_abs.y, mid_to_impact_abs.z)
+        abs(mid_to_impact).x,
+        max(abs(mid_to_impact).y, abs(mid_to_impact).z)
     );
-    if max_component - mid_to_impact_abs.x < FLOAT_ERROR_TOLERANCE {
+    if max_component - abs(mid_to_impact).x < FLOAT_ERROR_TOLERANCE {
         impact_normal.x = -mid_to_impact.x;
     }
-    if max_component - mid_to_impact_abs.y < FLOAT_ERROR_TOLERANCE {
+    if max_component - abs(mid_to_impact).y < FLOAT_ERROR_TOLERANCE {
         impact_normal.y = -mid_to_impact.y;
     }
-    if max_component - mid_to_impact_abs.z < FLOAT_ERROR_TOLERANCE {
+    if max_component - abs(mid_to_impact).z < FLOAT_ERROR_TOLERANCE {
         impact_normal.z = -mid_to_impact.z;
     }
     return normalize(impact_normal);
-}
-
-struct NodeStackItem {
-    bounds: Cube,
-    node: u32,
-    sized_node_meta: u32,
-    target_octant: u32,
-}
-
-//crate::octree:raytracing::NodeStackItem::new
-fn new_node_stack_item(
-    bounds: Cube,
-    node: u32,
-    sized_node_meta: u32,
-    target_octant: u32
-) -> NodeStackItem {
-    var result: NodeStackItem;
-    result.bounds = bounds;
-    result.node = node;
-    result.target_octant = target_octant;
-    result.sized_node_meta = sized_node_meta;
-    return result;
 }
 
 //crate::octree:raytracing::get_dda_scale_factors
@@ -233,28 +219,33 @@ fn dda_step_to_next_sibling(
     current_bounds: Cube,
     ray_scale_factors: vec3f
 ) -> vec3f {
-    var signum_vec = sign(ray.direction);
-    let p = point_in_ray_at_distance(ray, *ray_current_distance);
-    let steps_needed = (
-        current_bounds.size * max(signum_vec, vec3f(0.,0.,0.))
-        - signum_vec * (p - current_bounds.min_position)
-    );
-
     let d = (
         vec3f(*ray_current_distance, *ray_current_distance, *ray_current_distance) 
-        + abs(steps_needed * ray_scale_factors)
+        + abs(
+            ( // steps needed to reach next axis
+                (current_bounds.size * max(sign(ray.direction), vec3f(0.,0.,0.)))
+                - (
+                    sign(ray.direction) 
+                    * (
+                        point_in_ray_at_distance(ray, *ray_current_distance)
+                        - current_bounds.min_position
+                    )
+                )
+            )
+            * ray_scale_factors
+        )
     );
     *ray_current_distance = min(d.x, min(d.y, d.z));
 
     var result = vec3f(0., 0., 0.);
     if abs(*ray_current_distance - d.x) < FLOAT_ERROR_TOLERANCE {
-        result.x = signum_vec.x;
+        result.x = sign(ray.direction).x;
     }
     if abs(*ray_current_distance - d.y) < FLOAT_ERROR_TOLERANCE {
-        result.y = signum_vec.y;
+        result.y = sign(ray.direction).y;
     }
     if abs(*ray_current_distance - d.z) < FLOAT_ERROR_TOLERANCE {
-        result.z = signum_vec.z;
+        result.z = sign(ray.direction).z;
     }
     return result;
 }
@@ -273,16 +264,17 @@ fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
 
 //crate::spatial::math::step_octant
 fn step_octant(octant: u32, step: vec3f) -> u32 {
-    let octant_pos_in_32bits = 4 * octant;
-    return ((OCTANT_STEP_RESULT_LUT[u32(sign(step.x) + 1)][u32(sign(step.y) + 1)][u32(sign(step.z) + 1)]
-        & (0x0Fu << octant_pos_in_32bits))
-        >> octant_pos_in_32bits) & 0x0Fu;
+    return (
+        (
+            OCTANT_STEP_RESULT_LUT[u32(sign(step.x) + 1)][u32(sign(step.y) + 1)][u32(sign(step.z) + 1)]
+            & (0x0Fu << (4 * octant))
+        ) >> (4 * octant)
+    ) & 0x0Fu;
 }
 
 //crate::spatial::math::hash_direction
 fn hash_direction(direction: vec3f) -> u32 {
-    let offset = vec3f(1.) + normalize(direction);
-    return hash_region(offset, 2.);
+    return hash_region(vec3f(1.) + normalize(direction), 1.);
 }
 
 // Functionality-wise this function is more generic, than its counterpart
@@ -294,12 +286,9 @@ fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
 
 //crate::spatial::math::position_in_bitmap_64bits
 fn position_in_bitmap_64bits(i: vec3u, dimension: u32) -> u32{
-    let pos_inside_bitmap_space = i * 4 / dimension;
-    //let pos_inside_bitmap_space = vec3u((vec3f(i) * 4.) / f32(dimension));
-    let pos_inside_bitmap = flat_projection(
-        pos_inside_bitmap_space, vec2u(4, 4)
+    return flat_projection(
+        i * 4 / dimension, vec2u(4, 4)
     );
-    return pos_inside_bitmap;
 }
 
 // Unique to this implementation, not adapted from rust code
@@ -310,11 +299,9 @@ fn get_occupancy_in_bitmap_64bits(
 ) -> bool {
     // not possible to create a position mask directly, because of missing u64 type
     if bit_position < 32 {
-        let pos_mask = u32(0x01u << bit_position);
-        return 0 < (bitmap_lsb & pos_mask);
+        return 0 < (bitmap_lsb & u32(0x01u << bit_position));
     }
-    let pos_mask = u32(0x01u << (bit_position - 32));
-    return 0 < (bitmap_msb & pos_mask);
+    return 0 < (bitmap_msb & u32(0x01u << (bit_position - 32)));
 }
 
 struct BrickHit{
@@ -331,77 +318,90 @@ fn traverse_brick(
     brick_bounds: Cube,
     ray_scale_factors: vec3f,
     direction_lut_index: u32,
-    unit_in_bitmap_space: f32,
-    dimension: u32
 ) -> BrickHit{
-    var result: BrickHit;
-    result.hit = false;
-    let pos = (
+    var current_index = vec3i(
         point_in_ray_at_distance(ray, *ray_current_distance)
         - brick_bounds.min_position
     );
-    var current_index = vec3i(
-        clamp(i32(pos.x), 0, i32(dimension - 1)),
-        clamp(i32(pos.y), 0, i32(dimension - 1)),
-        clamp(i32(pos.z), 0, i32(dimension - 1))
-    );
-    let brick_unit = brick_bounds.size / f32(dimension);
-    var current_bounds = Cube(
-        brick_bounds.min_position + vec3f(current_index) * brick_unit,
-        brick_unit
+    current_index = vec3i(
+        clamp(i32(current_index.x), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(current_index.y), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(current_index.z), 0, i32(octreeMetaData.voxel_brick_dim - 1))
     );
 
-    let start_pos_in_bitmap = position_in_bitmap_64bits(vec3u(current_index), dimension);
+    var current_bounds = Cube(
+        (
+            brick_bounds.min_position 
+            + vec3f(current_index) * (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+        ),
+        (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+    );
+
+    var mapped_index = position_in_bitmap_64bits(
+        vec3u(current_index), octreeMetaData.voxel_brick_dim
+    );
     if (
-        0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2]
-            & occupancy_bitmap_lsb)
-        && 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2 + 1]
-            & occupancy_bitmap_msb)
+        0 == (
+            RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2]
+            & occupancy_bitmap_lsb
+        )
+        && 0 == (
+            RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2 + 1]
+            & occupancy_bitmap_msb
+        )
     ){
-        result.hit = false;
-        return result;
+        return BrickHit(false, vec3u());
     }
 
-    var prev_bitmap_position_full_resolution = vec3u(vec3f(current_index) * unit_in_bitmap_space);
+    var prev_bitmap_position_full_resolution = vec3u(
+        vec3f(current_index) * (4. / f32(octreeMetaData.voxel_brick_dim))
+    );
     loop{
         if current_index.x < 0
-            || current_index.x >= i32(dimension)
+            || current_index.x >= i32(octreeMetaData.voxel_brick_dim)
             || current_index.y < 0
-            || current_index.y >= i32(dimension)
+            || current_index.y >= i32(octreeMetaData.voxel_brick_dim)
             || current_index.z < 0
-            || current_index.z >= i32(dimension)
+            || current_index.z >= i32(octreeMetaData.voxel_brick_dim)
         {
-            result.hit = false;
-            return result;
+            return BrickHit(false, vec3u());
         }
 
-        let bitmap_position_full_resolution = vec3u(vec3f(current_index) * unit_in_bitmap_space);
-        let differs = bitmap_position_full_resolution != prev_bitmap_position_full_resolution;
-        if(differs.x || differs.y || differs.z) {
+        let bitmap_position_full_resolution = vec3u(
+            vec3f(current_index) * (4. / f32(octreeMetaData.voxel_brick_dim))
+        );
+        if(
+            bitmap_position_full_resolution.x != prev_bitmap_position_full_resolution.x
+            || bitmap_position_full_resolution.y != prev_bitmap_position_full_resolution.y
+            || bitmap_position_full_resolution.z != prev_bitmap_position_full_resolution.z
+        ) {
             prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
-            let start_pos_in_bitmap = flat_projection(
-                vec3u(bitmap_position_full_resolution), vec2u(4, 4),
-            );
+            mapped_index = flat_projection(vec3u(bitmap_position_full_resolution), vec2u(4, 4));
             if (
-                0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2]
-                    & occupancy_bitmap_lsb)
-                && 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index * 2 + 1]
-                    & occupancy_bitmap_msb)
+                0 == (
+                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2]
+                    & occupancy_bitmap_lsb
+                )
+                && 0 == (
+                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2 + 1]
+                    & occupancy_bitmap_msb
+                )
             ){
-                result.hit = false;
-                return result;
+                return BrickHit(false, vec3u());
             }
         }
 
-        let voxel_brick_index = u32(flat_projection(
+        mapped_index = u32(flat_projection(
             vec3u(current_index),
-            vec2u(dimension, dimension)
+            vec2u(octreeMetaData.voxel_brick_dim, octreeMetaData.voxel_brick_dim)
         ));
-        if !is_empty(voxels[brick_index_start + voxel_brick_index])
+        if (brick_index_start + mapped_index) >= arrayLength(&voxels)
         {
-            result.hit = true;
-            result.index = vec3u(current_index);
-            return result;
+            return BrickHit(false, vec3u());
+        }
+        if !is_empty(voxels[brick_index_start + mapped_index])
+        {
+            return BrickHit(true, vec3u(current_index));
         }
 
         let step = dda_step_to_next_sibling(
@@ -410,10 +410,15 @@ fn traverse_brick(
             current_bounds,
             ray_scale_factors
         );
-        current_bounds.min_position = current_bounds.min_position + vec3f(step) * brick_unit;
+        current_bounds.min_position = (
+            current_bounds.min_position
+            + vec3f(step) * (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+        );
         current_index = current_index + vec3i(round(step));
     }
-    return result;
+
+    // Technically this line is unreachable
+    return BrickHit(false, vec3u(0));
 }
 
 struct OctreeRayIntersection {
@@ -424,130 +429,119 @@ struct OctreeRayIntersection {
     impact_normal: vec3f,
 }
 
+struct NodeStackItem {
+    bounds: Cube,
+    node: u32,
+    sized_node_meta: u32,
+    target_octant: u32,
+}
+
 const max_depth = 20; // the depth for an octree the size of 1048576
                       // which would be approximately 10 km in case 1 voxel is 1 cm
-fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
-    var result: OctreeRayIntersection;
-    let dimension = octreeMetaData.voxel_brick_dim;
-    let voxelement_count = arrayLength(&voxels);
-    let node_count = arrayLength(&nodes);
-
-    // Eliminate all zeroes within the direction of the ray
-    var ray = ray_;
-    if 0. == ray.direction.x {
-        ray.direction.x = FLOAT_ERROR_TOLERANCE;
-    }
-    if 0. == ray.direction.y {
-        ray.direction.y = FLOAT_ERROR_TOLERANCE;
-    }
-    if 0. == ray.direction.z {
-        ray.direction.z = FLOAT_ERROR_TOLERANCE;
-    }
-
+fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     let ray_scale_factors = get_dda_scale_factors(ray);
     let direction_lut_index = hash_direction(ray.direction);
-
-    var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
+    var current_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     var ray_current_distance: f32  = 0.0;
     var node_stack: array<NodeStackItem, max_depth>;
     var node_stack_i: i32 = 0;
-    let unit_in_bitmap_space = 4. / f32(dimension);
 
-    let root_intersection = cube_intersect_ray(root_bounds, ray);
+    let root_intersection = cube_intersect_ray(current_bounds, ray);
     if(root_intersection.hit){
         ray_current_distance = impact_or(root_intersection, 0.);
-        let target_octant = hash_region(
-            point_in_ray_at_distance(ray, ray_current_distance) - root_bounds.min_position,
-            root_bounds.size,
-        );
-        node_stack[0] = new_node_stack_item(
-            root_bounds,
+        node_stack[0] = NodeStackItem(
+            current_bounds,
             OCTREE_ROOT_NODE_KEY,
             nodes[OCTREE_ROOT_NODE_KEY].sized_node_meta,
-            target_octant
+            hash_region(
+                point_in_ray_at_distance(ray, ray_current_distance) - current_bounds.min_position,
+                current_bounds.size / 2.,
+            )
         );
         node_stack_i = 1;
     }
     while(0 < node_stack_i && node_stack_i < max_depth) {
-        var current_bounds = node_stack[node_stack_i - 1].bounds;
-        var current_node = nodes[node_stack[node_stack_i - 1].node]; //!NOTE: should be const, but then it can not be indexed dynamically
-        var target_octant = node_stack[node_stack_i - 1].target_octant;
+        current_bounds = node_stack[node_stack_i - 1].bounds;
 
         var leaf_miss = false;
-        if is_leaf(current_node.sized_node_meta) {
+        if is_leaf(nodes[node_stack[node_stack_i - 1].node].sized_node_meta) {
             let leaf_brick_hit = traverse_brick(
-                ray, &ray_current_distance, current_node.voxels_start_at,
-                children_buffer[current_node.children_starts_at],
-                children_buffer[current_node.children_starts_at + 1],
-                current_bounds, ray_scale_factors, direction_lut_index,
-                unit_in_bitmap_space, dimension
+                ray, &ray_current_distance, nodes[node_stack[node_stack_i - 1].node].voxels_start_at,
+                children_buffer[nodes[node_stack[node_stack_i - 1].node].children_starts_at],
+                children_buffer[nodes[node_stack[node_stack_i - 1].node].children_starts_at + 1],
+                current_bounds, ray_scale_factors, direction_lut_index
             );
             if leaf_brick_hit.hit == true {
                 let hit_in_voxels = (
-                    current_node.voxels_start_at
-                    + u32(flat_projection( leaf_brick_hit.index, vec2u(dimension, dimension) ))
+                    nodes[node_stack[node_stack_i - 1].node].voxels_start_at
+                    + u32(flat_projection(
+                        leaf_brick_hit.index, 
+                        vec2u(octreeMetaData.voxel_brick_dim, octreeMetaData.voxel_brick_dim)
+                    ))
                 );
-                current_bounds.size /= f32(dimension);
+                current_bounds.size /= f32(octreeMetaData.voxel_brick_dim);
                 current_bounds.min_position = current_bounds.min_position
                     + vec3f(leaf_brick_hit.index) * current_bounds.size;
-                result.hit = true;
-                result.albedo = color_palette[voxels[hit_in_voxels].albedo_index];
-                result.content = voxels[hit_in_voxels].content;
-                result.collision_point = point_in_ray_at_distance(ray, ray_current_distance);
-                result.impact_normal = cube_impact_normal(current_bounds, result.collision_point);
-                return result;
+                return OctreeRayIntersection(
+                    true,
+                    color_palette[voxels[hit_in_voxels].albedo_index],
+                    voxels[hit_in_voxels].content,
+                    point_in_ray_at_distance(ray, ray_current_distance),
+                    cube_impact_normal(current_bounds, point_in_ray_at_distance(ray, ray_current_distance))
+                );
             }
             leaf_miss = true;
         }
         if( leaf_miss
-            || target_octant == OOB_OCTANT
+            || node_stack[node_stack_i - 1].target_octant == OOB_OCTANT
             || ( 0 == (
-                get_node_occupancy_bitmap(current_node.sized_node_meta)
-                | RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant][direction_lut_index]
+                get_node_occupancy_bitmap(nodes[node_stack[node_stack_i - 1].node].sized_node_meta)
+                | RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[node_stack[node_stack_i - 1].target_octant][direction_lut_index]
             ))
-            || 0 == get_node_occupancy_bitmap(current_node.sized_node_meta)
+            || 0 == get_node_occupancy_bitmap(nodes[node_stack[node_stack_i - 1].node].sized_node_meta)
         ){
             // POP
-            let popped_target = node_stack[node_stack_i - 1];
             node_stack_i -= 1;
             if(0 < node_stack_i){
-                let step_vec = dda_step_to_next_sibling(
-                    ray,
-                    &ray_current_distance,
-                    popped_target.bounds,
-                    ray_scale_factors
-                );
                 node_stack[node_stack_i - 1].target_octant = step_octant(
                     node_stack[node_stack_i - 1].target_octant,
-                    step_vec
+                    dda_step_to_next_sibling(
+                        ray,
+                        &ray_current_distance,
+                        node_stack[node_stack_i].bounds,
+                        ray_scale_factors
+                    )
                 );
             }
             continue;
         }
 
-        var target_bounds = child_bounds_for(current_bounds, target_octant);
-        var target_child_key = children_buffer[current_node.children_starts_at + target_octant];
-        let target_is_empty = (
-            target_child_key >= node_count //!crate::object_pool::key_is_valid
-            || 0 == (
-                get_node_occupancy_bitmap( current_node.sized_node_meta )
+        var target_bounds = child_bounds_for(current_bounds, node_stack[node_stack_i - 1].target_octant);
+        var target_child_key = children_buffer[
+            nodes[node_stack[node_stack_i - 1].node].children_starts_at
+            + node_stack[node_stack_i - 1].target_octant
+        ];
+
+        if (
+            target_child_key < arrayLength(&nodes) //!crate::object_pool::key_is_valid
+            && 0 != (
+                get_node_occupancy_bitmap(
+                    nodes[node_stack[node_stack_i - 1].node].sized_node_meta
+                )
                 & ( // crate::spatial::math::octant_bitmask
-                    0x00000001u << (target_octant & 0x000000FF)
+                    0x00000001u << (node_stack[node_stack_i - 1].target_octant & 0x000000FF)
                 )
             )
-        );
-
-        if !target_is_empty {
+        ) {
             // PUSH
-            let child_target_octant = hash_region(
-                (point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position),
-                target_bounds.size
-            );
-            node_stack[node_stack_i] = new_node_stack_item(
+            node_stack[node_stack_i] = NodeStackItem(
                 target_bounds,
                 target_child_key,
                 nodes[target_child_key].sized_node_meta,
-                child_target_octant
+                hash_region( // child_target_octant
+                    (point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position),
+                    target_bounds.size / 2.
+                )
             );
             node_stack_i += 1;
         } else {
@@ -559,38 +553,44 @@ fn get_by_ray(ray_: Line) -> OctreeRayIntersection{
                     target_bounds,
                     ray_scale_factors
                 );
-                target_octant = step_octant(target_octant, step_vec);
-                if OOB_OCTANT != target_octant {
-                    target_bounds = child_bounds_for(current_bounds, target_octant);
-                    target_child_key =
-                        children_buffer[current_node.children_starts_at + target_octant];
+                node_stack[node_stack_i - 1].target_octant = step_octant(
+                    node_stack[node_stack_i - 1].target_octant, step_vec
+                );
+                if OOB_OCTANT != node_stack[node_stack_i - 1].target_octant {
+                    target_bounds = child_bounds_for(
+                        current_bounds, node_stack[node_stack_i - 1].target_octant
+                    );
+                    target_child_key = children_buffer[
+                        nodes[node_stack[node_stack_i - 1].node].children_starts_at
+                        + node_stack[node_stack_i - 1].target_octant
+                    ];
                 }
 
                 if (
-                    target_octant == OOB_OCTANT
+                    node_stack[node_stack_i - 1].target_octant == OOB_OCTANT
                     || (
-                        target_child_key < node_count //crate::object_pool::key_is_valid
+                        target_child_key < arrayLength(&nodes) //crate::object_pool::key_is_valid
                         && 0 != (
-                            get_node_occupancy_bitmap( current_node.sized_node_meta )
-                            & (0x00000001u << target_octant) // crate::spatial::math::octant_bitmask
+                            get_node_occupancy_bitmap(
+                                nodes[node_stack[node_stack_i - 1].node].sized_node_meta
+                            )
+                            & (0x00000001u << node_stack[node_stack_i - 1].target_octant) // crate::spatial::math::octant_bitmask
                         )
                         && 0 != (
                             get_node_occupancy_bitmap(nodes[target_child_key].sized_node_meta)
                             & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                 point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position,
-                                target_bounds.size
+                                target_bounds.size / 2.
                             )][direction_lut_index]
                         )
                     )
                 ){
-                    node_stack[node_stack_i - 1].target_octant = target_octant;
                     break;
                 }
             }
         }
     }
-    result.hit = false;
-    return result;
+    return OctreeRayIntersection(false, vec4f(0.), 0, vec3f(0.), vec3f(0., 0., 1.));
 }
 
 struct Voxelement {
@@ -599,12 +599,11 @@ struct Voxelement {
 }
 
 fn is_empty(e: Voxelement) -> bool {
-    let albedo = color_palette[e.albedo_index];
     return (
-        0. == albedo.r
-        && 0. == albedo.g
-        && 0. == albedo.b
-        && 0. == albedo.a
+        0. == color_palette[e.albedo_index].r
+        && 0. == color_palette[e.albedo_index].g
+        && 0. == color_palette[e.albedo_index].b
+        && 0. == color_palette[e.albedo_index].a
         && 0 == e.content
     );
 }
@@ -655,34 +654,30 @@ fn update(
     @builtin(global_invocation_id) invocation_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
-    let pixel_location = vec2u(invocation_id.xy);
     let pixel_location_normalized = vec2f(
         f32(invocation_id.x) / f32(num_workgroups.x * 8),
         f32(invocation_id.y) / f32(num_workgroups.y * 8)
     );
-    let viewport_up_direction = vec3f(0., 1., 0.);
     let viewport_right_direction = normalize(cross(
-        viewport_up_direction, viewport.direction
+        vec3f(0., 1., 0.), viewport.direction
     ));
     let viewport_bottom_left = viewport.origin 
         + (viewport.direction * viewport.w_h_fov.z)
         - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
-        - (viewport_up_direction * (viewport.w_h_fov.y / 2.))
+        - (vec3f(0., 1., 0.) * (viewport.w_h_fov.y / 2.))
         ;
     let ray_endpoint = viewport_bottom_left
         + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
-        + viewport_up_direction * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
+        + vec3f(0., 1., 0.) * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
         ;
-    var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
-
     var rgb_result = vec3f(0.5,0.5,0.5);
-    var ray_result = get_by_ray(ray);
+    var ray_result = get_by_ray(Line(ray_endpoint, normalize(ray_endpoint - viewport.origin)));
     if ray_result.hit == true {
-        let diffuse_light_strength = (
-            dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
-        );
-        let result_with_lights = ray_result.albedo.rgb * diffuse_light_strength;
-        rgb_result = result_with_lights.rgb;
+        rgb_result = (
+            ray_result.albedo.rgb * (
+                dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
+            )
+        ).rgb;
     }
 
     /*// +++ DEBUG +++
@@ -709,7 +704,7 @@ fn update(
     }
     */// --- DEBUG ---
 
-    textureStore(output_texture, pixel_location, vec4f(rgb_result, 1.));
+    textureStore(output_texture, vec2u(invocation_id.xy), vec4f(rgb_result, 1.));
 }
 
 // Note: should be const

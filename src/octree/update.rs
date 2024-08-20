@@ -2,12 +2,13 @@ use crate::object_pool::empty_marker;
 use crate::octree::types::NodeChildrenArray;
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    hash_region,
     types::{NodeChildren, NodeContent, OctreeError},
     Octree, VoxelData,
 };
 use crate::spatial::{
-    math::{octant_bitmask, offset_region, set_occupancy_in_bitmap_64bits, vector::V3c},
+    math::{
+        hash_region, octant_bitmask, offset_region, set_occupancy_in_bitmap_64bits, vector::V3c,
+    },
     Cube,
 };
 
@@ -365,7 +366,7 @@ where
                 let child_octant = hash_region(
                     &((child_bounds.min_position - node_bounds.min_position)
                         + V3c::unit(child_bounds.size / 2.)),
-                    node_bounds.size,
+                    node_bounds.size / 2.,
                 ) as usize;
                 self.node_children[node_key as usize].clear(child_octant);
                 self.nodes.free(child_key);

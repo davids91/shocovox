@@ -22,14 +22,14 @@ mod octant_tests {
 
     #[test]
     fn test_hash_region() {
-        assert!(hash_region(&V3c::new(0.0, 0.0, 0.0), 10.0) == 0);
-        assert!(hash_region(&V3c::new(6.0, 0.0, 0.0), 10.0) == 1);
-        assert!(hash_region(&V3c::new(0.0, 0.0, 6.0), 10.0) == 2);
-        assert!(hash_region(&V3c::new(6.0, 0.0, 6.0), 10.0) == 3);
-        assert!(hash_region(&V3c::new(0.0, 6.0, 0.0), 10.0) == 4);
-        assert!(hash_region(&V3c::new(6.0, 6.0, 0.0), 10.0) == 5);
-        assert!(hash_region(&V3c::new(0.0, 6.0, 6.0), 10.0) == 6);
-        assert!(hash_region(&V3c::new(6.0, 6.0, 6.0), 10.0) == 7);
+        assert!(hash_region(&V3c::new(0.0, 0.0, 0.0), 5.0) == 0);
+        assert!(hash_region(&V3c::new(6.0, 0.0, 0.0), 5.0) == 1);
+        assert!(hash_region(&V3c::new(0.0, 0.0, 6.0), 5.0) == 2);
+        assert!(hash_region(&V3c::new(6.0, 0.0, 6.0), 5.0) == 3);
+        assert!(hash_region(&V3c::new(0.0, 6.0, 0.0), 5.0) == 4);
+        assert!(hash_region(&V3c::new(6.0, 6.0, 0.0), 5.0) == 5);
+        assert!(hash_region(&V3c::new(0.0, 6.0, 6.0), 5.0) == 6);
+        assert!(hash_region(&V3c::new(6.0, 6.0, 6.0), 5.0) == 7);
     }
 
     #[test]

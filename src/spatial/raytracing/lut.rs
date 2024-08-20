@@ -92,7 +92,7 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
     for x in 0i32..2 {
         for y in 0i32..2 {
             for z in 0i32..2 {
-                let bitmask_position = hash_region(&V3c::new(x as f32, y as f32, z as f32), 1.);
+                let bitmask_position = hash_region(&V3c::new(x as f32, y as f32, z as f32), 0.5);
                 //direction
                 for dx in -1i32..=1 {
                     for dy in -1i32..=1 {
@@ -119,7 +119,7 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
                                     for bz in min_z..=max_z {
                                         result_bitmask |= octant_bitmask(hash_region(
                                             &V3c::new(bx as f32, by as f32, bz as f32),
-                                            1.,
+                                            0.5,
                                         ));
                                     }
                                 }
@@ -166,7 +166,7 @@ fn generate_octant_step_result_lut() {
         {
             OOB_OCTANT
         } else {
-            hash_region(&center_after_step, SPACE_SIZE)
+            hash_region(&center_after_step, SPACE_SIZE / 2.)
         }
     };
 
