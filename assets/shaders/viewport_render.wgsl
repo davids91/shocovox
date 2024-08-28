@@ -430,9 +430,7 @@ struct OctreeRayIntersection {
 }
 
 struct NodeStackItem {
-    bounds: Cube,
     node: u32,
-    sized_node_meta: u32,
     target_octant: u32,
 }
 
@@ -450,9 +448,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
     if(root_intersection.hit){
         ray_current_distance = impact_or(root_intersection, 0.);
         node_stack[0] = NodeStackItem(
-            current_bounds,
             OCTREE_ROOT_NODE_KEY,
-            nodes[OCTREE_ROOT_NODE_KEY].sized_node_meta,
             hash_region(
                 point_in_ray_at_distance(ray, ray_current_distance) - current_bounds.min_position,
                 current_bounds.size / 2.,
@@ -461,7 +457,6 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         node_stack_i = 1;
     }
     while(0 < node_stack_i && node_stack_i < max_depth) {
-        current_bounds = node_stack[node_stack_i - 1].bounds;
 
         var leaf_miss = false;
         if is_leaf(nodes[node_stack[node_stack_i - 1].node].sized_node_meta) {
@@ -494,11 +489,11 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         }
         if( leaf_miss
             || node_stack[node_stack_i - 1].target_octant == OOB_OCTANT
+            || 0 == get_node_occupancy_bitmap(nodes[node_stack[node_stack_i - 1].node].sized_node_meta)
             || ( 0 == (
                 get_node_occupancy_bitmap(nodes[node_stack[node_stack_i - 1].node].sized_node_meta)
                 | RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[node_stack[node_stack_i - 1].target_octant][direction_lut_index]
             ))
-            || 0 == get_node_occupancy_bitmap(nodes[node_stack[node_stack_i - 1].node].sized_node_meta)
         ){
             // POP
             node_stack_i -= 1;
@@ -508,10 +503,12 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                     dda_step_to_next_sibling(
                         ray,
                         &ray_current_distance,
-                        node_stack[node_stack_i].bounds,
+                        current_bounds,
                         ray_scale_factors
                     )
                 );
+                current_bounds.size = round(current_bounds.size * 2.);
+                current_bounds.min_position -= current_bounds.min_position % current_bounds.size;
             }
             continue;
         }
@@ -534,10 +531,9 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             )
         ) {
             // PUSH
+            current_bounds = target_bounds;
             node_stack[node_stack_i] = NodeStackItem(
-                target_bounds,
                 target_child_key,
-                nodes[target_child_key].sized_node_meta,
                 hash_region( // child_target_octant
                     (point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position),
                     target_bounds.size / 2.

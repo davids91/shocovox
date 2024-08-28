@@ -1,3 +1,5 @@
+use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
+
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
     feature = "serialization",
@@ -25,15 +27,40 @@ impl<T: Copy> V3c<T> {
     }
 }
 
+impl<T> SubAssign for V3c<T>
+where
+    T: Copy + Sub<Output = T>,
+{
+    fn sub_assign(&mut self, other: V3c<T>) {
+        *self = *self - other;
+    }
+}
+
+impl<T> AddAssign for V3c<T>
+where
+    T: Copy + Add<Output = T>,
+{
+    fn add_assign(&mut self, other: V3c<T>) {
+        *self = *self + other;
+    }
+}
+
 impl<T> V3c<T>
 where
     T: num_traits::Signed + Clone,
 {
-    pub fn abs(&mut self) -> V3c<T> {
+    pub fn abs(&mut self) -> &mut Self {
         self.x = self.x.abs();
         self.y = self.y.abs();
         self.z = self.z.abs();
-        self.clone()
+        self
+    }
+
+    pub fn modulo(&mut self, operand: &T) -> &mut Self {
+        self.x = self.x.clone() % operand.clone();
+        self.y = self.y.clone() % operand.clone();
+        self.z = self.z.clone() % operand.clone();
+        self
     }
 }
 
@@ -112,7 +139,6 @@ where
     }
 }
 
-use std::ops::{Add, Div, Mul, Sub};
 impl<T: Add<Output = T>> Add for V3c<T> {
     type Output = V3c<T>;
 
