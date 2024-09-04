@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
-#[derive(Default, Clone, Copy, Debug)]
+#[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
@@ -201,16 +201,6 @@ impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
         }
     }
 }
-
-impl<T> PartialEq for V3c<T>
-where
-    T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.z == other.z
-    }
-}
-impl<T> Eq for V3c<T> where T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq {}
 
 impl From<V3c<usize>> for V3c<f32> {
     fn from(vec: V3c<usize>) -> V3c<f32> {

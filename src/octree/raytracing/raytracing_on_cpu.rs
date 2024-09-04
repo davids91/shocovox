@@ -17,6 +17,71 @@ use crate::spatial::{
     },
 };
 
+#[derive(Debug)]
+pub(crate) struct NodeStack<T, const SIZE: usize = 4> {
+    data: [T; SIZE],
+    head_index: usize,
+    count: u8,
+}
+
+impl<T, const SIZE: usize> Default for NodeStack<T, SIZE>
+where
+    T: Default + Copy,
+{
+    fn default() -> Self {
+        Self {
+            data: [T::default(); SIZE],
+            head_index: 0,
+            count: 0,
+        }
+    }
+}
+
+impl<T, const SIZE: usize> NodeStack<T, SIZE>
+where
+    T: Default + Copy,
+{
+    pub(crate) fn is_empty(&self) -> bool {
+        0 == self.count
+    }
+
+    pub(crate) fn push(&mut self, data: T) {
+        self.head_index = (self.head_index + 1) % SIZE;
+        self.count = (self.count + 1).min(SIZE as u8);
+        self.data[self.head_index] = data;
+    }
+
+    pub(crate) fn pop(&mut self) -> Option<T> {
+        if 0 == self.count {
+            None
+        } else {
+            self.count -= 1;
+            let result = self.data[self.head_index];
+            if self.head_index == 0 {
+                self.head_index = SIZE - 1;
+            } else {
+                self.head_index -= 1;
+            }
+            return Some(result);
+        }
+    }
+
+    pub(crate) fn last(&self) -> Option<&T> {
+        if 0 == self.count {
+            None
+        } else {
+            return Some(&self.data[self.head_index]);
+        }
+    }
+    pub(crate) fn last_mut(&mut self) -> Option<&mut T> {
+        if 0 == self.count {
+            None
+        } else {
+            return Some(&mut self.data[self.head_index]);
+        }
+    }
+}
+
 impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
@@ -200,132 +265,142 @@ where
         let ray_scale_factors = Self::get_dda_scale_factors(&ray);
         let direction_lut_index = hash_direction(&ray.direction) as usize;
 
-        let mut node_stack = Vec::new();
+        let mut node_stack: NodeStack<u32> = NodeStack::default();
         let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let mut ray_current_distance = 0.0; // No need to initialize, but it will shut the compiler
-        let mut target_octant = OOB_OCTANT; // No need to initialize, but it will shut the compiler
-        if let Some(root_hit) = current_bounds.intersect_ray(&ray) {
-            ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
-            target_octant = hash_region(
-                &(ray.point_at(ray_current_distance) - current_bounds.min_position),
-                current_bounds.size / 2.,
-            );
+        let (mut ray_current_distance, mut target_octant) =
+            if let Some(root_hit) = current_bounds.intersect_ray(&ray) {
+                let ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
+                (
+                    ray_current_distance,
+                    hash_region(
+                        &(ray.point_at(ray_current_distance) - current_bounds.min_position),
+                        current_bounds.size / 2.,
+                    ),
+                )
+            } else {
+                (0., OOB_OCTANT)
+            };
+        let mut current_node_key: usize;
+        let mut step_vec = V3c::unit(0.);
+        while target_octant != OOB_OCTANT {
+            current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
+            current_bounds = Cube::root_bounds(self.octree_size as f32);
             node_stack.push(Octree::<T, DIM>::ROOT_NODE_KEY);
-        }
+            while !node_stack.is_empty() {
+                let current_node_occupied_bits = self.occupied_8bit(*node_stack.last().unwrap());
+                debug_assert!(self
+                    .nodes
+                    .key_is_valid(*node_stack.last().unwrap() as usize));
 
-        while !node_stack.is_empty() {
-            let current_node_key = *node_stack.last().unwrap() as usize;
-            let current_node_occupied_bits = self.occupied_8bit(*node_stack.last().unwrap());
-            debug_assert!(self
-                .nodes
-                .key_is_valid(*node_stack.last().unwrap() as usize));
-
-            let mut leaf_miss = false;
-            if self.nodes.get(current_node_key).is_leaf() {
-                debug_assert!(matches!(
-                    self.node_children[current_node_key].content,
-                    NodeChildrenArray::OccupancyBitmap(_)
-                ));
-                if let Some(leaf_brick_hit) = Self::traverse_brick(
-                    &ray,
-                    &mut ray_current_distance,
-                    self.nodes.get(current_node_key).leaf_data(),
-                    match self.node_children[current_node_key].content {
-                        NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
-                        _ => {
-                            debug_assert!(false);
-                            0
-                        }
-                    },
-                    &current_bounds,
-                    &ray_scale_factors,
-                    direction_lut_index,
-                ) {
-                    current_bounds.size /= DIM as f32;
-                    current_bounds.min_position = current_bounds.min_position
-                        + V3c::<f32>::from(leaf_brick_hit) * current_bounds.size;
-                    let impact_point = ray.point_at(ray_current_distance);
-                    let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
-                    return Some((
-                        &self.nodes.get(current_node_key).leaf_data()[leaf_brick_hit.x]
-                            [leaf_brick_hit.y][leaf_brick_hit.z],
-                        impact_point,
-                        impact_normal,
+                let mut leaf_miss = false;
+                if self.nodes.get(current_node_key).is_leaf() {
+                    debug_assert!(matches!(
+                        self.node_children[current_node_key].content,
+                        NodeChildrenArray::OccupancyBitmap(_)
                     ));
+                    if let Some(leaf_brick_hit) = Self::traverse_brick(
+                        &ray,
+                        &mut ray_current_distance,
+                        self.nodes.get(current_node_key).leaf_data(),
+                        match self.node_children[current_node_key].content {
+                            NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
+                            _ => {
+                                debug_assert!(false);
+                                0
+                            }
+                        },
+                        &current_bounds,
+                        &ray_scale_factors,
+                        direction_lut_index,
+                    ) {
+                        current_bounds.size /= DIM as f32;
+                        current_bounds.min_position = current_bounds.min_position
+                            + V3c::<f32>::from(leaf_brick_hit) * current_bounds.size;
+                        let impact_point = ray.point_at(ray_current_distance);
+                        let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
+                        return Some((
+                            &self.nodes.get(current_node_key).leaf_data()[leaf_brick_hit.x]
+                                [leaf_brick_hit.y][leaf_brick_hit.z],
+                            impact_point,
+                            impact_normal,
+                        ));
+                    }
+                    leaf_miss = true;
                 }
-                leaf_miss = true;
-            }
 
-            if leaf_miss
-                || target_octant == OOB_OCTANT
-                // In case the current Node is empty
-                || 0 == current_node_occupied_bits
-                // In case there is no overlap between the node occupancy and the potential slots the ray would hit
-                || 0 == (current_node_occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant as usize][direction_lut_index as usize])
-            {
-                // POP
-                node_stack.pop();
-                if let Some(_parent) = node_stack.last_mut() {
-                    let step_vec = Self::dda_step_to_next_sibling(
+                if leaf_miss
+                    || target_octant == OOB_OCTANT
+                    // In case the current Node is empty
+                    || 0 == current_node_occupied_bits
+                    // In case there is no overlap between the node occupancy and the potential slots the ray would hit
+                    || 0 == (current_node_occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant as usize][direction_lut_index as usize])
+                {
+                    // POP
+                    node_stack.pop();
+                    step_vec = Self::dda_step_to_next_sibling(
                         &ray,
                         &mut ray_current_distance,
                         &current_bounds,
                         &ray_scale_factors,
                     );
-                    let current_bound_center =
-                        current_bounds.min_position + V3c::unit(current_bounds.size / 2.);
-                    let parent_bound_min_position = current_bounds.min_position
-                        - *current_bounds
-                            .min_position
-                            .clone()
-                            .modulo(&(current_bounds.size * 2.));
-                    target_octant = step_octant(
-                        hash_region(
-                            &(current_bound_center - parent_bound_min_position),
-                            current_bounds.size,
-                        ),
-                        step_vec,
-                    );
-                    current_bounds.size *= 2.;
-                    current_bounds.min_position = parent_bound_min_position;
-                    debug_assert!(current_bounds.size <= self.octree_size as f32);
-                }
-                continue; // Restart loop with the parent Node
-                          // Eliminating this `continue` causes significant slowdown in GPU
-            }
-
-            let mut target_bounds = current_bounds.child_bounds_for(target_octant);
-            let mut target_child_key = self.node_children[current_node_key][target_octant as u32];
-            if self.nodes.key_is_valid(target_child_key as usize)
-                && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
-            {
-                // PUSH
-                current_bounds = target_bounds;
-                target_octant = hash_region(
-                    &(ray.point_at(ray_current_distance) - target_bounds.min_position),
-                    target_bounds.size / 2.,
-                );
-                node_stack.push(target_child_key);
-            } else {
-                // ADVANCE
-                // target child is invalid, or it does not intersect with the ray,
-                // so advance iteration to the next sibling
-                loop {
-                    // step the iteration to the next sibling cell!
-                    let step_vec = Self::dda_step_to_next_sibling(
-                        &ray,
-                        &mut ray_current_distance,
-                        &target_bounds,
-                        &ray_scale_factors,
-                    );
-                    target_octant = step_octant(target_octant, step_vec);
-                    if OOB_OCTANT != target_octant {
-                        target_bounds = current_bounds.child_bounds_for(target_octant);
-                        target_child_key =
-                            self.node_children[current_node_key][target_octant as u32];
+                    if let Some(parent) = node_stack.last_mut() {
+                        current_node_key = *parent as usize;
+                        let current_bound_center =
+                            current_bounds.min_position + V3c::unit(current_bounds.size / 2.);
+                        let parent_bound_min_position = current_bounds.min_position
+                            - *current_bounds
+                                .min_position
+                                .clone()
+                                .modulo(&(current_bounds.size * 2.));
+                        target_octant = step_octant(
+                            hash_region(
+                                &(current_bound_center - parent_bound_min_position),
+                                current_bounds.size,
+                            ),
+                            step_vec,
+                        );
+                        current_bounds.size *= 2.;
+                        current_bounds.min_position = parent_bound_min_position;
+                        debug_assert!(current_bounds.size <= self.octree_size as f32);
                     }
-                    if target_octant == OOB_OCTANT
-                        || (self.nodes.key_is_valid(target_child_key as usize)
+                    continue; // Restart loop with the parent Node
+                              // Eliminating this `continue` causes significant slowdown in GPU
+                }
+
+                let mut target_bounds = current_bounds.child_bounds_for(target_octant);
+                let mut target_child_key =
+                    self.node_children[current_node_key][target_octant as u32];
+                if self.nodes.key_is_valid(target_child_key as usize)
+                    && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
+                {
+                    // PUSH
+                    current_node_key = target_child_key as usize;
+                    current_bounds = target_bounds;
+                    target_octant = hash_region(
+                        &(ray.point_at(ray_current_distance) - target_bounds.min_position),
+                        target_bounds.size / 2.,
+                    );
+                    node_stack.push(target_child_key);
+                } else {
+                    // ADVANCE
+                    // target child is invalid, or it does not intersect with the ray,
+                    // so advance iteration to the next sibling
+                    loop {
+                        // step the iteration to the next sibling cell!
+                        step_vec = Self::dda_step_to_next_sibling(
+                            &ray,
+                            &mut ray_current_distance,
+                            &target_bounds,
+                            &ray_scale_factors,
+                        );
+                        target_octant = step_octant(target_octant, step_vec);
+                        if OOB_OCTANT != target_octant {
+                            target_bounds = current_bounds.child_bounds_for(target_octant);
+                            target_child_key =
+                                self.node_children[current_node_key][target_octant as u32];
+                        }
+                        if target_octant == OOB_OCTANT
+                            || (self.nodes.key_is_valid(target_child_key as usize)
                             // current node is occupied at target octant
                             && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
                             // target child collides with the ray
@@ -338,14 +413,33 @@ where
                                     ) as usize]
                                     [direction_lut_index as usize],
                             })
-                    {
-                        // stop advancing because current target is either
-                        // - OOB
-                        // - or (not empty while inside bounds AND collides with the ray based on its occupancy bitmap)
-                        break;
+                        {
+                            // stop advancing because current target is either
+                            // - OOB
+                            // - or (not empty while inside bounds AND collides with the ray based on its occupancy bitmap)
+                            break;
+                        }
                     }
                 }
             }
+
+            // POP on empty stack happened, which means iteration must continue from root
+            // To avoid precision problems the current bound center
+            // pushed along the last step is used for reference
+            let current_octant_center = current_bounds.min_position
+                + V3c::unit(current_bounds.size) / 2.
+                + step_vec * current_bounds.size;
+            target_octant = if current_octant_center.x < self.octree_size as f32 - 1.
+                && current_octant_center.y < self.octree_size as f32 - 1.
+                && current_octant_center.z < self.octree_size as f32 - 1.
+                && current_octant_center.x > 0.
+                && current_octant_center.y > 0.
+                && current_octant_center.z > 0.
+            {
+                hash_region(&current_octant_center, self.octree_size as f32 / 2.)
+            } else {
+                OOB_OCTANT
+            };
         }
         None
     }
