@@ -13,6 +13,13 @@ use shocovox_rs::octree::{
 };
 
 #[cfg(feature = "bevy_wgpu")]
+use iyes_perf_ui::{
+    entries::diagnostics::{PerfUiEntryFPS, PerfUiEntryFPSWorst},
+    ui::root::PerfUiRoot,
+    PerfUiPlugin,
+};
+
+#[cfg(feature = "bevy_wgpu")]
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
@@ -24,6 +31,8 @@ fn main() {
             ShocoVoxRenderPlugin {
                 resolution: DISPLAY_RESOLUTION,
             },
+            bevy::diagnostic::FrameTimeDiagnosticsPlugin,
+            PerfUiPlugin,
         ))
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
@@ -88,6 +97,24 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2dBundle::default());
     commands.insert_resource(render_data);
     commands.insert_resource(viewing_glass);
+
+    commands.spawn((
+        PerfUiRoot::default(),
+        PerfUiEntryFPS {
+            label: "Frame Rate (current)".into(),
+            threshold_highlight: Some(60.0),
+            digits: 5,
+            precision: 2,
+            ..default()
+        },
+        PerfUiEntryFPSWorst {
+            label: "Frame Rate (worst)".into(),
+            threshold_highlight: Some(60.0),
+            digits: 5,
+            precision: 2,
+            ..default()
+        },
+    ));
 }
 
 #[cfg(feature = "bevy_wgpu")]
