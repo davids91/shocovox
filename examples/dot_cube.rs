@@ -19,7 +19,10 @@ use shocovox_rs::octree::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const ARRAY_DIMENSION: u32 = 256;
+const BRICK_DIMENSION: usize = 32;
+
+#[cfg(feature = "bevy_wgpu")]
+const TREE_SIZE: u32 = 256;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -44,48 +47,45 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // use shocovox_rs::octree::raytracing::bevy::create_viewing_glass;
 
     let origin = V3c::new(
-        ARRAY_DIMENSION as f32 * 2.,
-        ARRAY_DIMENSION as f32 / 2.,
-        ARRAY_DIMENSION as f32 * -2.,
+        TREE_SIZE as f32 * 2.,
+        TREE_SIZE as f32 / 2.,
+        TREE_SIZE as f32 * -2.,
     );
-    commands.spawn(DomePosition { yaw: 0. });
 
     // fill octree with data
     let tree_path = "example_junk_dotcube";
     let mut tree;
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::<Albedo, 32>::load(&tree_path).ok().unwrap();
+        tree = Octree::<Albedo, BRICK_DIMENSION>::load(&tree_path)
+            .ok()
+            .unwrap();
     } else {
-        tree = shocovox_rs::octree::Octree::<Albedo, 32>::new(ARRAY_DIMENSION)
+        tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
             .ok()
             .unwrap();
 
         tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
             .ok()
             .unwrap();
-        for x in 0..ARRAY_DIMENSION {
-            for y in 0..ARRAY_DIMENSION {
-                for z in 0..ARRAY_DIMENSION {
-                    if ((x < (ARRAY_DIMENSION / 4)
-                        || y < (ARRAY_DIMENSION / 4)
-                        || z < (ARRAY_DIMENSION / 4))
+        for x in 0..TREE_SIZE {
+            for y in 0..TREE_SIZE {
+                for z in 0..TREE_SIZE {
+                    if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
                         && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
-                        || ((ARRAY_DIMENSION / 2) <= x
-                            && (ARRAY_DIMENSION / 2) <= y
-                            && (ARRAY_DIMENSION / 2) <= z)
+                        || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
                     {
-                        let r = if 0 == x % (ARRAY_DIMENSION / 4) {
-                            (x as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        let r = if 0 == x % (TREE_SIZE / 4) {
+                            (x as f32 / TREE_SIZE as f32 * 255.) as u32
                         } else {
                             128
                         };
-                        let g = if 0 == y % (ARRAY_DIMENSION / 4) {
-                            (y as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        let g = if 0 == y % (TREE_SIZE / 4) {
+                            (y as f32 / TREE_SIZE as f32 * 255.) as u32
                         } else {
                             128
                         };
-                        let b = if 0 == z % (ARRAY_DIMENSION / 4) {
-                            (z as f32 / ARRAY_DIMENSION as f32 * 255.) as u32
+                        let b = if 0 == z % (TREE_SIZE / 4) {
+                            (z as f32 / TREE_SIZE as f32 * 255.) as u32
                         } else {
                             128
                         };
@@ -116,6 +116,11 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         images,
     );
 
+    commands.spawn(DomePosition {
+        yaw: 0.,
+        roll: 0.,
+        radius: tree.get_size() as f32 * 2.2,
+    });
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),
@@ -150,7 +155,9 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 #[cfg(feature = "bevy_wgpu")]
 #[derive(Component)]
 struct DomePosition {
+    radius: f32,
     yaw: f32,
+    roll: f32,
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -158,40 +165,52 @@ fn rotate_camera(
     mut angles_query: Query<&mut DomePosition>,
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
-    let angle = {
-        let addition = ARRAY_DIMENSION as f32 / 10000.;
-        let angle = angles_query.single().yaw + addition;
-        if angle < 360. {
-            angle
+    let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
+
+    let radius = angles_query.single().radius;
+    viewing_glass.viewport.origin = V3c::new(
+        radius / 2. + yaw.sin() * radius,
+        radius + roll.sin() * radius * 2.,
+        radius / 2. + yaw.cos() * radius,
+    );
+    viewing_glass.viewport.direction =
+        (V3c::unit(radius / 2.) - viewing_glass.viewport.origin).normalized();
+}
+
+#[cfg(feature = "bevy_wgpu")]
+fn handle_zoom(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
+    mut angles_query: Query<&mut DomePosition>,
+) {
+    const ADDITION: f32 = 0.05;
+    let angle_update_fn = |angle, delta| -> f32 {
+        let new_angle = angle + delta;
+        if new_angle < 360. {
+            new_angle
         } else {
             0.
         }
     };
-    angles_query.single_mut().yaw = angle;
-
-    let radius = ARRAY_DIMENSION as f32 * 1.3;
-    viewing_glass.viewport.origin = V3c::new(
-        ARRAY_DIMENSION as f32 / 2. + angle.sin() * radius,
-        ARRAY_DIMENSION as f32 + angle.cos() * angle.sin() * radius / 2.,
-        ARRAY_DIMENSION as f32 / 2. + angle.cos() * radius,
-    );
-    viewing_glass.viewport.direction = (V3c::new(
-        ARRAY_DIMENSION as f32 / 2.,
-        ARRAY_DIMENSION as f32 / 2.,
-        ARRAY_DIMENSION as f32 / 2.,
-    ) - viewing_glass.viewport.origin)
-        .normalized();
-}
-
-#[cfg(feature = "bevy_wgpu")]
-fn handle_zoom(keys: Res<ButtonInput<KeyCode>>, mut viewing_glass: ResMut<ShocoVoxViewingGlass>) {
     if keys.pressed(KeyCode::ArrowUp) {
-        viewing_glass.viewport.w_h_fov.x *= 1.1;
-        viewing_glass.viewport.w_h_fov.y *= 1.1;
+        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
     }
     if keys.pressed(KeyCode::ArrowDown) {
-        viewing_glass.viewport.w_h_fov.x *= 0.9;
-        viewing_glass.viewport.w_h_fov.y *= 0.9;
+        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, -ADDITION);
+    }
+    if keys.pressed(KeyCode::ArrowLeft) {
+        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, ADDITION);
+        // println!("viewport: {:?}", viewing_glass.viewport);
+    }
+    if keys.pressed(KeyCode::ArrowRight) {
+        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, -ADDITION);
+        // println!("viewport: {:?}", viewing_glass.viewport);
+    }
+    if keys.pressed(KeyCode::PageUp) {
+        angles_query.single_mut().radius *= 0.9;
+    }
+    if keys.pressed(KeyCode::PageDown) {
+        angles_query.single_mut().radius *= 1.1;
     }
 }
 
