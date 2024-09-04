@@ -282,6 +282,7 @@ where
             };
         let mut current_node_key: usize;
         let mut step_vec = V3c::unit(0.);
+
         while target_octant != OOB_OCTANT {
             current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
             current_bounds = Cube::root_bounds(self.octree_size as f32);
@@ -427,11 +428,11 @@ where
             // To avoid precision problems the current bound center
             // pushed along the last step is used for reference
             let current_octant_center = current_bounds.min_position
-                + V3c::unit(current_bounds.size) / 2.
+                + V3c::unit(current_bounds.size / 2.)
                 + step_vec * current_bounds.size;
-            target_octant = if current_octant_center.x < self.octree_size as f32 - 1.
-                && current_octant_center.y < self.octree_size as f32 - 1.
-                && current_octant_center.z < self.octree_size as f32 - 1.
+            target_octant = if current_octant_center.x < self.octree_size as f32
+                && current_octant_center.y < self.octree_size as f32
+                && current_octant_center.z < self.octree_size as f32
                 && current_octant_center.x > 0.
                 && current_octant_center.y > 0.
                 && current_octant_center.z > 0.
