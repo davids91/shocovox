@@ -27,7 +27,14 @@ fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin::default()),
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    // uncomment for unthrottled FPS
+                    present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    ..default()
+                }),
+                ..default()
+            }),
             ShocoVoxRenderPlugin {
                 resolution: DISPLAY_RESOLUTION,
             },

@@ -544,10 +544,9 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
-        assert!(tree.get_by_ray(&ray).is_some_and(|v| {
-            println!("v: {:?}", v);
-            *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)
-        }));
+        assert!(tree
+            .get_by_ray(&ray)
+            .is_some_and(|v| { *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.) }));
     }
 
     #[test]
@@ -572,7 +571,6 @@ mod octree_raytracing_tests {
         };
         let direction = (V3c::from(target) + V3c::unit(0.5) - origin).normalized();
         let ray = Ray { origin, direction };
-        println!("ray hit: {:?}", tree.get_by_ray(&ray));
         assert!(tree
             .get_by_ray(&ray)
             .is_some_and(|v| { *v.0 == 0x000000FF.into() }));
@@ -602,7 +600,6 @@ mod octree_raytracing_tests {
                 z: 0.48701409,
             },
         };
-        println!("result: {:?}", tree.get_by_ray(&ray));
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
             *v.0 == 0x000000FF.into() && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
@@ -739,7 +736,6 @@ mod octree_raytracing_tests {
             },
         };
         let hit = tree.get_by_ray(&ray);
-        println!("result: {:?}", hit);
         assert!(hit.is_some());
     }
 }

@@ -729,21 +729,25 @@ fn update(
     @builtin(global_invocation_id) invocation_id: vec3<u32>,
     @builtin(num_workgroups) num_workgroups: vec3<u32>,
 ) {
-    let pixel_location_normalized = vec2f(
-        f32(invocation_id.x) / f32(num_workgroups.x * 8),
-        f32(invocation_id.y) / f32(num_workgroups.y * 8)
-    );
-    let viewport_right_direction = normalize(cross(
-        vec3f(0., 1., 0.), viewport.direction
-    ));
-    let viewport_bottom_left = viewport.origin 
-        + (viewport.direction * viewport.w_h_fov.z)
-        - (viewport_right_direction * (viewport.w_h_fov.x / 2.))
-        - (vec3f(0., 1., 0.) * (viewport.w_h_fov.y / 2.))
-        ;
-    let ray_endpoint = viewport_bottom_left
-        + viewport_right_direction * viewport.w_h_fov.x * f32(pixel_location_normalized.x)
-        + vec3f(0., 1., 0.) * viewport.w_h_fov.y * (1. - f32(pixel_location_normalized.y))
+    let ray_endpoint =
+        (
+            viewport.origin
+            + (viewport.direction * viewport.w_h_fov.z)
+            - (
+                normalize(cross(vec3f(0., 1., 0.), viewport.direction))
+                * (viewport.w_h_fov.x / 2.)
+            )
+            - (vec3f(0., 1., 0.) * (viewport.w_h_fov.y / 2.))
+        ) // Viewport bottom left
+        + (
+            normalize(cross(vec3f(0., 1., 0.), viewport.direction))
+            * viewport.w_h_fov.x
+            * (f32(invocation_id.x) / f32(num_workgroups.x * 8))
+        ) // Viewport right direction
+        + (
+            vec3f(0., 1., 0.) * viewport.w_h_fov.y
+            * (1. - (f32(invocation_id.y) / f32(num_workgroups.y * 8)))
+        ) // Viewport up direction
         ;
     var rgb_result = vec3f(0.5,0.5,0.5);
     var ray_result = get_by_ray(Line(ray_endpoint, normalize(ray_endpoint - viewport.origin)));
