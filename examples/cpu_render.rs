@@ -101,8 +101,8 @@ fn main() {
         let mut img = ImageBuffer::new(viewport_size_width, viewport_size_height);
 
         // cast each ray for a hit
-        for y in 0..viewport_size_width {
-            for x in 0..viewport_size_height {
+        for x in 0..viewport_size_width {
+            for y in 0..viewport_size_height {
                 let actual_y_in_image = viewport_size_height - y - 1;
                 //from the origin of the camera to the current point of the viewport
                 let glass_point = viewport_bottom_left
@@ -137,6 +137,8 @@ fn main() {
             }
         }
 
+        // img.save("example_junk_cpu_render.png").ok().unwrap();
+        // std::process::exit(0);
         use show_image::{ImageInfo, ImageView};
         let binding = img.into_raw();
         let image = ImageView::new(

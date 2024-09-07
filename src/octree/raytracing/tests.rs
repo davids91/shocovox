@@ -544,10 +544,36 @@ mod octree_raytracing_tests {
                 z: 0.7105529,
             },
         };
-        assert!(tree.get_by_ray(&ray).is_some_and(|v| {
-            println!("v: {:?}", v);
-            *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.)
-        }));
+        assert!(tree
+            .get_by_ray(&ray)
+            .is_some_and(|v| { *v.0 == 1.into() && v.2 == V3c::<f32>::new(0., 0., -1.) }));
+    }
+
+    #[test]
+    fn test_edge_case_test_deep_stack() {
+        let tree_size = 512;
+        const BRICK_DIMENSION: usize = 1;
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        let target = V3c::new(tree_size - 1, tree_size - 1, tree_size - 1);
+
+        tree.insert(&V3c::new(0, 0, 0), 0x000000EE.into())
+            .ok()
+            .unwrap();
+        tree.insert(&target, 0x000000FF.into()).ok().unwrap();
+
+        let origin = V3c {
+            x: 0.,
+            y: 5.,
+            z: -1.,
+        };
+        let direction = (V3c::from(target) + V3c::unit(0.5) - origin).normalized();
+        let ray = Ray { origin, direction };
+        assert!(tree
+            .get_by_ray(&ray)
+            .is_some_and(|v| { *v.0 == 0x000000FF.into() }));
     }
 
     #[test]
@@ -574,9 +600,240 @@ mod octree_raytracing_tests {
                 z: 0.48701409,
             },
         };
-        println!("result: {:?}", tree.get_by_ray(&ray));
         assert!(tree.get_by_ray(&ray).is_some_and(|v| {
             *v.0 == 0x000000FF.into() && (v.2 - V3c::<f32>::new(0., 0., 0.)).length() < 1.1
         }));
+    }
+
+    #[test]
+    fn test_edge_case_brick_boundary_error() {
+        const BRICK_DIMENSION: usize = 8;
+        const TREE_SIZE: u32 = 128;
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
+            .ok()
+            .unwrap();
+
+        for x in 0..TREE_SIZE {
+            for y in 0..TREE_SIZE {
+                for z in 0..TREE_SIZE {
+                    if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
+                        && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                        || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
+                    {
+                        tree.insert(
+                            &V3c::new(x, y, z),
+                            Albedo::default()
+                                .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                                .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                                .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
+                                .with_alpha(255),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
+                }
+            }
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 191.60886,
+                y: 256.0,
+                z: -169.77057,
+            },
+            direction: V3c {
+                x: -0.38838777,
+                y: -0.49688956,
+                z: 0.7760514,
+            },
+        };
+        let hit = tree.get_by_ray(&ray);
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn test_edge_case_cube_flaps() {
+        const TREE_SIZE: u32 = 32;
+        const BRICK_DIMENSION: usize = 1;
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
+            .ok()
+            .unwrap();
+
+        for x in 0..TREE_SIZE {
+            for y in 0..TREE_SIZE {
+                for z in 0..TREE_SIZE {
+                    if (TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z {
+                        tree.insert(
+                            &V3c::new(x, y, z),
+                            Albedo::default()
+                                .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                                .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                                .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
+                                .with_alpha(255),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
+                }
+            }
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 47.898006,
+                y: 64.0,
+                z: -42.44739,
+            },
+            direction: V3c {
+                x: -0.42279032,
+                y: -0.4016629,
+                z: 0.8123516,
+            },
+        };
+        let hit = tree.get_by_ray(&ray);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn test_edge_case_context_bleed() {
+        const BRICK_DIMENSION: usize = 1;
+        const TREE_SIZE: u32 = 32;
+        let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
+            .ok()
+            .unwrap();
+
+        for x in 0..TREE_SIZE {
+            for y in 0..TREE_SIZE {
+                for z in 0..TREE_SIZE {
+                    if (x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
+                        && (0 == x % 2 && 0 == y % 4 && 0 == z % 2)
+                    {
+                        tree.insert(
+                            &V3c::new(x, y, z),
+                            Albedo::default()
+                                .with_red((255 as f32 * x as f32 / TREE_SIZE as f32) as u8)
+                                .with_green((255 as f32 * y as f32 / TREE_SIZE as f32) as u8)
+                                .with_blue((255 as f32 * z as f32 / TREE_SIZE as f32) as u8)
+                                .with_alpha(255),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
+                }
+            }
+        }
+
+        let ray = Ray {
+            origin: V3c {
+                x: 47.898006,
+                y: 64.0,
+                z: -42.44739,
+            },
+            direction: V3c {
+                x: -0.49263135,
+                y: -0.49703234,
+                z: 0.714334,
+            },
+        };
+        let hit = tree.get_by_ray(&ray);
+        assert!(hit.is_some());
+    }
+}
+
+#[cfg(test)]
+mod node_stack_tests {
+    use crate::octree::raytracing::raytracing_on_cpu::NodeStack;
+
+    #[test]
+    fn test_stack_is_empty() {
+        let stack: NodeStack<i32> = NodeStack::default();
+        assert!(stack.is_empty(), "Stack should be empty on initialization");
+    }
+
+    #[test]
+    fn test_stack_push_and_wrap_around() {
+        let mut stack: NodeStack<i32, 3> = NodeStack::default();
+
+        stack.push(1);
+        stack.push(2);
+        stack.push(3);
+        stack.push(4); // This should overwrite the first element (1)
+
+        assert_eq!(
+            stack.last(),
+            Some(&4),
+            "Last element should be 4 after push"
+        );
+        assert_eq!(stack.pop(), Some(4), "Popped element should be 4");
+
+        assert_eq!(
+            stack.last(),
+            Some(&3),
+            "Last element should be 3 after popping 4"
+        );
+        assert_eq!(stack.pop(), Some(3), "Popped element should be 3");
+
+        assert_eq!(
+            stack.last(),
+            Some(&2),
+            "Last element should be 2 after popping 3"
+        );
+        assert_eq!(stack.pop(), Some(2), "Popped element should be 2");
+
+        assert_eq!(
+            stack.pop(),
+            None,
+            "Popping again should return None since stack is empty"
+        );
+    }
+
+    #[test]
+    fn test_stack_last() {
+        let mut stack: NodeStack<i32, 3> = NodeStack::default();
+        stack.push(10);
+        stack.push(20);
+        stack.push(30);
+        assert_eq!(stack.last(), Some(&30), "Last element should be 30");
+
+        stack.push(40); // This should overwrite the first element (10)
+        assert_eq!(
+            stack.last(),
+            Some(&40),
+            "Last element should be 40 after pushing 40"
+        );
+    }
+
+    #[test]
+    fn test_stack_last_mut() {
+        let mut stack: NodeStack<i32, 3> = NodeStack::default();
+        stack.push(100);
+        stack.push(200);
+        stack.push(300);
+
+        if let Some(last_mut) = stack.last_mut() {
+            *last_mut += 50;
+        }
+        assert_eq!(
+            stack.last(),
+            Some(&350),
+            "Last element should be 350 after mutation"
+        );
+    }
+
+    #[test]
+    fn test_stack_pop_until_empty() {
+        let mut stack: NodeStack<i32, 3> = NodeStack::default();
+        stack.push(5);
+        stack.push(15);
+        stack.push(25);
+
+        assert_eq!(stack.pop(), Some(25), "Popped element should be 25");
+        assert_eq!(stack.pop(), Some(15), "Popped element should be 15");
+        assert_eq!(stack.pop(), Some(5), "Popped element should be 5");
+        assert_eq!(
+            stack.pop(),
+            None,
+            "Popping from an empty stack should return None"
+        );
     }
 }

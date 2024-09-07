@@ -62,8 +62,11 @@ where
         if DIM > size as usize || 0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidNodeSize(size));
         }
-        let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(DIM);
-        let mut node_children = Vec::with_capacity(size.pow(3) as usize);
+        let node_count_estimation = (size / DIM as u32).pow(3);
+        let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(
+            node_count_estimation.min(1024) as usize,
+        );
+        let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
         node_children.push(NodeChildren::new(empty_marker()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);

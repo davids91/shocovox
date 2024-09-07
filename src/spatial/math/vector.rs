@@ -1,4 +1,6 @@
-#[derive(Default, Clone, Copy, Debug)]
+use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
+
+#[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
@@ -25,15 +27,40 @@ impl<T: Copy> V3c<T> {
     }
 }
 
+impl<T> SubAssign for V3c<T>
+where
+    T: Copy + Sub<Output = T>,
+{
+    fn sub_assign(&mut self, other: V3c<T>) {
+        *self = *self - other;
+    }
+}
+
+impl<T> AddAssign for V3c<T>
+where
+    T: Copy + Add<Output = T>,
+{
+    fn add_assign(&mut self, other: V3c<T>) {
+        *self = *self + other;
+    }
+}
+
 impl<T> V3c<T>
 where
     T: num_traits::Signed + Clone,
 {
-    pub fn abs(&mut self) -> V3c<T> {
+    pub fn abs(&mut self) -> &mut Self {
         self.x = self.x.abs();
         self.y = self.y.abs();
         self.z = self.z.abs();
-        self.clone()
+        self
+    }
+
+    pub fn modulo(&mut self, operand: &T) -> &mut Self {
+        self.x = self.x.clone() % operand.clone();
+        self.y = self.y.clone() % operand.clone();
+        self.z = self.z.clone() % operand.clone();
+        self
     }
 }
 
@@ -112,7 +139,6 @@ where
     }
 }
 
-use std::ops::{Add, Div, Mul, Sub};
 impl<T: Add<Output = T>> Add for V3c<T> {
     type Output = V3c<T>;
 
@@ -175,16 +201,6 @@ impl<T: Div<Output = T> + Copy> Div<T> for V3c<T> {
         }
     }
 }
-
-impl<T> PartialEq for V3c<T>
-where
-    T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.z == other.z
-    }
-}
-impl<T> Eq for V3c<T> where T: Default + Add<Output = T> + Mul<Output = T> + Copy + PartialEq {}
 
 impl From<V3c<usize>> for V3c<f32> {
     fn from(vec: V3c<usize>) -> V3c<f32> {
