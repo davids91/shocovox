@@ -155,8 +155,10 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>) -> ()>(
                 } else {
                     rotation
                 };
-                // 0 == index ==> iterate into the child of the translation
+                // the index variable for a Transform stores whether to go above or below a level next
                 if 0 == index {
+                    // 0 == index ==> iterate into the child of the translation
+                    node_stack.last_mut().unwrap().3 += 1;
                     node_stack.push((*child, translation, orientation, 0));
                 } else {
                     // 0 != index ==> remove translation and iterate into parent
@@ -172,9 +174,6 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>) -> ()>(
                     node_stack.push((children[index as usize], translation, rotation, 0));
                 } else {
                     node_stack.pop();
-                    if let Some(parent) = node_stack.last_mut() {
-                        parent.3 += 1;
-                    }
                 }
             }
             SceneNode::Shape {
