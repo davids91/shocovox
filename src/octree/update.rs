@@ -42,7 +42,7 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
@@ -234,7 +234,7 @@ where
         }
 
         // A vector does not consume significant resources in this case, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut parent_target = child_octant_for(&root_bounds, &position); //This init value is never used
 
         loop {

@@ -81,7 +81,7 @@ where
     /// Provides immutable reference to the data, if there is any at the given position
     pub fn get(&self, position: &V3c<u32>) -> Option<&T> {
         let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
+        let mut current_node_key = Self::ROOT_NODE_KEY as usize;
         let position = V3c::from(*position);
         if !bound_contains(&current_bounds, &position) {
             return None;
@@ -118,7 +118,7 @@ where
     /// Provides mutable reference to the data, if there is any at the given position
     pub fn get_mut(&mut self, position: &V3c<u32>) -> Option<&mut T> {
         let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let mut current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
+        let mut current_node_key = Self::ROOT_NODE_KEY as usize;
         let position = V3c::from(*position);
         if !bound_contains(&current_bounds, &position) {
             return None;

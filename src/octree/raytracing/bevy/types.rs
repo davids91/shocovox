@@ -9,8 +9,9 @@ use bevy::{
         prelude::Image,
         render_graph::RenderLabel,
         render_resource::{
-            AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, ShaderType,
+            AsBindGroup, BindGroup, BindGroupLayout, Buffer, CachedComputePipelineId, ShaderType,
         },
+        renderer::RenderQueue,
     },
 };
 
@@ -23,7 +24,9 @@ pub(crate) struct Voxelement {
 #[derive(Clone, ShaderType)]
 pub(crate) struct SizedNode {
     /// Composite field:
-    /// - Byte 1: Boolean value, true in case node is a leaf
+    /// - Byte 1: composite byte with node entry descriptor
+    ///   - bit 1: Boolean value, true in case node is a leaf
+    ///   - bit 2: Boolean value, used bit is being set when the node is being queried
     /// - In case of internal nodes:
     ///   - Byte 2: TBD
     ///   - Byte 3: TBD
@@ -34,9 +37,9 @@ pub(crate) struct SizedNode {
     ///   - Byte 4: TBD
     pub(crate) sized_node_meta: u32,
 
-    /// index of where the data about this node is found in children_buffer
+    /// Cache index of where the data about this node is found in children_buffer
     /// - In case of internal nodes:
-    ///   - 8 Index value of node children
+    ///   - 8 Index value of node children ( in cache )
     /// - In case of leaf nodes:
     ///   - Byte 1-4: Occupancy bitmap MSB
     ///   - Byte 5-8: Occupancy bitmap LSB
@@ -48,7 +51,7 @@ pub(crate) struct SizedNode {
     ///   - Byte 29-32: TBD
     pub(crate) children_start_at: u32,
 
-    /// index of where the voxel values contained in the node start inside the voxels buffer,
+    /// Cache index of where the voxel values contained in the node start inside the voxels buffer,
     /// or a "none_value". Should the field contain an index, the next voxel_brick_dim^3 elements
     /// inside the @voxels array count as part of the voxels associated with the node
     pub(crate) voxels_start_at: u32,
@@ -86,14 +89,57 @@ pub struct ShocoVoxViewingGlass {
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
 pub struct ShocoVoxRenderData {
+    pub do_the_thing: bool, //STRICTLY FOR DEBUG REASONS
+
+    // new layout
+    // #[uniform(0, visibility(compute))]
+    // pub(crate) meta: OctreeMetaData,
+
+    // #[storage(1, visibility(compute))]
+    // pub(crate) root_node: SizedNode,
+
+    // #[storage(2, visibility(compute))]
+    // pub(crate) nodes: Vec<SizedNode>,
+
+    // #[storage(3, visibility(compute))]
+    // pub(crate) children_buffer: Vec<u32>,
+
+    // #[storage(4, visibilty(compute))]
+    // pub(crate) voxels: Vec<Voxelement>,
+
+    // #[storage(5, visibility(compute))]
+    // pub(crate) color_palette: Vec<Vec4>,
+    /// Bits storing information for multiple fields
+    /// Each array is the same size, but might be different in terms of bytes per index.
+    /// e.g. Nodes have 1 SizedNode under each index, children_buffer have 8, Voxelements have DIM*DIM*DIM
+    /// For each index in the array, 2 Bytes of metadata is accounted for.
+    /// Structure is the following:
+    /// _---------------------------------------------------------------------_
+    /// | Byte 0 | metadata                                                   |
+    /// |---------------------------------------------------------------------|
+    /// |  bit 0 | 1 in case node is used by the raytracing algorithm*        |
+    /// |  bit 1 | 1 in case voxel brick is used by the raytracing algorithm  |
+    /// |  bit 2 | 1 in case node is a leaf                                   |
+    /// |  ...   | unused, potentially: 1 if node has voxels                  |
+    /// |  ...   | unused, potentially: children_buffer size: 2 or 8          |
+    /// |  ...   | unused, potentially: voxel brick size: 1, full or sparse   |
+    /// |---------------------------------------------------------------------|
+    /// | Byte 1 | nodes lvl2 occupancy bitmap                                |
+    /// `---------------------------------------------------------------------`
+    ///
+    /// * the same bit is used for children_buffer
+    #[storage(5, visibility(compute))]
+    pub(crate) data_meta_bytes: Vec<u32>,
+
+    // old layout.. TO BE REMOVED
     #[uniform(0, visibility(compute))]
-    pub(crate) meta: OctreeMetaData,
+    pub(crate) octree_meta: OctreeMetaData,
 
     #[storage(1, visibility(compute))]
     pub(crate) nodes: Vec<SizedNode>,
 
     #[storage(2, visibility(compute))]
-    pub(crate) children_buffer: Vec<u32>,
+    pub node_children: Vec<u32>,
 
     #[storage(3, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
@@ -105,9 +151,24 @@ pub struct ShocoVoxRenderData {
 #[derive(Resource)]
 pub(crate) struct ShocoVoxRenderPipeline {
     pub update_tree: bool,
+    // The candidates for deletion inside nodes array on page deletion
+    pub(crate) victim_pointer: u32,
+
+    pub(crate) render_queue: RenderQueue,
+    pub(crate) update_pipeline: CachedComputePipelineId,
+
+    // Render data buffers
+    pub(crate) viewport_buffer: Option<Buffer>,
+    pub(crate) octree_meta_buffer: Option<Buffer>,
+    pub(crate) nodes_buffer: Option<Buffer>,
+    pub(crate) node_children_buffer: Option<Buffer>,
+    pub(crate) voxels_buffer: Option<Buffer>,
+    pub(crate) color_palette_buffer: Option<Buffer>,
+    pub(crate) data_meta_bytes_buffer: Option<Buffer>,
+    pub(crate) readable_data_meta_bytes_buffer: Option<Buffer>,
+
     pub(crate) viewing_glass_bind_group_layout: BindGroupLayout,
     pub(crate) render_data_bind_group_layout: BindGroupLayout,
-    pub(crate) update_pipeline: CachedComputePipelineId,
     pub(crate) viewing_glass_bind_group: Option<BindGroup>,
     pub(crate) tree_bind_group: Option<BindGroup>,
 }
