@@ -23,20 +23,6 @@ pub(crate) struct Voxelement {
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct SizedNode {
-    /// Composite field:
-    /// - Byte 1: composite byte with node entry descriptor
-    ///   - bit 1: Boolean value, true in case node is a leaf
-    ///   - bit 2: Boolean value, used bit is being set when the node is being queried
-    /// - In case of internal nodes:
-    ///   - Byte 2: TBD
-    ///   - Byte 3: TBD
-    ///   - Byte 4: Lvl2 Occupancy bitmap
-    /// - In case of leaf nodes:
-    ///   - Byte 2: TBD
-    ///   - Byte 3: TBD
-    ///   - Byte 4: TBD
-    pub(crate) sized_node_meta: u32,
-
     /// Cache index of where the data about this node is found in children_buffer
     /// - In case of internal nodes:
     ///   - 8 Index value of node children ( in cache )
@@ -151,6 +137,7 @@ pub struct ShocoVoxRenderData {
 #[derive(Resource)]
 pub(crate) struct ShocoVoxRenderPipeline {
     pub update_tree: bool,
+
     // The candidates for deletion inside nodes array on page deletion
     pub(crate) victim_pointer: u32,
 

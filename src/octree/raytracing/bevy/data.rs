@@ -9,38 +9,69 @@ use std::collections::HashMap;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + Clone + VoxelData,
+    T: VoxelData + PartialEq + Default + Clone + Copy,
 {
-    fn meta_set_is_leaf(sized_node_meta: &mut u32, is_leaf: bool) {
-        *sized_node_meta =
-            (*sized_node_meta & 0x00FFFFFF) | if is_leaf { 0x01000000 } else { 0x00000000 };
+    fn set_node_meta_inner(
+        &self,
+        data_meta_bytes: &mut Vec<u32>,
+        data_index: usize,
+        is_leaf: bool,
+        occupancy_bitmap: u8,
+    ) {
+        // Erase the initial data
+        data_meta_bytes[data_index / 2] &= if 0 == data_index % 2 {
+            0xFFFF00FAu32
+        } else {
+            0x00FAFFFFu32
+        };
+
+        // Add occupancy bitmap to meta
+        data_meta_bytes[data_index / 2] |= if 0 == data_index % 2 {
+            (occupancy_bitmap as u32) << 8u32
+        } else {
+            (occupancy_bitmap as u32) << 24u32
+        };
+
+        // Add node is_leaf bit to meta
+        if is_leaf {
+            data_meta_bytes[data_index / 2] |= if 0 == data_index % 2 {
+                0x000000004u32
+            } else {
+                0x00040000u32
+            };
+        }
+
+        // Add node is_used bit to meta
+        if is_leaf {
+            data_meta_bytes[data_index / 2] |= if 0 == data_index % 2 {
+                0x000000001u32
+            } else {
+                0x00010000u32
+            };
+        }
     }
 
-    fn meta_set_node_occupancy_bitmap(sized_node_meta: &mut u32, bitmap: u8) {
-        *sized_node_meta = (*sized_node_meta & 0xFFFFFF00) | bitmap as u32;
-    }
-
-    fn create_meta(&self, node_key: usize) -> u32 {
+    fn set_meta_bytes_for_node(
+        &self,
+        data_meta_bytes: &mut Vec<u32>,
+        node_key: usize,
+        data_index: usize,
+    ) {
         let node = self.nodes.get(node_key);
-        let mut meta = 0;
         match node {
             NodeContent::Leaf(_) => {
-                Self::meta_set_is_leaf(&mut meta, true);
-                Self::meta_set_node_occupancy_bitmap(
-                    &mut meta,
+                self.set_node_meta_inner(
+                    data_meta_bytes,
+                    data_index,
+                    true,
                     self.occupied_8bit(node_key as u32),
                 );
             }
             NodeContent::Internal(occupied_bits) => {
-                Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_node_occupancy_bitmap(&mut meta, *occupied_bits);
+                self.set_node_meta_inner(data_meta_bytes, data_index, false, *occupied_bits);
             }
-            _ => {
-                Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_node_occupancy_bitmap(&mut meta, 0x00);
-            }
-        };
-        meta
+            _ => {}
+        }
     }
 
     pub fn create_bevy_view(&self) -> ShocoVoxRenderData {
@@ -59,15 +90,16 @@ where
         let mut node_children = Vec::new();
         let mut voxels = Vec::new();
         let mut color_palette = Vec::new();
-        let mut data_meta_bytes = Vec::new();
+        // Size of meta for one element is 2 Bytes,
+        let mut data_meta_bytes = vec![0u32; self.nodes.len() / 2];
 
         // Build up Nodes
         let mut map_to_node_index_in_nodes_buffer = HashMap::new();
-        for i in 0..self.nodes.len() {
-            if self.nodes.key_is_valid(i) {
-                map_to_node_index_in_nodes_buffer.insert(i as usize, nodes.len());
+        for node_key in 0..self.nodes.len() {
+            if self.nodes.key_is_valid(node_key) {
+                map_to_node_index_in_nodes_buffer.insert(node_key as usize, nodes.len());
+                self.set_meta_bytes_for_node(&mut data_meta_bytes, node_key, nodes.len());
                 nodes.push(SizedNode {
-                    // sized_node_meta: self.create_meta(i),
                     children_start_at: empty_marker(),
                     voxels_start_at: empty_marker(),
                 });

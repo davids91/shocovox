@@ -316,15 +316,13 @@ fn dda_step_to_next_sibling(
 }
 
 // Unique to this implementation, not adapted from rust code, corresponds to:
-//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_is_leaf
-fn is_leaf(sized_node_meta: u32) -> bool {
-    return 0 < (0x01000000 & sized_node_meta);
-}
-
-// Unique to this implementation, not adapted from rust code, corresponds to:
-//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::meta_set_node_occupancy_bitmap
-fn get_node_occupancy_bitmap(sized_node_meta: u32) -> u32 {
-    return (0x000000FF & sized_node_meta);
+//crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::set_node_meta_inner
+fn get_node_occupancy_bitmap(node_key: u32, data_meta_bytes: u32) -> u32{
+    if 0 == (node_key % 2) {
+        return ((data_meta_bytes & 0x0000FF00u) >> 8u );
+    } else {
+        return ((data_meta_bytes & 0xFF000000u) >> 24u );
+    }
 }
 
 //crate::spatial::math::step_octant
@@ -520,7 +518,15 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
         while(!node_stack_is_empty(node_stack_meta)) {
             var leaf_miss = false;
-            if is_leaf(nodes[current_node_key].sized_node_meta) {
+            if ( // is_leaf
+                (
+                    (0 == (current_node_key % 2))
+                    && (0 != (data_meta_bytes[current_node_key / 2] & 0x00000004u))
+                )||(
+                    (1 == (current_node_key % 2))
+                    && (0 != (data_meta_bytes[current_node_key / 2] & 0x00040000u))
+                )
+            ){
                 let leaf_brick_hit = traverse_brick(
                     ray, &ray_current_distance, nodes[current_node_key].voxels_start_at,
                     node_children[nodes[current_node_key].children_starts_at],
@@ -552,9 +558,9 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             if( leaf_miss
                 || target_octant == OOB_OCTANT
                 || EMPTY_MARKER == current_node_key // Should never happen
-                || 0 == get_node_occupancy_bitmap(nodes[current_node_key].sized_node_meta)
+                || 0 == get_node_occupancy_bitmap(current_node_key, data_meta_bytes[current_node_key / 2])
                 || ( 0 == (
-                    get_node_occupancy_bitmap(nodes[current_node_key].sized_node_meta)
+                    get_node_occupancy_bitmap(current_node_key, data_meta_bytes[current_node_key / 2])
                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant][direction_lut_index]
                 ))
             ){
@@ -593,7 +599,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             if (
                 target_child_key < arrayLength(&nodes) //!crate::object_pool::key_is_valid
                 && 0 != (
-                    get_node_occupancy_bitmap(nodes[current_node_key].sized_node_meta)
+                    get_node_occupancy_bitmap(current_node_key, data_meta_bytes[current_node_key / 2])
                     & ( // crate::spatial::math::octant_bitmask
                         0x00000001u << (target_octant & 0x000000FF)
                     )
@@ -629,11 +635,11 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                         || (
                             target_child_key < arrayLength(&nodes) //crate::object_pool::key_is_valid
                             && 0 != (
-                                get_node_occupancy_bitmap(nodes[current_node_key].sized_node_meta)
+                                get_node_occupancy_bitmap(current_node_key, data_meta_bytes[current_node_key / 2])
                                 & (0x00000001u << target_octant) // crate::spatial::math::octant_bitmask
                             )
                             && 0 != (
-                                get_node_occupancy_bitmap(nodes[target_child_key].sized_node_meta)
+                                get_node_occupancy_bitmap(target_child_key, data_meta_bytes[target_child_key / 2])
                                 & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                     point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position,
                                     round(target_bounds.size / 2.)
@@ -686,7 +692,6 @@ fn is_empty(e: Voxelement) -> bool {
 }
 
 struct SizedNode {
-    sized_node_meta: u32,
     children_starts_at: u32,
     voxels_start_at: u32,
 }
