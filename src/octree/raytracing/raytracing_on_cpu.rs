@@ -86,7 +86,7 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
-    pub(in crate::octree) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
+    pub(crate) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(
             (1. + (ray.direction.z / ray.direction.x).powf(2.)
                 + (ray.direction.y / ray.direction.x).powf(2.))
@@ -111,7 +111,7 @@ where
     /// * `ray_scale_factors` - Pre-computed dda values for the ray
     /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
     /// output: the step to the next sibling
-    pub(in crate::octree) fn dda_step_to_next_sibling(
+    pub(crate) fn dda_step_to_next_sibling(
         ray: &Ray,
         ray_current_distance: &mut f32,
         current_bounds: &Cube,

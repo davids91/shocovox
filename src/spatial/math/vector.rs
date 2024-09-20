@@ -258,6 +258,18 @@ impl From<V3c<i32>> for V3c<usize> {
     }
 }
 
+impl From<V3c<f32>> for V3c<usize> {
+    fn from(vec: V3c<f32>) -> V3c<usize> {
+        {
+            V3c::new(
+                vec.x.round() as usize,
+                vec.y.round() as usize,
+                vec.z.round() as usize,
+            )
+        }
+    }
+}
+
 impl From<V3c<f32>> for V3c<u32> {
     fn from(vec: V3c<f32>) -> V3c<u32> {
         {

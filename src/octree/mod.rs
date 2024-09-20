@@ -23,34 +23,34 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
-    /// converts the data structure to a byte representation
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.to_bencode().ok().unwrap()
-    }
+    // /// converts the data structure to a byte representation
+    // pub fn to_bytes(&self) -> Vec<u8> {
+    //     self.to_bencode().ok().unwrap()
+    // }
 
-    /// parses the data structure from a byte string
-    pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self::from_bencode(&bytes).ok().unwrap()
-    }
+    // /// parses the data structure from a byte string
+    // pub fn from_bytes(bytes: Vec<u8>) -> Self {
+    //     Self::from_bencode(&bytes).ok().unwrap()
+    // }
 
-    /// saves the data structure to the given file path
-    pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
-        use std::fs::File;
-        use std::io::Write;
-        let mut file = File::create(path)?;
-        file.write_all(&self.to_bytes())?;
-        Ok(())
-    }
+    // /// saves the data structure to the given file path
+    // pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
+    //     use std::fs::File;
+    //     use std::io::Write;
+    //     let mut file = File::create(path)?;
+    //     file.write_all(&self.to_bytes())?;
+    //     Ok(())
+    // }
 
-    /// loads the data structure from the given file path
-    pub fn load(path: &str) -> Result<Self, std::io::Error> {
-        use std::fs::File;
-        use std::io::Read;
-        let mut file = File::open(path)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(Self::from_bytes(bytes))
-    }
+    // /// loads the data structure from the given file path
+    // pub fn load(path: &str) -> Result<Self, std::io::Error> {
+    //     use std::fs::File;
+    //     use std::io::Read;
+    //     let mut file = File::open(path)?;
+    //     let mut bytes = Vec::new();
+    //     file.read_to_end(&mut bytes)?;
+    //     Ok(Self::from_bytes(bytes))
+    // }
 
     /// creates an octree with overall size nodes_dimension * DIM
     /// Generic parameter DIM must be one of `(2^x)`
@@ -92,17 +92,46 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Leaf(mat) => {
+                NodeContent::Leaf(mats) => {
+                    debug_assert!(
+                        0 < (mats.len() - mats.iter().flatten().count()),
+                        "At least some children should be Some(x) in a Leaf!"
+                    );
+                    // Hash the position to the target child
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+
+                    // If the child exists, query it for the voxel
+                    if let Some(child) = &mats[child_octant_at_position as usize] {
+                        current_bounds =
+                            Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                        let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                        if !child[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                            return Some(&child[mat_index.x][mat_index.y][mat_index.z]);
+                        }
+                    }
+                    return None;
+                }
+                NodeContent::UniformLeaf(mat) => {
+                    // Hash the position to the target child
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+
+                    // If the child exists, query it for the voxel
+                    current_bounds =
+                        Cube::child_bounds_for(&current_bounds, child_octant_at_position);
                     let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
                     if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
                     }
                     return None;
                 }
-                _ => {
+                NodeContent::HomogeneousLeaf(d) => return Some(&d),
+                NodeContent::Internal(_) => {
+                    // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
+
+                    // If the target child is valid, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
                         current_node_key = child_at_position as usize;
                         current_bounds =
@@ -129,23 +158,51 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Leaf(mat) => {
-                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
-                    if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
-                        return Some(
-                            &mut self
-                                .nodes
-                                .get_mut(current_node_key)
-                                .as_mut_leaf_ref()
-                                .unwrap()[mat_index.x][mat_index.y][mat_index.z],
-                        );
+                NodeContent::Leaf(_) => {
+                    // Hash the position to the target child
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+
+                    // If the child exists, query it for the voxel
+                    if let NodeContent::Leaf(mats) = self.nodes.get_mut(current_node_key) {
+                        if let Some(ref mut child) = mats[child_octant_at_position as usize] {
+                            current_bounds =
+                                Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                            let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                            if !child[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                                return Some(&mut child[mat_index.x][mat_index.y][mat_index.z]);
+                            }
+                        }
                     }
                     return None;
                 }
-                _ => {
+                NodeContent::UniformLeaf(_) => {
+                    // Hash the position to the target child
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+
+                    // If the child exists, query it for the voxel
+                    current_bounds =
+                        Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                    if let NodeContent::UniformLeaf(mat) = self.nodes.get_mut(current_node_key) {
+                        if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                            return Some(&mut mat[mat_index.x][mat_index.y][mat_index.z]);
+                        }
+                    }
+                    return None;
+                }
+                NodeContent::HomogeneousLeaf(_) => {
+                    if let NodeContent::HomogeneousLeaf(d) = self.nodes.get_mut(current_node_key) {
+                        return Some(d);
+                    }
+                    return None;
+                }
+                NodeContent::Internal(_) => {
+                    // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
+
+                    // If the target child is valid, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
                         current_node_key = child_at_position as usize;
                         current_bounds =
