@@ -3,15 +3,22 @@ use crate::object_pool::ObjectPool;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+pub(crate) enum BrickData<T: Clone + PartialEq, const DIM: usize> {
+    Empty,
+    Parted(Box<[[[T; DIM]; DIM]; DIM]>),
+    Solid(T),
+}
+
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T: Clone + PartialEq, const DIM: usize = 1> {
+pub(crate) enum NodeContent<T: Clone + PartialEq, const DIM: usize> {
     #[default]
     Nothing,
-    Internal(u8), // cache data to store the enclosed nodes
-    Leaf([Option<Box<[[[T; DIM]; DIM]; DIM]>>; 8]),
-    UniformLeaf(Box<[[[T; DIM]; DIM]; DIM]>),
-    HomogeneousLeaf(T),
+    Internal(u8), // cache data to store the occupancy of the enclosed nodes
+    Leaf([BrickData<T, DIM>; 8]),
+    UniformLeaf(BrickData<T, DIM>),
 }
 
 /// error types during usage or creation of the octree
@@ -22,8 +29,8 @@ pub enum OctreeError {
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
-#[derive(Debug, Default, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[cfg_attr(test, derive(Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) enum NodeChildrenArray<T: Default> {
     #[default]
