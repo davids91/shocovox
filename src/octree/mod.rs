@@ -24,34 +24,34 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
-    // /// converts the data structure to a byte representation
-    // pub fn to_bytes(&self) -> Vec<u8> {
-    //     self.to_bencode().ok().unwrap()
-    // }
+    /// converts the data structure to a byte representation
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.to_bencode().ok().unwrap()
+    }
 
-    // /// parses the data structure from a byte string
-    // pub fn from_bytes(bytes: Vec<u8>) -> Self {
-    //     Self::from_bencode(&bytes).ok().unwrap()
-    // }
+    /// parses the data structure from a byte string
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self::from_bencode(&bytes).ok().unwrap()
+    }
 
-    // /// saves the data structure to the given file path
-    // pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
-    //     use std::fs::File;
-    //     use std::io::Write;
-    //     let mut file = File::create(path)?;
-    //     file.write_all(&self.to_bytes())?;
-    //     Ok(())
-    // }
+    /// saves the data structure to the given file path
+    pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
+        use std::fs::File;
+        use std::io::Write;
+        let mut file = File::create(path)?;
+        file.write_all(&self.to_bytes())?;
+        Ok(())
+    }
 
-    // /// loads the data structure from the given file path
-    // pub fn load(path: &str) -> Result<Self, std::io::Error> {
-    //     use std::fs::File;
-    //     use std::io::Read;
-    //     let mut file = File::open(path)?;
-    //     let mut bytes = Vec::new();
-    //     file.read_to_end(&mut bytes)?;
-    //     Ok(Self::from_bytes(bytes))
-    // }
+    /// loads the data structure from the given file path
+    pub fn load(path: &str) -> Result<Self, std::io::Error> {
+        use std::fs::File;
+        use std::io::Read;
+        let mut file = File::open(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok(Self::from_bytes(bytes))
+    }
 
     /// creates an octree with overall size nodes_dimension * DIM
     /// Generic parameter DIM must be one of `(2^x)`

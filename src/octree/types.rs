@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum BrickData<T: Clone + PartialEq, const DIM: usize> {
+pub(crate) enum BrickData<T, const DIM: usize>
+where
+    T: Clone + PartialEq + Clone + VoxelData,
+{
     Empty,
     Parted(Box<[[[T; DIM]; DIM]; DIM]>),
     Solid(T),
@@ -13,7 +16,10 @@ pub(crate) enum BrickData<T: Clone + PartialEq, const DIM: usize> {
 
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T: Clone + PartialEq, const DIM: usize> {
+pub(crate) enum NodeContent<T, const DIM: usize>
+where
+    T: Clone + PartialEq + Clone + VoxelData,
+{
     #[default]
     Nothing,
     Internal(u8), // cache data to store the occupancy of the enclosed nodes

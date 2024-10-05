@@ -332,7 +332,7 @@ where
 
 impl<T, const DIM: usize> PartialEq for NodeContent<T, DIM>
 where
-    T: Clone + PartialEq,
+    T: Clone + PartialEq + Clone + VoxelData,
 {
     fn eq(&self, other: &NodeContent<T, DIM>) -> bool {
         match self {
