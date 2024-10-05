@@ -90,9 +90,7 @@ where
 
         loop {
             match self.nodes.get(current_node_key) {
-                NodeContent::Nothing => {
-                    return None;
-                }
+                NodeContent::Nothing => return None,
                 NodeContent::Leaf(mats) => {
                     debug_assert!(
                         0 < self.nodes.get(current_node_key).count_non_empties(),
@@ -110,9 +108,11 @@ where
                             current_bounds =
                                 Cube::child_bounds_for(&current_bounds, child_octant_at_position);
                             let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+
                             if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                                 return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
                             }
+                            return None;
                         }
                         BrickData::Solid(voxel) => {
                             return Some(&voxel);

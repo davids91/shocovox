@@ -75,15 +75,17 @@ impl<T> NodeChildren<T>
 where
     T: Default + Clone + Eq,
 {
+    /// Returns with true if empty
     pub(crate) fn is_empty(&self) -> bool {
         match &self.content {
             NodeChildrenArray::NoChildren => true,
             NodeChildrenArray::Children(_) => false,
             NodeChildrenArray::OccupancyBitmap(mask) => 0 == *mask,
-            NodeChildrenArray::OccupancyBitmaps(masks) => 0 == masks.iter().sum::<u64>(),
+            NodeChildrenArray::OccupancyBitmaps(masks) => 0 == masks.iter().fold(0, |m, x| m | x),
         }
     }
 
+    /// Creates a new default element, with the given empty_marker
     pub(crate) fn new(empty_marker: T) -> Self {
         Self {
             empty_marker,
@@ -91,6 +93,7 @@ where
         }
     }
 
+    /// Provides a slice for iteration, if there are children to iterate on
     pub(crate) fn iter(&self) -> Option<std::slice::Iter<T>> {
         match &self.content {
             NodeChildrenArray::Children(c) => Some(c.iter()),
@@ -98,6 +101,7 @@ where
         }
     }
 
+    /// Erases content, if any
     pub(crate) fn clear(&mut self, child_index: usize) {
         debug_assert!(child_index < 8);
         if let NodeChildrenArray::Children(c) = &mut self.content {
@@ -108,6 +112,7 @@ where
         }
     }
 
+    /// Provides lvl2 occupancy bitmap based on the availability of the children
     fn occupied_bits(&self) -> u8 {
         match &self.content {
             NodeChildrenArray::Children(c) => {
@@ -165,6 +170,7 @@ impl<T, const DIM: usize> BrickData<T, DIM>
 where
     T: VoxelData + PartialEq + Clone + Copy + Default,
 {
+    /// In case all contained voxels are the same, returns with a reference to the data
     pub(crate) fn get_homogeneous_data(&self) -> Option<&T> {
         match self {
             BrickData::Empty => None,
@@ -231,36 +237,30 @@ where
         }
     }
 
+    /// Returns true if node content is consdered a leaf
     pub(crate) fn is_leaf(&self) -> bool {
-        matches!(self, NodeContent::Leaf(_))
+        matches!(self, NodeContent::Leaf(_) | NodeContent::UniformLeaf(_))
     }
 
+    /// Returns with true if it doesn't contain any data
     pub(crate) fn is_empty(&self) -> bool {
         match self {
-            NodeContent::UniformLeaf(mat) => {
-                match mat {
-                    BrickData::Empty => {
-                        return true;
-                    }
-                    BrickData::Solid(voxel) => {
-                        if !voxel.is_empty() {
-                            return false;
-                        }
-                    }
-                    BrickData::Parted(brick) => {
-                        for x in brick.iter() {
-                            for y in x.iter() {
-                                for voxel in y.iter() {
-                                    if !voxel.is_empty() {
-                                        return false;
-                                    }
+            NodeContent::UniformLeaf(mat) => match mat {
+                BrickData::Empty => true,
+                BrickData::Solid(voxel) => voxel.is_empty(),
+                BrickData::Parted(brick) => {
+                    for x in brick.iter() {
+                        for y in x.iter() {
+                            for voxel in y.iter() {
+                                if !voxel.is_empty() {
+                                    return false;
                                 }
                             }
                         }
                     }
+                    true
                 }
-                true
-            }
+            },
             NodeContent::Leaf(mats) => {
                 for mat in mats.iter() {
                     match mat {
@@ -292,6 +292,7 @@ where
         }
     }
 
+    /// Returns with true if all contained elements equal the given data
     pub(crate) fn is_all(&self, data: &T) -> bool {
         match self {
             NodeContent::UniformLeaf(mat) => match mat {
@@ -368,8 +369,11 @@ where
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: Default + Clone + Copy + PartialEq + VoxelData,
 {
+    /// Provides an index value inside the brick contained in the given bounds
+    /// Requires that position is larger, than the min_position of the bounds
+    /// It takes into consideration the size of the bounds as well
     pub(crate) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
         // The position should be inside the bounds
         debug_assert!(
@@ -395,6 +399,9 @@ where
         mat_index
     }
 
+    /// Subdivides the node into multiple nodes. It guarantees that there will be a child at the target octant
+    /// * `node_key` - The key of the node to subdivide. It must be a leaf
+    /// * `target octant` - The octant that must have a child
     pub(crate) fn subdivide_leaf_to_nodes(&mut self, node_key: usize, target_octant: usize) {
         // Since the node is expected to be a leaf, by default it is supposed that it is fully occupied
         let mut node_content = NodeContent::Internal(0xFF);
@@ -502,10 +509,8 @@ where
                     "Expected single OccupancyBitmap instead of: {:?}",
                     self.node_children[node_key].content
                 );
-                let mut node_new_children = [empty_marker(); 8];
                 match mat {
                     BrickData::Empty => {
-                        let mut node_new_children = [empty_marker(); 8];
                         let mut new_occupied_bits = 0;
 
                         // Push in an empty leaf child to the target octant
@@ -527,7 +532,6 @@ where
                         }
                     }
                     BrickData::Solid(voxel) => {
-                        let mut node_new_children = [empty_marker(); 8];
                         for octant in 0..8 {
                             node_new_children[octant] = self
                                 .nodes
@@ -540,7 +544,7 @@ where
                                 NodeChildren::new(empty_marker()),
                             );
                             self.node_children[node_new_children[octant] as usize].content =
-                                NodeChildrenArray::OccupancyBitmap(0);
+                                NodeChildrenArray::OccupancyBitmap(u64::MAX);
                         }
                     }
                     BrickData::Parted(brick) => {
@@ -600,6 +604,7 @@ where
         self.node_children[node_key].content = NodeChildrenArray::Children(node_new_children);
     }
 
+    /// Erase all children of the node under the given key, and set its children to "No children"
     pub(crate) fn deallocate_children_of(&mut self, node: u32) {
         let mut to_deallocate = Vec::new();
         if let Some(children) = self.node_children[node as usize].iter() {

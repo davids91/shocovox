@@ -22,6 +22,7 @@ where
     }
 
     /// Updates the given node to be a Leaf, and inserts the provided data for it
+    /// It will update at maximum one brick, starting from the position, up to the extent of the brick
     fn leaf_update(
         &mut self,
         node_key: usize,
@@ -32,20 +33,19 @@ where
         size: usize,
         data: Option<T>,
     ) {
-        debug_assert!(
-            size as f32 <= target_bounds.size,
-            "Expected update size({}) to be smaller, than target bounds size({})!",
-            size,
-            target_bounds.size
-        );
-        debug_assert!(
-            target_bounds.size <= DIM as f32,
-            "Expected update size({}) to be smaller, than DIM({})!",
-            target_bounds.size,
-            DIM
-        );
         // Update the leaf node, if it is possible as is, and if it's even needed to update
         // and decide if the node content needs to be divided into bricks, and the update function to be called again
+        if size > 1 && size as f32 >= node_bounds.size {
+            // The whole node to be covered in the given data
+            if let Some(data) = data {
+                *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(BrickData::Solid(data));
+                self.node_children[node_key].content = NodeChildrenArray::OccupancyBitmap(u64::MAX);
+            } else {
+                *self.nodes.get_mut(node_key) = NodeContent::Nothing;
+                self.node_children[node_key].content = NodeChildrenArray::NoChildren;
+            }
+            return;
+        }
         match self.nodes.get_mut(node_key) {
             NodeContent::Leaf(mats) => {
                 debug_assert!(
@@ -61,7 +61,17 @@ where
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
                         let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
-                        let mut new_occupied_bits = [0; 8];
+                        let mut new_occupied_bits =
+                            if let NodeChildrenArray::OccupancyBitmaps(maps) =
+                                self.node_children[node_key].content
+                            {
+                                maps
+                            } else {
+                                panic!(
+                                    "Expected Node children to be OccupancyBitmaps instead of {:?}",
+                                    self.node_children[node_key].content
+                                );
+                            };
 
                         // update the new empty brick at the given position
                         let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
@@ -77,12 +87,40 @@ where
                             NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                     }
                     BrickData::Solid(voxel) => {
+                        debug_assert_eq!(
+                                u64::MAX,
+                                if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits[target_child_octant as usize]
+                                } else {
+                                    0xD34D
+                                },
+                                "Solid full voxel should have its occupied bits set to u64::MAX, instead of {:?}",
+                                if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits[target_child_octant as usize]
+                                } else {
+                                    0xD34D
+                                }
+                            );
                         // In case the data doesn't match the current contents of the node, it needs to be subdivided
                         if (data.is_none() && !voxel.is_empty())
                             || (data.is_some() && data.unwrap() != *voxel)
                         {
-                            let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
-                            let mut new_occupied_bits = [u64::MAX; 8];
+                            let mut new_brick = Box::new([[[voxel.clone(); DIM]; DIM]; DIM]);
+                            let mut new_occupied_bits =
+                                if let NodeChildrenArray::OccupancyBitmaps(maps) =
+                                    self.node_children[node_key].content
+                                {
+                                    maps
+                                } else {
+                                    panic!(
+                                    "Expected Node children to be OccupancyBitmaps instead of {:?}",
+                                    self.node_children[node_key].content
+                                );
+                                };
                             // update the new brick at the given position
                             let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
                             Self::update_brick(
@@ -102,7 +140,7 @@ where
                     BrickData::Parted(ref mut brick) => {
                         // Let's update the brick at the given position
                         let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
-                        if let NodeChildrenArray::OccupancyBitmaps(mut maps) =
+                        if let NodeChildrenArray::OccupancyBitmaps(ref mut maps) =
                             self.node_children[node_key].content
                         {
                             Self::update_brick(
@@ -126,7 +164,7 @@ where
                     BrickData::Empty => {
                         if data.is_some() {
                             //If there is no brick in the target position of the leaf, convert teh node to a Leaf, try again
-                            *self.nodes.get_mut(node_key) = NodeContent::Leaf([
+                            let mut new_leaf_content = [
                                 BrickData::Empty,
                                 BrickData::Empty,
                                 BrickData::Empty,
@@ -135,9 +173,23 @@ where
                                 BrickData::Empty,
                                 BrickData::Empty,
                                 BrickData::Empty,
-                            ]);
+                            ];
+                            let mut new_occupied_bits = [0; 8];
+
+                            // Add a brick to the target octant and update with the given data
+                            let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
+                            let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
+                            Self::update_brick(
+                                &mut new_brick,
+                                mat_index,
+                                size,
+                                &mut new_occupied_bits[target_child_octant],
+                                data,
+                            );
+                            new_leaf_content[target_child_octant] = BrickData::Parted(new_brick);
+                            *self.nodes.get_mut(node_key) = NodeContent::Leaf(new_leaf_content);
                             self.node_children[node_key].content =
-                                NodeChildrenArray::OccupancyBitmaps([0; 8]);
+                                NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                         }
                     }
                     BrickData::Solid(voxel) => {
@@ -150,12 +202,30 @@ where
                             return;
                         }
 
-                        if data.is_some_and(|d| d != *voxel) {
+                        if data.is_some_and(|d| d != *voxel)
+                            || (data.is_none() && !voxel.is_empty())
+                        {
                             // Data request is to set, and it doesn't align with the voxel data
-                            *mat = BrickData::Parted(Box::new([[[voxel.clone(); DIM]; DIM]; DIM]));
+                            // create a voxel brick and update with the given data
                             self.node_children[node_key].content =
-                                NodeChildrenArray::OccupancyBitmap(0);
+                                NodeChildrenArray::OccupancyBitmap(if voxel.is_empty() {
+                                    0
+                                } else {
+                                    u64::MAX
+                                });
+                            *mat = BrickData::Parted(Box::new([[[voxel.clone(); DIM]; DIM]; DIM]));
+
+                            self.leaf_update(
+                                node_key,
+                                node_bounds,
+                                target_bounds,
+                                target_child_octant,
+                                position,
+                                size,
+                                data,
+                            );
                         }
+
                         return;
                     }
                     BrickData::Parted(brick) => {
@@ -174,7 +244,7 @@ where
 
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(mats)
-                        let mut leaf_bricks: [BrickData<T, DIM>; 8] = [
+                        let mut leaf_data: [BrickData<T, DIM>; 8] = [
                             BrickData::Empty,
                             BrickData::Empty,
                             BrickData::Empty,
@@ -187,39 +257,55 @@ where
                         let mut children_bitmaps = [0u64; 8];
 
                         // Each brick is mapped to take up one subsection of the current data
-                        for brick_octant in 0..8usize {
+                        for octant in 0..8usize {
                             let brick_offset =
-                                V3c::<usize>::from(offset_region(brick_octant as u8))
-                                    * (2.min(DIM - 1));
-                            leaf_bricks[brick_octant] = BrickData::Parted(Box::new(
+                                V3c::<usize>::from(offset_region(octant as u8)) * (2.min(DIM - 1));
+                            let mut new_brick = Box::new(
                                 [[[brick[brick_offset.x][brick_offset.y][brick_offset.z]; DIM];
                                     DIM]; DIM],
-                            ));
-                            if let BrickData::Parted(ref mut brick) = leaf_bricks[brick_octant] {
-                                for x in 0..DIM {
-                                    for y in 0..DIM {
-                                        for z in 0..DIM {
-                                            set_occupancy_in_bitmap_64bits(
-                                                x,
-                                                y,
-                                                z,
-                                                DIM,
-                                                !brick[x][y][z].is_empty(),
-                                                &mut children_bitmaps[brick_octant],
-                                            );
-                                            if x < 2 && y < 2 && z < 2 {
-                                                continue;
-                                            }
-                                            brick[x][y][z] = brick[brick_offset.x + x / 2]
-                                                [brick_offset.y + y / 2][brick_offset.z + z / 2];
+                            );
+                            for x in 0..DIM {
+                                for y in 0..DIM {
+                                    for z in 0..DIM {
+                                        set_occupancy_in_bitmap_64bits(
+                                            x,
+                                            y,
+                                            z,
+                                            DIM,
+                                            !brick[brick_offset.x + x / 2][brick_offset.y + y / 2]
+                                                [brick_offset.z + z / 2]
+                                                .is_empty(),
+                                            &mut children_bitmaps[octant],
+                                        );
+                                        if x < 2 && y < 2 && z < 2 {
+                                            continue;
                                         }
+                                        new_brick[x][y][z] = brick[brick_offset.x + x / 2]
+                                            [brick_offset.y + y / 2][brick_offset.z + z / 2];
                                     }
                                 }
                             }
+
+                            // Also update the brick if it is the target
+                            if octant == target_child_octant {
+                                let mat_index =
+                                    Self::mat_index(&target_bounds, &V3c::from(*position));
+                                Self::update_brick(
+                                    &mut new_brick,
+                                    mat_index,
+                                    size,
+                                    &mut children_bitmaps[target_child_octant],
+                                    data,
+                                );
+                            }
+
+                            leaf_data[octant] = BrickData::Parted(new_brick)
                         }
-                        *self.nodes.get_mut(node_key) = NodeContent::Leaf(leaf_bricks);
+
+                        *self.nodes.get_mut(node_key) = NodeContent::Leaf(leaf_data);
                         self.node_children[node_key].content =
                             NodeChildrenArray::OccupancyBitmaps(children_bitmaps);
+                        return;
                     }
                 }
                 self.leaf_update(
@@ -233,68 +319,56 @@ where
                 );
             }
             NodeContent::Nothing | NodeContent::Internal(_) => {
-                if DIM > 1 && (size == DIM || size as f32 >= node_bounds.size) {
-                    // update size equals node size, update the whole node
-                    self.deallocate_children_of(node_key as u32);
-                    if let Some(data) = data {
-                        // New full leaf node
-                        *self.nodes.get_mut(node_key) =
-                            NodeContent::UniformLeaf(BrickData::Solid(data));
-                        self.node_children[node_key].content =
-                            NodeChildrenArray::OccupancyBitmap(u64::MAX);
-                    } else {
-                        // New empty leaf node, it will be erased during the post-process operations
-                        *self.nodes.get_mut(node_key) = NodeContent::Nothing;
-                        self.node_children[node_key].content =
-                            NodeChildrenArray::OccupancyBitmap(0);
-                    }
-                } else {
-                    println!("| --> new empty leaf, then update!");
-                    // Current node might be an internal node, but because the function
-                    // should only be called when target bounds <= DIM
-                    // That means no internal nodes should contain data at this point
-                    *self.nodes.get_mut(node_key) = NodeContent::Leaf([
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                    ]);
-                    self.node_children[node_key].content =
-                        NodeChildrenArray::OccupancyBitmaps([0; 8]);
-                    self.leaf_update(
-                        node_key,
-                        node_bounds,
-                        target_bounds,
-                        target_child_octant,
-                        position,
-                        size,
-                        data,
-                    );
-                }
+                // Current node might be an internal node, but because the function
+                // should only be called when target bounds <= DIM
+                // That means no internal nodes should contain data at this point
+                *self.nodes.get_mut(node_key) = NodeContent::Leaf([
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                    BrickData::Empty,
+                ]);
+                self.node_children[node_key].content = NodeChildrenArray::OccupancyBitmaps([0; 8]);
+                self.leaf_update(
+                    node_key,
+                    node_bounds,
+                    target_bounds,
+                    target_child_octant,
+                    position,
+                    size,
+                    data,
+                );
             }
         }
     }
 
+    /// Updates the content of the given brick and its occupancy bitmap. Each components of mat_index must be smaller, than the size of the brick.
+    /// mat_index + size however need not be in bounds, the function will cut each component to fit inside the brick.
+    /// * `brick` - mutable reference of the brick to update
+    /// * `mat_index` - the first position to update with the given data
+    /// * `size` - the number of elements in x,y,z to update with the given data
+    /// * `occupancy_bitmap` - The occupied bits for the given brick
+    /// * `data` - the data  to update the brick with. Erases data in case `None`
     fn update_brick(
-        d: &mut [[[T; DIM]; DIM]; DIM],
+        brick: &mut [[[T; DIM]; DIM]; DIM],
         mut mat_index: V3c<usize>,
         size: usize,
         occupancy_bitmap: &mut u64,
         data: Option<T>,
     ) {
-        debug_assert!(size <= DIM as usize);
+        let size = size.min(DIM);
         mat_index.cut_each_component(&(DIM - size as usize));
         for x in mat_index.x..(mat_index.x + size) {
             for y in mat_index.y..(mat_index.y + size) {
                 for z in mat_index.z..(mat_index.z + size) {
                     if let Some(data) = data {
-                        d[x][y][z] = data.clone();
+                        brick[x][y][z] = data.clone();
                     } else {
-                        d[x][y][z].clear();
+                        brick[x][y][z].clear();
                     }
                     set_occupancy_in_bitmap_64bits(x, y, z, DIM, data.is_some(), occupancy_bitmap);
                 }
@@ -330,7 +404,6 @@ where
             let current_node = self.nodes.get(current_node_key);
             let target_child_octant = child_octant_for(&current_bounds, &position);
             let target_child_occupies = octant_bitmask(target_child_octant);
-            let target_child_key = self.node_children[current_node_key][target_child_octant as u32];
             let target_bounds = Cube {
                 min_position: current_bounds.min_position
                     + offset_region(target_child_octant) * current_bounds.size / 2.,
@@ -340,8 +413,13 @@ where
             // iteration needs to go deeper, as current target size is still larger, than the requested
             if target_bounds.size > insert_size.max(DIM as u32) as f32 {
                 // the child at the queried position exists and valid, recurse into it
-                if self.nodes.key_is_valid(target_child_key as usize) {
-                    node_stack.push((target_child_key, target_bounds));
+                if self.nodes.key_is_valid(
+                    self.node_children[current_node_key][target_child_octant as u32] as usize,
+                ) {
+                    node_stack.push((
+                        self.node_children[current_node_key][target_child_octant as u32],
+                        target_bounds,
+                    ));
                 } else {
                     // no children are available for the target octant while
                     // current node size is still larger, than the requested size
@@ -373,6 +451,7 @@ where
                                 }
                             },
                         };
+
                         if target_match || current_node.is_all(&data) {
                             // the data stored equals the given data, at the requested position
                             // so no need to continue iteration as data already matches
@@ -411,17 +490,20 @@ where
                             }
                         }
 
+                        // Insert a new child Node
+                        let new_child_node = self.nodes.push(NodeContent::Nothing) as u32;
+
                         // Update node_children to reflect the inserted node
-                        self.node_children
-                            .resize(self.nodes.len(), NodeChildren::new(empty_marker()));
+                        self.node_children.resize(
+                            self.node_children.len().max(self.nodes.len()),
+                            NodeChildren::new(empty_marker()),
+                        );
                         self.node_children[current_node_key][target_child_octant as u32] =
-                            node_stack.last().unwrap().0;
+                            new_child_node;
 
                         // The occupancy bitmap of the node will be updated
                         // in the next iteration or in the post-processing logic
-                        let child_key = self.nodes.push(NodeContent::Internal(0)) as u32;
-
-                        node_stack.push((child_key, target_bounds));
+                        node_stack.push((new_child_node, target_bounds));
                     }
                 }
             } else {
@@ -443,14 +525,19 @@ where
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, _node_bounds) in node_stack.into_iter().rev() {
             let current_node = self.nodes.get(node_key as usize);
-            if !self.nodes.key_is_valid(node_key as usize)
-                || matches!(
-                    current_node,
-                    NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
-                )
-            {
+            if !self.nodes.key_is_valid(node_key as usize) {
                 continue;
             }
+
+            if matches!(
+                current_node,
+                NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
+            ) {
+                // In case of leaf nodes, just try to simplify and continue
+                simplifyable = self.simplify(node_key);
+                continue;
+            }
+
             let previous_occupied_bits = self.occupied_8bit(node_key);
             let occupied_bits = self.occupied_8bit(node_key);
             if let NodeContent::Nothing = current_node {
@@ -504,7 +591,6 @@ where
                     + offset_region(target_child_octant) * current_bounds.size / 2.,
                 size: current_bounds.size / 2.,
             };
-
 
             if target_bounds.size > clear_size.max(DIM as u32) as f32 {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
@@ -592,7 +678,11 @@ where
             debug_assert!(
                 !self.nodes.key_is_valid(node_key as usize)
                     || (self.nodes.get(node_key as usize).is_empty()
-                        == self.node_children[node_key as usize].is_empty())
+                        == self.node_children[node_key as usize].is_empty()),
+                    "Expected node [{node_key}](empty: {:?}) to be either invalid or its emptiness be aligned with to its child: {:?}(empty: {:?})",
+                    self.nodes.get(node_key as usize).is_empty(),
+                    self.node_children[node_key as usize],
+                    self.node_children[node_key as usize].is_empty()
             );
             if self.nodes.key_is_valid(node_key as usize)
                 && self.node_children[node_key as usize].is_empty()
@@ -638,8 +728,7 @@ where
     }
 
     /// Updates the given node recursively to collapse nodes with uniform children into a leaf
-    /// Returns with true if the given node was modified in any way, except when the node content is
-    /// NodeContent::Nothing, because that should be eliminated in any way possible
+    /// Returns with true if the given node was simplified
     pub(crate) fn simplify(&mut self, node_key: u32) -> bool {
         if self.nodes.key_is_valid(node_key as usize) {
             match self.nodes.get_mut(node_key as usize) {
@@ -648,9 +737,47 @@ where
                     BrickData::Empty => true,
                     BrickData::Solid(voxel) => {
                         if voxel.is_empty() {
+                            debug_assert_eq!(
+                                0,
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits
+                                } else {
+                                    0xD34D
+                                },
+                                "Solid empty voxel should have its occupied bits set to 0, instead of {:?}",
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits
+                                } else {
+                                    0xD34D
+                                }
+                            );
                             *self.nodes.get_mut(node_key as usize) = NodeContent::Nothing;
+                            self.node_children[node_key as usize].content =
+                                NodeChildrenArray::NoChildren;
                             true
                         } else {
+                            debug_assert_eq!(
+                                u64::MAX,
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits
+                                } else {
+                                    0xD34D
+                                },
+                                "Solid full voxel should have its occupied bits set to u64::MAX, instead of {:?}",
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[node_key as usize].content
+                                {
+                                    occupied_bits
+                                } else {
+                                    0xD34D
+                                }
+                            );
                             false
                         }
                     }
@@ -714,10 +841,20 @@ where
 
                     // Try to simplify each child of the node
                     self.simplify(child_keys[0]);
+
+                    if !self.nodes.key_is_valid(child_keys[0] as usize) {
+                        // At least try to simplify the siblings
+                        for octant in 1..8 {
+                            self.simplify(child_keys[octant]);
+                        }
+                        return false;
+                    }
+
                     for octant in 1..8 {
                         self.simplify(child_keys[octant]);
-                        if self.nodes.get(child_keys[0] as usize)
-                            != self.nodes.get(child_keys[octant] as usize)
+                        if !self.nodes.key_is_valid(child_keys[octant] as usize)
+                            || (self.nodes.get(child_keys[0] as usize)
+                                != self.nodes.get(child_keys[octant] as usize))
                         {
                             return false;
                         }
@@ -730,13 +867,10 @@ where
                         NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
                     ));
                     self.nodes.swap(node_key as usize, child_keys[0] as usize);
-
-                    // Update nodechildren to have the corresponding occupancy_bitmap
-                    self.node_children[node_key as usize] =
-                        self.node_children[child_keys[0] as usize];
-
-                    // Deallocate the children, because we don't need them anymore
+                    // Deallocate children, and set correct occupancy bitmap
+                    let new_node_children = self.node_children[child_keys[0] as usize];
                     self.deallocate_children_of(node_key);
+                    self.node_children[node_key as usize] = new_node_children;
 
                     // At this point there's no need to call simplify on the new leaf node
                     // because it's been attempted already on the data it copied from
@@ -744,7 +878,7 @@ where
                 }
             }
         } else {
-            self.nodes.try_defragment(node_key as usize);
+            // can't simplify node based on invalid key
             false
         }
     }

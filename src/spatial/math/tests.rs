@@ -86,6 +86,46 @@ mod wgpu_tests {
 }
 
 #[cfg(test)]
+mod bitmap_tests {
+    use crate::spatial::math::set_occupancy_in_bitmap_64bits;
+
+    #[test]
+    fn test_lvl1_occupancy_bitmap_aligned_dim() {
+        let mut mask = 0;
+        set_occupancy_in_bitmap_64bits(0, 0, 0, 4, true, &mut mask);
+        assert_eq!(0x0000000000000001, mask);
+
+        set_occupancy_in_bitmap_64bits(3, 3, 3, 4, true, &mut mask);
+        assert_eq!(0x8000000000000001, mask);
+
+        set_occupancy_in_bitmap_64bits(2, 2, 2, 4, true, &mut mask);
+        assert_eq!(0x8000040000000001, mask);
+    }
+
+    #[test]
+    fn test_edge_case_lvl1_occupancy_where_dim_is_1() {
+        let mut mask = u64::MAX;
+
+        set_occupancy_in_bitmap_64bits(0, 0, 0, 1, false, &mut mask);
+        assert_eq!(0, mask);
+
+        set_occupancy_in_bitmap_64bits(0, 0, 0, 1, true, &mut mask);
+        assert_eq!(u64::MAX, mask);
+    }
+
+    #[test]
+    fn test_edge_case_lvl1_occupancy_where_dim_is_2() {
+        let mut mask = 0;
+
+        set_occupancy_in_bitmap_64bits(0, 0, 0, 2, true, &mut mask);
+        assert_eq!(0x0000000000330033, mask);
+
+        set_occupancy_in_bitmap_64bits(1, 1, 1, 2, true, &mut mask);
+        assert_eq!(0xCC00CC0000330033, mask);
+    }
+}
+
+#[cfg(test)]
 #[cfg(feature = "dot_vox_support")]
 mod dot_vox_tests {
 

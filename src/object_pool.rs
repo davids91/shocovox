@@ -217,12 +217,6 @@ where
     pub(crate) fn key_is_valid(&self, key: usize) -> bool {
         key < self.buffer.len() && self.buffer[key].reserved
     }
-
-    pub(crate) fn try_defragment(&mut self, key: usize) {
-        if !self.key_is_valid(key) {
-            self.first_available = self.first_available.min(key);
-        }
-    }
 }
 
 #[cfg(test)]
