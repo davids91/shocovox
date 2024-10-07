@@ -137,7 +137,7 @@ fn generate_lut_8_bits() -> [[u8; 8]; 8] {
 }
 
 #[allow(dead_code)]
-fn generate_octant_step_result_lut() {
+fn generate_octant_step_result_lut() -> [[[u32; 3]; 3]; 3] {
     let octant_after_step = |step_vector: &V3c<i32>, octant: u8| {
         const SPACE_SIZE: f32 = 12.;
         let octant_offset = offset_region(octant);
@@ -170,9 +170,9 @@ fn generate_octant_step_result_lut() {
         }
     };
 
-    let mut lut = [[[0; 3]; 3]; 3];
+    let mut lut = [[[0u32; 3]; 3]; 3];
     for octant in 0..8 {
-        let octant_pos_in_32bits = 4 * octant;
+        let octant_pos_in_32bits: u8 = 4 * octant;
         for z in -1i32..=1 {
             for y in -1i32..=1 {
                 for x in -1i32..=1 {
@@ -187,10 +187,52 @@ fn generate_octant_step_result_lut() {
             }
         }
     }
+    lut
 }
 
-pub const OOB_OCTANT: u8 = 8;
-pub const OCTANT_STEP_RESULT_LUT: [[[u32; 3]; 3]; 3] = [
+#[allow(dead_code)]
+fn generate_lvl1_bitmap_index_lut() -> [[[u8; 4]; 4]; 4] {
+    let mut lut = [[[0u8; 4]; 4]; 4];
+    for x in 0..4 {
+        for y in 0..4 {
+            for z in 0..4 {
+                lut[x][y][z] = position_in_bitmap_64bits(x, y, z, 4) as u8;
+            }
+        }
+    }
+    lut
+}
+
+pub(crate) const OOB_OCTANT: u8 = 8;
+
+pub(crate) const BITMAP_INDEX_LUT: [[[u8; 4]; 4]; 4] = [
+    [
+        [0, 16, 32, 48],
+        [4, 20, 36, 52],
+        [8, 24, 40, 56],
+        [12, 28, 44, 60],
+    ],
+    [
+        [1, 17, 33, 49],
+        [5, 21, 37, 53],
+        [9, 25, 41, 57],
+        [13, 29, 45, 61],
+    ],
+    [
+        [2, 18, 34, 50],
+        [6, 22, 38, 54],
+        [10, 26, 42, 58],
+        [14, 30, 46, 62],
+    ],
+    [
+        [3, 19, 35, 51],
+        [7, 23, 39, 55],
+        [11, 27, 43, 59],
+        [15, 31, 47, 63],
+    ],
+];
+
+pub(crate) const OCTANT_STEP_RESULT_LUT: [[[u32; 3]; 3]; 3] = [
     [
         [143165576, 671647880, 2284357768],
         [1216874632, 1749559304, 2288551976],
@@ -208,7 +250,7 @@ pub const OCTANT_STEP_RESULT_LUT: [[[u32; 3]; 3]; 3] = [
     ],
 ];
 
-pub const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
+pub(crate) const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
     [1, 3, 5, 15, 17, 51, 85, 255],
     [3, 2, 15, 10, 51, 34, 255, 170],
     [5, 15, 4, 12, 85, 255, 68, 204],
@@ -219,7 +261,7 @@ pub const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
     [255, 170, 204, 136, 240, 160, 192, 128],
 ];
 
-pub const RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
+pub(crate) const RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
     [
         1,
         15,

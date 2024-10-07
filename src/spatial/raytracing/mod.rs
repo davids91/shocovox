@@ -68,6 +68,12 @@ impl Cube {
 /// Important note: the specs of `signum` behvaes differently for f32 and i32
 /// So the conversion to i32 is absolutely required
 pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
+    // Each octant takes up 4 bits in one item inside the LUT
+    // The step is encoded in the index values, while the source octant
+    // is encoded in the bit position. e.g:
+    // source octant is 3, the step directions: x: negative, y: no delta, z: positive
+    // --> in OCTANT_STEP_RESULT_LUT[0][1][2]
+    // --> the data under position (3 * 4) is the result of the above step for octant 3
     let octant_pos_in_32bits = 4 * octant;
     ((OCTANT_STEP_RESULT_LUT[((step.x as i32).signum() + 1) as usize]
         [((step.y as i32).signum() + 1) as usize][((step.z as i32).signum() + 1) as usize]
