@@ -384,14 +384,15 @@ fn traverse_brick(
     ray_scale_factors: vec3f,
     direction_lut_index: u32,
 ) -> BrickHit{
-    var current_index = vec3i(
+    var position = vec3f(
         point_in_ray_at_distance(ray, *ray_current_distance)
         - brick_bounds.min_position
     );
-    current_index = vec3i(
-        clamp(i32(current_index.x), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
-        clamp(i32(current_index.y), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
-        clamp(i32(current_index.z), 0, i32(octreeMetaData.voxel_brick_dim - 1))
+
+    var current_index = vec3i(
+        clamp(i32(position.x), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(position.y), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(position.z), 0, i32(octreeMetaData.voxel_brick_dim - 1))
     );
 
     var current_bounds = Cube(
@@ -402,25 +403,11 @@ fn traverse_brick(
         (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
     );
 
-    var mapped_index = position_in_bitmap_64bits(
-        vec3u(current_index), octreeMetaData.voxel_brick_dim
+    clamp(
+        vec3f(position * 4. / brick_bounds.size),
+        FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE
     );
-    if (
-        0 == (
-            RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2]
-            & occupancy_bitmap_lsb
-        )
-        && 0 == (
-            RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2 + 1]
-            & occupancy_bitmap_msb
-        )
-    ){
-        return BrickHit(false, vec3u());
-    }
 
-    var prev_bitmap_position_full_resolution = vec3u(
-        vec3f(current_index) * (4. / f32(octreeMetaData.voxel_brick_dim))
-    );
     loop{
         if current_index.x < 0
             || current_index.x >= i32(octreeMetaData.voxel_brick_dim)
@@ -428,35 +415,25 @@ fn traverse_brick(
             || current_index.y >= i32(octreeMetaData.voxel_brick_dim)
             || current_index.z < 0
             || current_index.z >= i32(octreeMetaData.voxel_brick_dim)
+            || (
+                0 == (
+                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[
+                        BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)]
+                    ][direction_lut_index * 2]
+                    & occupancy_bitmap_lsb
+                )
+                && 0 == (
+                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[
+                        BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)]
+                    ][direction_lut_index * 2 + 1]
+                    & occupancy_bitmap_msb
+                )
+        )
         {
             return BrickHit(false, vec3u());
         }
 
-        let bitmap_position_full_resolution = vec3u(
-            vec3f(current_index) * (4. / f32(octreeMetaData.voxel_brick_dim))
-        );
-        if(
-            bitmap_position_full_resolution.x != prev_bitmap_position_full_resolution.x
-            || bitmap_position_full_resolution.y != prev_bitmap_position_full_resolution.y
-            || bitmap_position_full_resolution.z != prev_bitmap_position_full_resolution.z
-        ) {
-            prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
-            mapped_index = flat_projection(vec3u(bitmap_position_full_resolution), vec2u(4, 4));
-            if (
-                0 == (
-                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2]
-                    & occupancy_bitmap_lsb
-                )
-                && 0 == (
-                    RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[mapped_index][direction_lut_index * 2 + 1]
-                    & occupancy_bitmap_msb
-                )
-            ){
-                return BrickHit(false, vec3u());
-            }
-        }
-
-        mapped_index = u32(flat_projection(
+        var mapped_index = u32(flat_projection(
             vec3u(current_index),
             vec2u(octreeMetaData.voxel_brick_dim, octreeMetaData.voxel_brick_dim)
         ));
@@ -475,11 +452,11 @@ fn traverse_brick(
             current_bounds,
             ray_scale_factors
         );
-        current_bounds.min_position = (
-            current_bounds.min_position
-            + vec3f(step) * (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+        current_bounds.min_position += (
+            vec3f(step) * (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
         );
-        current_index = current_index + vec3i(round(step));
+        current_index += vec3i(round(step));
+        position += step * (4. / f32(octreeMetaData.voxel_brick_dim));
     }
 
     // Technically this line is unreachable
@@ -803,6 +780,34 @@ var<private> OCTANT_STEP_RESULT_LUT: array<array<array<u32, 3>, 3>, 3> = array<a
         array<u32, 3>(2240315784,2273674113,2290583683),
         array<u32, 3>(2290648456,2290648965,2290649223)
     )
+);
+
+// Note: should be const
+var<private> BITMAP_INDEX_LUT: array<array<array<u32, 4>, 4>, 4> = array<array<array<u32, 4>, 4>, 4>(
+    array<array<u32, 4>, 4>(
+        array<u32, 4>(0,16,32,48,),
+        array<u32, 4>(4,20,36,52,),
+        array<u32, 4>(8,24,40,56,),
+        array<u32, 4>(12,28,44,60,),
+    ),
+    array<array<u32, 4>, 4>(
+        array<u32, 4>(1,17,33,49,),
+        array<u32, 4>(5,21,37,53,),
+        array<u32, 4>(9,25,41,57,),
+        array<u32, 4>(13,29,45,61,),
+    ),
+    array<array<u32, 4>, 4>(
+        array<u32, 4>(2,18,34,50,),
+        array<u32, 4>(6,22,38,54,),
+        array<u32, 4>(10,26,42,58,),
+        array<u32, 4>(14,30,46,62,),
+    ),
+    array<array<u32, 4>, 4>(
+        array<u32, 4>(3,19,35,51,),
+        array<u32, 4>(7,23,39,55,),
+        array<u32, 4>(11,27,43,59,),
+        array<u32, 4>(15,31,47,63,),
+    ),
 );
 
 // Note: should be const
