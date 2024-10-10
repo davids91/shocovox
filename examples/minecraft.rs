@@ -7,7 +7,8 @@ use bevy::{prelude::*, window::WindowPlugin};
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{
-        bevy::create_viewing_glass, ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
+        bevy::create_viewing_glass, ShocoVoxRenderData, ShocoVoxRenderPlugin, ShocoVoxViewingGlass,
+        Viewport,
     },
     Albedo, V3c,
 };
@@ -64,11 +65,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         tree.save(&tree_path).ok().unwrap();
     }
 
-    let origin = V3c::new(
-        tree.get_size() as f32 * 2.,
-        tree.get_size() as f32 / 2.,
-        tree.get_size() as f32 * -2.,
-    );
     commands.spawn(DomePosition {
         yaw: 0.,
         roll: 0.,
@@ -152,9 +148,14 @@ fn rotate_camera(
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
     mut angles_query: Query<&mut DomePosition>,
+    svx_data: Option<ResMut<ShocoVoxRenderData>>,
 ) {
+    if let Some(ref svx_data) = svx_data {
+        if svx_data.is_changed() {
+            println!("changed!! --> {:?}", svx_data.node_children[0..2].to_vec());
+        }
+    }
     const ADDITION: f32 = 0.05;
     let angle_update_fn = |angle, delta| -> f32 {
         let new_angle = angle + delta;
@@ -183,6 +184,9 @@ fn handle_zoom(
     }
     if keys.pressed(KeyCode::PageDown) {
         angles_query.single_mut().radius *= 1.1;
+    }
+    if keys.pressed(KeyCode::Tab) {
+        svx_data.unwrap().do_the_thing = true;
     }
 }
 

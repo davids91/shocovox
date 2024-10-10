@@ -284,9 +284,9 @@ where
         let mut step_vec = V3c::unit(0.);
 
         while target_octant != OOB_OCTANT {
-            current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
+            current_node_key = Self::ROOT_NODE_KEY as usize;
             current_bounds = Cube::root_bounds(self.octree_size as f32);
-            node_stack.push(Octree::<T, DIM>::ROOT_NODE_KEY);
+            node_stack.push(Self::ROOT_NODE_KEY);
             while !node_stack.is_empty() {
                 let current_node_occupied_bits = self.occupied_8bit(*node_stack.last().unwrap());
                 debug_assert!(self
