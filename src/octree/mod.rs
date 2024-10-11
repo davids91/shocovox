@@ -54,14 +54,19 @@ where
     }
 
     /// creates an octree with overall size nodes_dimension * DIM
-    /// Generic parameter DIM must be one of `(2^x)`
+    /// Generic parameter DIM must be one of `(2^x)` and smaller, than the size of the octree
     /// * `size` - must be `DIM * (2^x)`, e.g: DIM == 2 --> size can be 2,4,8,16,32...
     pub fn new(size: u32) -> Result<Self, OctreeError> {
         if 0 == size || (DIM as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidBrickDimension(DIM as u32));
         }
         if DIM > size as usize || 0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0 {
-            return Err(OctreeError::InvalidNodeSize(size));
+            return Err(OctreeError::InvalidSize(size));
+        }
+        if DIM >= size as usize {
+            return Err(OctreeError::InvalidStructure(
+                "Octree size must be larger, than the brick dimension".into(),
+            ));
         }
         let node_count_estimation = (size / DIM as u32).pow(3);
         let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(
@@ -91,7 +96,9 @@ where
         loop {
             match self.nodes.get(current_node_key) {
                 NodeContent::Nothing => return None,
-                NodeContent::Leaf(mats) => {
+                NodeContent::Leaf(bricks) => {
+                    // In case DIM == octree size, the root node can not be a leaf...
+                    debug_assert!(DIM < self.octree_size as usize);
                     debug_assert!(
                         0 < self.nodes.get(current_node_key).count_non_empties(),
                         "At least some children should be Some(x) in a Leaf!"
@@ -100,7 +107,7 @@ where
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
 
                     // If the child exists, query it for the voxel
-                    match &mats[child_octant_at_position as usize] {
+                    match &bricks[child_octant_at_position as usize] {
                         BrickData::Empty => {
                             return None;
                         }
@@ -119,7 +126,7 @@ where
                         }
                     }
                 }
-                NodeContent::UniformLeaf(mat) => match mat {
+                NodeContent::UniformLeaf(brick) => match brick {
                     BrickData::Empty => {
                         return None;
                     }
@@ -166,12 +173,15 @@ where
     ) -> Option<&mut T> {
         debug_assert!(bound_contains(bounds, position));
         match self.nodes.get_mut(node_key) {
-            NodeContent::Leaf(mats) => {
+            NodeContent::Leaf(bricks) => {
+                // In case DIM == octree size, the root node can not be a leaf...
+                debug_assert!(DIM < self.octree_size as usize);
+
                 // Hash the position to the target child
                 let child_octant_at_position = child_octant_for(&bounds, position);
 
                 // If the child exists, query it for the voxel
-                match &mut mats[child_octant_at_position as usize] {
+                match &mut bricks[child_octant_at_position as usize] {
                     BrickData::Empty => {
                         return None;
                     }
@@ -188,7 +198,7 @@ where
                     }
                 }
             }
-            NodeContent::UniformLeaf(mat) => match mat {
+            NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => {
                     return None;
                 }

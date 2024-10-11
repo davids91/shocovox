@@ -216,9 +216,9 @@ where
     pub(crate) fn count_non_empties(&self) -> usize {
         match self {
             NodeContent::Nothing | NodeContent::Internal(_) => 0,
-            NodeContent::Leaf(mats) => {
+            NodeContent::Leaf(bricks) => {
                 let mut c = 0;
-                for mat in mats.iter() {
+                for mat in bricks.iter() {
                     c += if matches!(mat, BrickData::Empty) {
                         0
                     } else {
@@ -227,8 +227,8 @@ where
                 }
                 c
             }
-            NodeContent::UniformLeaf(mat) => {
-                if matches!(mat, BrickData::Empty) {
+            NodeContent::UniformLeaf(brick) => {
+                if matches!(brick, BrickData::Empty) {
                     0
                 } else {
                     1
@@ -237,15 +237,10 @@ where
         }
     }
 
-    /// Returns true if node content is consdered a leaf
-    pub(crate) fn is_leaf(&self) -> bool {
-        matches!(self, NodeContent::Leaf(_) | NodeContent::UniformLeaf(_))
-    }
-
     /// Returns with true if it doesn't contain any data
     pub(crate) fn is_empty(&self) -> bool {
         match self {
-            NodeContent::UniformLeaf(mat) => match mat {
+            NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => true,
                 BrickData::Solid(voxel) => voxel.is_empty(),
                 BrickData::Parted(brick) => {
@@ -261,8 +256,8 @@ where
                     true
                 }
             },
-            NodeContent::Leaf(mats) => {
-                for mat in mats.iter() {
+            NodeContent::Leaf(bricks) => {
+                for mat in bricks.iter() {
                     match mat {
                         BrickData::Empty => {
                             continue;
@@ -295,19 +290,19 @@ where
     /// Returns with true if all contained elements equal the given data
     pub(crate) fn is_all(&self, data: &T) -> bool {
         match self {
-            NodeContent::UniformLeaf(mat) => match mat {
+            NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => false,
                 BrickData::Solid(voxel) => voxel == data,
                 BrickData::Parted(_brick) => {
-                    if let Some(homogeneous_type) = mat.get_homogeneous_data() {
+                    if let Some(homogeneous_type) = brick.get_homogeneous_data() {
                         homogeneous_type == data
                     } else {
                         false
                     }
                 }
             },
-            NodeContent::Leaf(mats) => {
-                for mat in mats.iter() {
+            NodeContent::Leaf(bricks) => {
+                for mat in bricks.iter() {
                     let brick_is_all_data = match mat {
                         BrickData::Empty => false,
                         BrickData::Solid(voxel) => voxel == data,
@@ -338,16 +333,16 @@ where
         match self {
             NodeContent::Nothing => matches!(other, NodeContent::Nothing),
             NodeContent::Internal(_) => false, // Internal nodes comparison doesn't make sense
-            NodeContent::UniformLeaf(mat) => {
-                if let NodeContent::UniformLeaf(omat) = other {
-                    mat == omat
+            NodeContent::UniformLeaf(brick) => {
+                if let NodeContent::UniformLeaf(obrick) = other {
+                    brick == obrick
                 } else {
                     false
                 }
             }
-            NodeContent::Leaf(mats) => {
-                if let NodeContent::Leaf(omats) = other {
-                    mats == omats
+            NodeContent::Leaf(bricks) => {
+                if let NodeContent::Leaf(obricks) = other {
+                    bricks == obricks
                 } else {
                     false
                 }
@@ -411,7 +406,7 @@ where
             NodeContent::Nothing | NodeContent::Internal(_) => {
                 panic!("Non-leaf node expected to be Leaf")
             }
-            NodeContent::Leaf(mats) => {
+            NodeContent::Leaf(bricks) => {
                 debug_assert!(
                     matches!(
                         self.node_children[node_key].content,
@@ -432,7 +427,7 @@ where
                     };
 
                 for octant in 0..8 {
-                    match &mats[octant] {
+                    match &bricks[octant] {
                         BrickData::Empty => {
                             if let NodeContent::Internal(occupied_bits) =
                                 self.nodes.get_mut(node_key)
@@ -499,7 +494,7 @@ where
                     };
                 }
             }
-            NodeContent::UniformLeaf(mat) => {
+            NodeContent::UniformLeaf(brick) => {
                 // The leaf will be divided into 8 bricks, and the contents will be mapped from the current brick
                 debug_assert!(
                     matches!(
@@ -509,7 +504,7 @@ where
                     "Expected single OccupancyBitmap instead of: {:?}",
                     self.node_children[node_key].content
                 );
-                match mat {
+                match brick {
                     BrickData::Empty => {
                         let mut new_occupied_bits = 0;
 
@@ -626,22 +621,34 @@ where
     /// Leaf node occupancy bitmap should not be calculated by this function
     pub(crate) fn occupied_8bit(&self, node: u32) -> u8 {
         match self.nodes.get(node as usize) {
-            NodeContent::Leaf(_) => {
-                let leaf_occupied_bits = match self.node_children[node as usize].content {
-                    NodeChildrenArray::OccupancyBitmap(occupied_bits) => occupied_bits,
+            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                match self.node_children[node as usize].content {
+                    NodeChildrenArray::OccupancyBitmap(occupied_bits) => {
+                        (((occupied_bits & 0x0000000000330033) > 0) as u8)
+                            | (((occupied_bits & 0x0000000000cc00cc) > 0) as u8) << 1
+                            | (((occupied_bits & 0x0033003300000000) > 0) as u8) << 2
+                            | (((occupied_bits & 0x00cc00cc00000000) > 0) as u8) << 3
+                            | (((occupied_bits & 0x0000000033003300) > 0) as u8) << 4
+                            | (((occupied_bits & 0x00000000cc00cc00) > 0) as u8) << 5
+                            | (((occupied_bits & 0x3300330000000000) > 0) as u8) << 6
+                            | (((occupied_bits & 0xcc00cc0000000000) > 0) as u8) << 7
+                    }
+                    NodeChildrenArray::OccupancyBitmaps(occupied_bits) => {
+                        (((occupied_bits[0]) > 0) as u8)
+                            | (((occupied_bits[1]) > 0) as u8) << 1
+                            | (((occupied_bits[2]) > 0) as u8) << 2
+                            | (((occupied_bits[3]) > 0) as u8) << 3
+                            | (((occupied_bits[4]) > 0) as u8) << 4
+                            | (((occupied_bits[5]) > 0) as u8) << 5
+                            | (((occupied_bits[6]) > 0) as u8) << 6
+                            | (((occupied_bits[7]) > 0) as u8) << 7
+                    }
+
                     _ => {
                         debug_assert!(false);
                         0
                     }
-                };
-                (((leaf_occupied_bits & 0x0000000000330033) > 0) as u8)
-                    | (((leaf_occupied_bits & 0x0000000000cc00cc) > 0) as u8) << 1
-                    | (((leaf_occupied_bits & 0x0033003300000000) > 0) as u8) << 2
-                    | (((leaf_occupied_bits & 0x00cc00cc00000000) > 0) as u8) << 3
-                    | (((leaf_occupied_bits & 0x0000000033003300) > 0) as u8) << 4
-                    | (((leaf_occupied_bits & 0x00000000cc00cc00) > 0) as u8) << 5
-                    | (((leaf_occupied_bits & 0x3300330000000000) > 0) as u8) << 6
-                    | (((leaf_occupied_bits & 0xcc00cc0000000000) > 0) as u8) << 7
+                }
             }
             _ => self.node_children[node as usize].occupied_bits(),
         }

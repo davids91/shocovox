@@ -1,4 +1,5 @@
 use crate::object_pool::ObjectPool;
+use std::error::Error;
 
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
@@ -30,8 +31,9 @@ where
 /// error types during usage or creation of the octree
 #[derive(Debug)]
 pub enum OctreeError {
-    InvalidNodeSize(u32),
+    InvalidSize(u32),
     InvalidBrickDimension(u32),
+    InvalidStructure(Box<dyn Error>),
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 

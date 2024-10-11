@@ -423,7 +423,7 @@ mod octree_tests {
 
     #[test]
     fn test_uniform_solid_leaf_separated_by_clear_where_dim_is_4() {
-        let tree_size = 4;
+        let tree_size = 8;
         const MATRIX_DIMENSION: usize = 4;
         let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
@@ -475,7 +475,7 @@ mod octree_tests {
 
     #[test]
     fn test_uniform_solid_leaf_separated_by_insert_where_dim_is_4() {
-        let tree_size = 4;
+        let tree_size = 8;
         const MATRIX_DIMENSION: usize = 4;
         let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
@@ -788,7 +788,7 @@ mod octree_tests {
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
 
-        let mut tree = Octree::<Albedo, 2>::new(2).ok().unwrap();
+        let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(1, 0, 0), red).ok().unwrap();
         tree.insert(&V3c::new(0, 1, 0), green).ok().unwrap();

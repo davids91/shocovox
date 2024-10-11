@@ -81,7 +81,7 @@ where
             }
             nodes[map_to_node_index_in_nodes_buffer[&i]].children_start_at =
                 children_buffer.len() as u32;
-            if let NodeContent::Leaf(data) = self.nodes.get(i) {
+            if let NodeContent::Leaf(bricks) = self.nodes.get(i) {
                 debug_assert!(matches!(
                     self.node_children[i].content,
                     NodeChildrenArray::OccupancyBitmap(_)

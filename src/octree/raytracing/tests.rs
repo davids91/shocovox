@@ -460,11 +460,19 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_brick_undetected() {
-        let mut tree = Octree::<Albedo, 4>::new(4).ok().unwrap();
+        std::env::set_var("RUST_BACKTRACE", "1");
+        let mut tree = Octree::<Albedo, 4>::new(8).ok().unwrap();
 
         for x in 0..4 {
             for z in 0..4 {
                 tree.insert(&V3c::new(x, 0, z), 5.into()).ok().unwrap();
+            }
+        }
+
+        for x in 0..4 {
+            for z in 0..4 {
+                assert!(tree.get(&V3c::new(x, 0, z)).is_some());
+                assert!(tree.get(&V3c::new(x, 0, z)).is_some_and(|v| *v == 5.into()));
             }
         }
 
@@ -550,7 +558,7 @@ mod octree_raytracing_tests {
     }
 
     #[test]
-    fn test_edge_case_test_deep_stack() {
+    fn test_edge_case_deep_stack() {
         let tree_size = 512;
         const BRICK_DIMENSION: usize = 1;
         let mut tree = Octree::<Albedo, BRICK_DIMENSION>::new(tree_size)

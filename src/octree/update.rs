@@ -47,7 +47,9 @@ where
             return;
         }
         match self.nodes.get_mut(node_key) {
-            NodeContent::Leaf(mats) => {
+            NodeContent::Leaf(bricks) => {
+                // In case DIM == octree size, the root node can not be a leaf...
+                debug_assert!(DIM < self.octree_size as usize);
                 debug_assert!(
                     matches!(
                         self.node_children[node_key].content,
@@ -56,7 +58,7 @@ where
                     "Expected Node children to be OccupancyBitmaps instead of {:?}",
                     self.node_children[node_key].content
                 );
-                match &mut mats[target_child_octant as usize] {
+                match &mut bricks[target_child_octant as usize] {
                     //If there is no brick in the target position of the leaf, create one
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
@@ -82,7 +84,7 @@ where
                             &mut new_occupied_bits[target_child_octant],
                             data,
                         );
-                        mats[target_child_octant as usize] = BrickData::Parted(new_brick);
+                        bricks[target_child_octant as usize] = BrickData::Parted(new_brick);
                         self.node_children[node_key].content =
                             NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                     }
@@ -130,7 +132,7 @@ where
                                 &mut new_occupied_bits[target_child_octant],
                                 data,
                             );
-                            mats[target_child_octant as usize] = BrickData::Parted(new_brick);
+                            bricks[target_child_octant as usize] = BrickData::Parted(new_brick);
                             self.node_children[node_key].content =
                                 NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                         } else {
@@ -243,7 +245,7 @@ where
                         }
 
                         // the data at the position inside the brick doesn't match the given data,
-                        // so the leaf needs to be divided into a NodeContent::Leaf(mats)
+                        // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
                         let mut leaf_data: [BrickData<T, DIM>; 8] = [
                             BrickData::Empty,
                             BrickData::Empty,
@@ -321,7 +323,8 @@ where
             NodeContent::Nothing | NodeContent::Internal(_) => {
                 // Current node might be an internal node, but because the function
                 // should only be called when target bounds <= DIM
-                // That means no internal nodes should contain data at this point
+                // That means no internal nodes should contain data at this point,
+                // so it's safe to insert empties as content
                 *self.nodes.get_mut(node_key) = NodeContent::Leaf([
                     BrickData::Empty,
                     BrickData::Empty,
@@ -423,14 +426,17 @@ where
                 } else {
                     // no children are available for the target octant while
                     // current node size is still larger, than the requested size
-                    if current_node.is_leaf() {
+                    if matches!(
+                        current_node,
+                        NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
+                    ) {
                         // The current Node is a leaf, representing the area under current_bounds
                         // filled with the data stored in NodeContent::*Leaf(_)
                         let target_match = match current_node {
                             NodeContent::Nothing | NodeContent::Internal(_) => {
                                 panic!("Non-leaf node expected to be leaf!")
                             }
-                            NodeContent::UniformLeaf(mat) => match mat {
+                            NodeContent::UniformLeaf(brick) => match brick {
                                 BrickData::Empty => false,
                                 BrickData::Solid(voxel) => *voxel == data,
                                 BrickData::Parted(brick) => {
@@ -440,16 +446,19 @@ where
                                         == data
                                 }
                             },
-                            NodeContent::Leaf(mats) => match &mats[target_child_octant as usize] {
-                                BrickData::Empty => false,
-                                BrickData::Solid(voxel) => *voxel == data,
-                                BrickData::Parted(brick) => {
-                                    let index_in_matrix = position - target_bounds.min_position;
-                                    brick[index_in_matrix.x as usize][index_in_matrix.y as usize]
-                                        [index_in_matrix.z as usize]
-                                        == data
+                            NodeContent::Leaf(bricks) => {
+                                match &bricks[target_child_octant as usize] {
+                                    BrickData::Empty => false,
+                                    BrickData::Solid(voxel) => *voxel == data,
+                                    BrickData::Parted(brick) => {
+                                        let index_in_matrix = position - target_bounds.min_position;
+                                        brick[index_in_matrix.x as usize]
+                                            [index_in_matrix.y as usize]
+                                            [index_in_matrix.z as usize]
+                                            == data
+                                    }
                                 }
-                            },
+                            }
                         };
 
                         if target_match || current_node.is_all(&data) {
@@ -604,14 +613,17 @@ where
                     ));
                 } else {
                     // no children are available for the target octant
-                    if current_node.is_leaf() {
+                    if matches!(
+                        current_node,
+                        NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
+                    ) {
                         // The current Node is a leaf, representing the area under current_bounds
                         // filled with the data stored in NodeContent::*Leaf(_)
                         let target_match = match current_node {
                             NodeContent::Nothing | NodeContent::Internal(_) => {
                                 panic!("Non-leaf node expected to be leaf!")
                             }
-                            NodeContent::UniformLeaf(mat) => match mat {
+                            NodeContent::UniformLeaf(brick) => match brick {
                                 BrickData::Empty => true,
                                 BrickData::Solid(voxel) => voxel.is_empty(),
                                 BrickData::Parted(brick) => {
@@ -621,16 +633,19 @@ where
                                         .is_empty()
                                 }
                             },
-                            NodeContent::Leaf(mats) => match &mats[target_child_octant as usize] {
-                                BrickData::Empty => true,
-                                BrickData::Solid(voxel) => voxel.is_empty(),
-                                BrickData::Parted(brick) => {
-                                    let index_in_matrix = position - target_bounds.min_position;
-                                    brick[index_in_matrix.x as usize][index_in_matrix.y as usize]
-                                        [index_in_matrix.z as usize]
-                                        .is_empty()
+                            NodeContent::Leaf(bricks) => {
+                                match &bricks[target_child_octant as usize] {
+                                    BrickData::Empty => true,
+                                    BrickData::Solid(voxel) => voxel.is_empty(),
+                                    BrickData::Parted(brick) => {
+                                        let index_in_matrix = position - target_bounds.min_position;
+                                        brick[index_in_matrix.x as usize]
+                                            [index_in_matrix.y as usize]
+                                            [index_in_matrix.z as usize]
+                                            .is_empty()
+                                    }
                                 }
-                            },
+                            }
                         };
                         if target_match || current_node.is_empty() {
                             // the data stored equals the given data, at the requested position
@@ -733,7 +748,7 @@ where
         if self.nodes.key_is_valid(node_key as usize) {
             match self.nodes.get_mut(node_key as usize) {
                 NodeContent::Nothing => true,
-                NodeContent::UniformLeaf(data) => match data {
+                NodeContent::UniformLeaf(brick) => match brick {
                     BrickData::Empty => true,
                     BrickData::Solid(voxel) => {
                         if voxel.is_empty() {
@@ -782,7 +797,7 @@ where
                         }
                     }
                     BrickData::Parted(_brick) => {
-                        if data.simplify() {
+                        if brick.simplify() {
                             debug_assert!(
                                 self.node_children[node_key as usize].content
                                     == NodeChildrenArray::OccupancyBitmap(u64::MAX)
@@ -795,22 +810,22 @@ where
                         }
                     }
                 },
-                NodeContent::Leaf(mats) => {
+                NodeContent::Leaf(bricks) => {
                     debug_assert!(matches!(
                         self.node_children[node_key as usize].content,
                         NodeChildrenArray::OccupancyBitmaps(_)
                     ));
-                    mats[0].simplify();
+                    bricks[0].simplify();
                     for octant in 1..8 {
-                        mats[octant].simplify();
-                        if mats[0] != mats[octant] {
+                        bricks[octant].simplify();
+                        if bricks[0] != bricks[octant] {
                             return false;
                         }
                     }
 
                     // Every matrix is the same! Make leaf uniform
                     *self.nodes.get_mut(node_key as usize) =
-                        NodeContent::UniformLeaf(mats[0].clone());
+                        NodeContent::UniformLeaf(bricks[0].clone());
                     self.node_children[node_key as usize].content =
                         NodeChildrenArray::OccupancyBitmap(
                             if let NodeChildrenArray::OccupancyBitmaps(bitmaps) =

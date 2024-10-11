@@ -166,20 +166,20 @@ where
                 e.emit_str("##")?;
                 e.emit_int(*occupied_bits)
             }),
-            NodeContent::Leaf(data) => encoder.emit_list(|e| {
+            NodeContent::Leaf(bricks) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                e.emit(data[0].clone())?;
-                e.emit(data[1].clone())?;
-                e.emit(data[2].clone())?;
-                e.emit(data[3].clone())?;
-                e.emit(data[4].clone())?;
-                e.emit(data[5].clone())?;
-                e.emit(data[6].clone())?;
-                e.emit(data[7].clone())
+                e.emit(bricks[0].clone())?;
+                e.emit(bricks[1].clone())?;
+                e.emit(bricks[2].clone())?;
+                e.emit(bricks[3].clone())?;
+                e.emit(bricks[4].clone())?;
+                e.emit(bricks[5].clone())?;
+                e.emit(bricks[6].clone())?;
+                e.emit(bricks[7].clone())
             }),
-            NodeContent::UniformLeaf(data) => encoder.emit_list(|e| {
+            NodeContent::UniformLeaf(brick) => encoder.emit_list(|e| {
                 e.emit_str("##u#")?;
-                e.emit(data.clone())
+                e.emit(brick.clone())
             }),
         }
     }
