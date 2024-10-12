@@ -3,17 +3,16 @@ use crate::{
         types::{NodeChildrenArray, NodeContent},
         BrickData, Cube, Octree, V3c, VoxelData,
     },
-    spatial::raytracing::step_octant,
-};
-
-use crate::spatial::{
-    math::{
-        flat_projection, hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
-    },
-    raytracing::{
-        cube_impact_normal,
-        lut::{OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT, RAY_TO_NODE_OCCUPANCY_BITMASK_LUT},
-        Ray, FLOAT_ERROR_TOLERANCE,
+    spatial::{
+        math::{hash_direction, hash_region, octant_bitmask},
+        raytracing::{
+            cube_impact_normal,
+            lut::{
+                BITMAP_INDEX_LUT, OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT,
+                RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
+            },
+            step_octant, Ray, FLOAT_ERROR_TOLERANCE,
+        },
     },
 };
 
@@ -154,7 +153,7 @@ where
         )
     }
 
-    const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32;
+    const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32; // how long is one index step in bitmap space
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
     fn traverse_brick(
         ray: &Ray,
@@ -165,67 +164,60 @@ where
         ray_scale_factors: &V3c<f32>,
         direction_lut_index: usize,
     ) -> Option<V3c<usize>> {
-        let mut current_index = {
-            let pos = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
-            V3c::new(
-                (pos.x as i32).clamp(0, (DIM - 1) as i32),
-                (pos.y as i32).clamp(0, (DIM - 1) as i32),
-                (pos.z as i32).clamp(0, (DIM - 1) as i32),
-            )
-        };
-        let brick_unit = brick_bounds.size / DIM as f32;
+        // Decide the starting index inside the brick
+        let mut position = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
+        let mut current_index = V3c::new(
+            (position.x as i32).clamp(0, (DIM - 1) as i32),
+            (position.y as i32).clamp(0, (DIM - 1) as i32),
+            (position.z as i32).clamp(0, (DIM - 1) as i32),
+        );
+
+        // Map the current position to index and bitmap spaces
+        let brick_unit = brick_bounds.size / DIM as f32; // how long is index step in space (set by the bounds)
         let mut current_bounds = Cube {
             min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
             size: brick_unit,
         };
-        let start_pos_in_bitmap = position_in_bitmap_64bits(
-            current_index.x as usize,
-            current_index.y as usize,
-            current_index.z as usize,
-            DIM,
+        position = position * 4. / brick_bounds.size;
+        debug_assert!(
+            position.x >= 0. - FLOAT_ERROR_TOLERANCE && position.x <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        debug_assert!(
+            position.y >= 0. - FLOAT_ERROR_TOLERANCE && position.y <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        debug_assert!(
+            position.z >= 0. - FLOAT_ERROR_TOLERANCE && position.z <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        position = V3c::new(
+            (position.x).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+            (position.y).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+            (position.z).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
         );
 
-        if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap][direction_lut_index]
-            & brick_occupied_bits)
-        {
-            return None;
-        }
-
-        let mut prev_bitmap_position_full_resolution = V3c::new(
-            (current_index.x as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-            (current_index.y as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-            (current_index.z as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-        );
+        // Loop through the brick, terminate if no possibility of hit
         loop {
-            if current_index.x < 0
+            if
+            // If index is out of bounds
+            current_index.x < 0
                 || current_index.x >= DIM as i32
                 || current_index.y < 0
                 || current_index.y >= DIM as i32
                 || current_index.z < 0
                 || current_index.z >= DIM as i32
+
+                // OR If there's no chance of a hit
+                || 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[BITMAP_INDEX_LUT[position.x as usize]
+                [position.y as usize][position.z as usize]
+                as usize][direction_lut_index]
+                & brick_occupied_bits)
             {
                 return None;
-            }
-
-            let bitmap_position_full_resolution = V3c::new(
-                (current_index.x as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-                (current_index.y as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-                (current_index.z as f32 * Self::UNIT_IN_BITMAP_SPACE) as usize,
-            );
-            if bitmap_position_full_resolution != prev_bitmap_position_full_resolution {
-                prev_bitmap_position_full_resolution = bitmap_position_full_resolution;
-                let start_pos_in_bitmap = flat_projection(
-                    bitmap_position_full_resolution.x,
-                    bitmap_position_full_resolution.y,
-                    bitmap_position_full_resolution.z,
-                    4,
-                );
-                if 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[start_pos_in_bitmap]
-                    [direction_lut_index]
-                    & brick_occupied_bits)
-                {
-                    return None;
-                }
             }
 
             if !brick[current_index.x as usize][current_index.y as usize][current_index.z as usize]
@@ -240,8 +232,9 @@ where
                 &current_bounds,
                 ray_scale_factors,
             );
-            current_bounds.min_position = current_bounds.min_position + step * brick_unit;
-            current_index = current_index + V3c::<i32>::from(step);
+            current_bounds.min_position += step * brick_unit;
+            current_index += V3c::<i32>::from(step);
+            position += step * Self::UNIT_IN_BITMAP_SPACE;
             #[cfg(debug_assertions)]
             {
                 let relative_point =
