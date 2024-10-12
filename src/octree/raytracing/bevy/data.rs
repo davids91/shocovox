@@ -1,41 +1,100 @@
 use crate::object_pool::empty_marker;
+use crate::octree::types::BrickData;
 use crate::octree::{
-    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, SizedNode, Voxelement},
+    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, Voxelement},
     types::{NodeChildrenArray, NodeContent},
-    Octree, V3c, VoxelData,
+    Albedo, Octree, V3c, VoxelData,
 };
 use bevy::math::Vec4;
 use std::collections::HashMap;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
-    T: Default + Clone + VoxelData,
+    T: Default + Clone + Copy + PartialEq + VoxelData,
 {
+    /// Updates the meta element value to store that the corresponding node is a leaf node
     fn meta_set_is_leaf(sized_node_meta: &mut u32, is_leaf: bool) {
         *sized_node_meta =
-            (*sized_node_meta & 0x00FFFFFF) | if is_leaf { 0x01000000 } else { 0x00000000 };
+            (*sized_node_meta & 0xFFFFFF00) | if is_leaf { 0x00000004 } else { 0x00000000 };
     }
 
+    /// Updates the meta element value to store that the corresponding node is a uniform leaf node
+    fn meta_set_is_uniform(sized_node_meta: &mut u32, is_uniform: bool) {
+        *sized_node_meta =
+            (*sized_node_meta & 0xFFFFFF00) | if is_uniform { 0x00000008 } else { 0x00000000 };
+    }
+
+    /// Updates the meta element value to store that the corresponding node is a leaf node
     fn meta_set_node_occupancy_bitmap(sized_node_meta: &mut u32, bitmap: u8) {
         *sized_node_meta = (*sized_node_meta & 0xFFFFFF00) | bitmap as u32;
     }
 
-    fn create_meta(&self, node_key: usize) -> u32 {
-        let node = self.nodes.get(node_key);
+    /// Updates the meta element value to store the brick structure of the given leaf node
+    /// for the given brick octant
+    /// * `sized_node_meta` - the bytes to update
+    /// * `brick` - the brick to describe into the bytes
+    /// * `brick_octant` - the octant to update in the bytes
+    fn meta_set_leaf_brick_structure(
+        sized_node_meta: &mut u32,
+        brick: &BrickData<T, DIM>,
+        brick_octant: usize,
+    ) {
+        *sized_node_meta &= 0x000000FF;
+        match brick {
+            BrickData::Empty => {} // Child structure properties already set to NIL
+            BrickData::Solid(_voxel) => {
+                // set child Occupied bits, child Structure bits already set to 0
+                *sized_node_meta |= 0x01 << (8 + brick_octant);
+            }
+            BrickData::Parted(_brick) => {
+                // set child Occupied bits
+                *sized_node_meta |= 0x01 << (8 + brick_octant);
+
+                // set child Structure bits
+                *sized_node_meta |= 0x01 << (16 + brick_octant);
+            }
+        };
+    }
+
+    /// Updates the given meta element value to store the leaf structure of the given node
+    /// the given NodeContent reference is expected to be a leaf node
+    fn meta_set_leaf_structure(sized_node_meta: &mut u32, leaf: &NodeContent<T, DIM>) {
+        match leaf {
+            NodeContent::UniformLeaf(brick) => {
+                Self::meta_set_is_leaf(sized_node_meta, true);
+                Self::meta_set_is_uniform(sized_node_meta, true);
+                Self::meta_set_leaf_brick_structure(sized_node_meta, brick, 0);
+            }
+            NodeContent::Leaf(bricks) => {
+                Self::meta_set_is_leaf(sized_node_meta, true);
+                Self::meta_set_is_uniform(sized_node_meta, false);
+                for octant in 0..8 {
+                    Self::meta_set_leaf_brick_structure(sized_node_meta, &bricks[octant], octant);
+                }
+            }
+            NodeContent::Internal(_) | NodeContent::Nothing => {
+                panic!("Expected node content to be of a leaf");
+            }
+        }
+    }
+
+    /// Creates the descriptor bytes for the given node
+    fn create_node_properties(node: &NodeContent<T, DIM>) -> u32 {
         let mut meta = 0;
         match node {
+            NodeContent::UniformLeaf(_) => {
+                Self::meta_set_is_leaf(&mut meta, true);
+                Self::meta_set_leaf_structure(&mut meta, node);
+            }
             NodeContent::Leaf(_) => {
                 Self::meta_set_is_leaf(&mut meta, true);
-                Self::meta_set_node_occupancy_bitmap(
-                    &mut meta,
-                    self.occupied_8bit(node_key as u32),
-                );
+                Self::meta_set_leaf_structure(&mut meta, node);
             }
             NodeContent::Internal(occupied_bits) => {
                 Self::meta_set_is_leaf(&mut meta, false);
                 Self::meta_set_node_occupancy_bitmap(&mut meta, *occupied_bits);
             }
-            _ => {
+            NodeContent::Nothing => {
                 Self::meta_set_is_leaf(&mut meta, false);
                 Self::meta_set_node_occupancy_bitmap(&mut meta, 0x00);
             }
@@ -43,6 +102,64 @@ where
         meta
     }
 
+    /// Loads a brick into the provided voxels vector and color palette
+    /// * `brick` - The brick to upload
+    /// * `voxels` - The destination buffer
+    /// * `color_palette` - The used color palette
+    /// * `map_to_color_index_in_palette` - Indexing helper for the color palette
+    /// * `returns` - the identifier to set in @SizedNode
+    fn add_brick_to_vec(
+        brick: &BrickData<T, DIM>,
+        voxels: &mut Vec<Voxelement>,
+        color_palette: &mut Vec<Vec4>,
+        map_to_color_index_in_palette: &mut HashMap<Albedo, usize>,
+    ) -> u32 {
+        match brick {
+            BrickData::Empty => empty_marker(),
+            BrickData::Solid(voxel) => {
+                let albedo = voxel.albedo();
+                if !map_to_color_index_in_palette.contains_key(&albedo) {
+                    map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                    color_palette.push(Vec4::new(
+                        albedo.r as f32 / 255.,
+                        albedo.g as f32 / 255.,
+                        albedo.b as f32 / 255.,
+                        albedo.a as f32 / 255.,
+                    ));
+                }
+                map_to_color_index_in_palette[&albedo] as u32
+            }
+            BrickData::Parted(brick) => {
+                voxels.reserve(DIM * DIM * DIM);
+                let result_index = voxels.len();
+                for z in 0..DIM {
+                    for y in 0..DIM {
+                        for x in 0..DIM {
+                            let albedo = brick[x][y][z].albedo();
+                            if !map_to_color_index_in_palette.contains_key(&albedo) {
+                                map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                                color_palette.push(Vec4::new(
+                                    albedo.r as f32 / 255.,
+                                    albedo.g as f32 / 255.,
+                                    albedo.b as f32 / 255.,
+                                    albedo.a as f32 / 255.,
+                                ));
+                            }
+                            let albedo_index = map_to_color_index_in_palette[&albedo];
+
+                            voxels.push(Voxelement {
+                                albedo_index: albedo_index as u32,
+                                content: brick[x][y][z].user_data(),
+                            });
+                        }
+                    }
+                }
+                result_index as u32
+            }
+        }
+    }
+
+    /// Creates GPU compatible data renderable on the GPU from an octree
     pub fn create_bevy_view(&self) -> ShocoVoxRenderData {
         let meta = OctreeMetaData {
             octree_size: self.octree_size,
@@ -58,6 +175,7 @@ where
         let mut nodes = Vec::new();
         let mut children_buffer = Vec::new();
         let mut voxels = Vec::new();
+        let mut voxel_maps = Vec::new();
         let mut color_palette = Vec::new();
 
         // Build up Nodes
@@ -65,11 +183,7 @@ where
         for i in 0..self.nodes.len() {
             if self.nodes.key_is_valid(i) {
                 map_to_node_index_in_nodes_buffer.insert(i as usize, nodes.len());
-                nodes.push(SizedNode {
-                    sized_node_meta: self.create_meta(i),
-                    children_start_at: empty_marker(),
-                    voxels_start_at: empty_marker(),
-                });
+                nodes.push(Self::create_node_properties(self.nodes.get(i)));
             }
         }
 
@@ -79,58 +193,95 @@ where
             if !self.nodes.key_is_valid(i) {
                 continue;
             }
-            nodes[map_to_node_index_in_nodes_buffer[&i]].children_start_at =
-                children_buffer.len() as u32;
-            if let NodeContent::Leaf(bricks) = self.nodes.get(i) {
-                debug_assert!(matches!(
-                    self.node_children[i].content,
-                    NodeChildrenArray::OccupancyBitmap(_)
-                ));
-                let occupied_bits = match self.node_children[i].content {
-                    NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
-                    _ => panic!("Found Leaf Node without occupancy bitmap!"),
-                };
-                children_buffer.extend_from_slice(&[
-                    (occupied_bits & 0x00000000FFFFFFFF) as u32,
-                    ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
-                ]);
-                nodes[map_to_node_index_in_nodes_buffer[&i]].voxels_start_at = voxels.len() as u32;
-                for z in 0..DIM {
-                    for y in 0..DIM {
-                        for x in 0..DIM {
-                            let albedo = data[x][y][z].albedo();
-                            if !map_to_color_index_in_palette.contains_key(&albedo) {
-                                map_to_color_index_in_palette.insert(albedo, color_palette.len());
-                                color_palette.push(Vec4::new(
-                                    albedo.r as f32 / 255.,
-                                    albedo.g as f32 / 255.,
-                                    albedo.b as f32 / 255.,
-                                    albedo.a as f32 / 255.,
-                                ));
-                            }
-                            let albedo_index = map_to_color_index_in_palette[&albedo];
+            match self.nodes.get(i) {
+                NodeContent::UniformLeaf(brick) => {
+                    debug_assert!(
+                        matches!(
+                            self.node_children[i].content,
+                            NodeChildrenArray::OccupancyBitmap(_)
+                        ),
+                        "Expected Uniform leaf to have OccupancyBitmap(_) instead of {:?}",
+                        self.node_children[i].content
+                    );
 
-                            voxels.push(Voxelement {
-                                albedo_index: albedo_index as u32,
-                                content: data[x][y][z].user_data(),
-                            })
+                    if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                        self.node_children[i].content
+                    {
+                        voxel_maps.extend_from_slice(&[
+                            (occupied_bits & 0x00000000FFFFFFFF) as u32,
+                            ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
+                        ]);
+                    } else {
+                        voxel_maps.extend_from_slice(&[0, 0]);
+                    }
+
+                    children_buffer.extend_from_slice(&[
+                        Self::add_brick_to_vec(
+                            brick,
+                            &mut voxels,
+                            &mut color_palette,
+                            &mut map_to_color_index_in_palette,
+                        ),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                    ]);
+                }
+                NodeContent::Leaf(bricks) => {
+                    debug_assert!(
+                        matches!(
+                            self.node_children[i].content,
+                            NodeChildrenArray::OccupancyBitmaps(_)
+                        ),
+                        "Expected Uniform leaf to have OccupancyBitmaps(_) instead of {:?}",
+                        self.node_children[i].content
+                    );
+
+                    if let NodeChildrenArray::OccupancyBitmaps(octant_occupied_bits) =
+                        self.node_children[i].content
+                    {
+                        for occupied_bits in octant_occupied_bits {
+                            voxel_maps.extend_from_slice(&[
+                                (occupied_bits & 0x00000000FFFFFFFF) as u32,
+                                ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
+                            ]);
+                        }
+                    } else {
+                        voxel_maps
+                            .extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+                    }
+
+                    let mut children = vec![0; 8];
+                    for octant in 0..8 {
+                        children[octant] = Self::add_brick_to_vec(
+                            &bricks[octant],
+                            &mut voxels,
+                            &mut color_palette,
+                            &mut map_to_color_index_in_palette,
+                        );
+                    }
+                    children_buffer.extend_from_slice(&children);
+                }
+                NodeContent::Internal(_) => {
+                    children_buffer.reserve(8);
+                    for c in 0..8 {
+                        let child_index = &self.node_children[i][c];
+                        if *child_index != self.node_children[i].empty_marker {
+                            debug_assert!(map_to_node_index_in_nodes_buffer
+                                .contains_key(&(*child_index as usize)));
+                            children_buffer.push(
+                                map_to_node_index_in_nodes_buffer[&(*child_index as usize)] as u32,
+                            );
+                        } else {
+                            children_buffer.push(*child_index);
                         }
                     }
                 }
-            } else {
-                //Internal nodes
-                for c in 0..8 {
-                    let child_index = &self.node_children[i][c];
-                    if *child_index != self.node_children[i].empty_marker {
-                        debug_assert!(map_to_node_index_in_nodes_buffer
-                            .contains_key(&(*child_index as usize)));
-                        children_buffer.push(
-                            map_to_node_index_in_nodes_buffer[&(*child_index as usize)] as u32,
-                        );
-                    } else {
-                        children_buffer.push(*child_index);
-                    }
-                }
+                NodeContent::Nothing => {} // Nothing to do with an empty node
             }
         }
 
@@ -139,6 +290,7 @@ where
             nodes,
             children_buffer,
             voxels,
+            voxel_maps,
             color_palette,
         }
     }

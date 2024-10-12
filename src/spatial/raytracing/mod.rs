@@ -77,7 +77,7 @@ pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
 
 /// calculates the distance between the line, and the plane both described by a ray
 /// plane: normal, and a point on plane, line: origin and direction
-/// return the distance from the line origin to the direction of it, if they have an intersection
+/// returns the distance from the line origin to the direction of it, if they have an intersection
 #[allow(dead_code)] // Could be useful either for debugging or new implementations
 pub fn plane_line_intersection(
     plane_point: &V3c<f32>,
