@@ -3,6 +3,9 @@ pub mod update;
 
 mod convert;
 mod detail;
+mod node;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(feature = "raytracing")]
