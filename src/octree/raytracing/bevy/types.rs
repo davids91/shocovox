@@ -21,40 +21,6 @@ pub(crate) struct Voxelement {
 }
 
 #[derive(Clone, ShaderType)]
-pub(crate) struct SizedNode {
-    /// Composite field:
-    /// - Byte 1: Boolean value, true in case node is a leaf
-    /// - In case of internal nodes:
-    ///   - Byte 2: TBD
-    ///   - Byte 3: TBD
-    ///   - Byte 4: Lvl2 Occupancy bitmap
-    /// - In case of leaf nodes:
-    ///   - Byte 2: TBD
-    ///   - Byte 3: TBD
-    ///   - Byte 4: TBD
-    pub(crate) sized_node_meta: u32,
-
-    /// index of where the data about this node is found in children_buffer
-    /// - In case of internal nodes:
-    ///   - 8 Index value of node children
-    /// - In case of leaf nodes:
-    ///   - Byte 1-4: Occupancy bitmap MSB
-    ///   - Byte 5-8: Occupancy bitmap LSB
-    ///   - Byte 9-12: TBD
-    ///   - Byte 13-16: TBD
-    ///   - Byte 17-20: TBD
-    ///   - Byte 21-24: TBD
-    ///   - Byte 25-28: TBD
-    ///   - Byte 29-32: TBD
-    pub(crate) children_start_at: u32,
-
-    /// index of where the voxel values contained in the node start inside the voxels buffer,
-    /// or a "none_value". Should the field contain an index, the next voxel_brick_dim^3 elements
-    /// inside the @voxels array count as part of the voxels associated with the node
-    pub(crate) voxels_start_at: u32,
-}
-
-#[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
     pub ambient_light_color: V3cf32,
     pub ambient_light_position: V3cf32,
@@ -89,16 +55,60 @@ pub struct ShocoVoxRenderData {
     #[uniform(0, visibility(compute))]
     pub(crate) meta: OctreeMetaData,
 
+    /// Composite field containing the properties of Nodes
+    /// Structure is the following:
+    ///  _===================================================================_
+    /// | Byte 0  | Node properties                                           |
+    /// |---------------------------------------------------------------------|
+    /// |  bit 0  | unused - potentially: "node in use do not delete" bit     |
+    /// |  bit 1  | unused - potentially: "brick in use do not delete" bit    |
+    /// |  bit 2  | 1 in case node is a leaf                                  |
+    /// |  bit 3  | 1 in case node is uniform                                 |
+    /// |  bit 4  | unused - potentially: 1 if node has voxels                |
+    /// |  bit 5  | unused - potentially: voxel brick size: 1, full or sparse |
+    /// |  bit 6  | unused - potentially: voxel brick size: 1, full or sparse |
+    /// |  bit 7  | unused                                                    |
+    /// |=====================================================================|
+    /// | Byte 1  | Child occupied                                            |
+    /// |---------------------------------------------------------------------|
+    /// | If Leaf | each bit is 0 if child brick is empty at octant *(1)      |
+    /// | If Node | lvl1 occupancy bitmap                                     |
+    /// |=====================================================================|
+    /// | Byte 2  | Child structure                                           |
+    /// |---------------------------------------------------------------------|
+    /// | If Leaf | each bit is 0 if child brick is solid, 1 if parted *(1)   |
+    /// | If Node | unused                                                    |
+    /// |=====================================================================|
+    /// | Byte 3  | unused                                                    |
+    /// `=====================================================================`
+    /// *(1) Only first bit is used in case leaf is uniform
     #[storage(1, visibility(compute))]
-    pub(crate) nodes: Vec<SizedNode>,
+    pub(crate) nodes: Vec<u32>,
 
+    /// Index values for Nodes, 8 value per @SizedNode entry. Each value points to:
+    /// In case of Internal Nodes
+    /// -----------------------------------------
+    ///
+    /// In case of Leaf Nodes:
+    /// -----------------------------------------
+    /// index of where the voxel brick start inside the @voxels buffer.
+    /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta, while
     #[storage(2, visibility(compute))]
     pub(crate) children_buffer: Vec<u32>,
 
+    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
+    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
     #[storage(3, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 
+    /// Buffer of Voxel brick occupancy bitmaps. Each brick has a 64 bit bitmap,
+    /// which is stored in 2 * u32 values
     #[storage(4, visibility(compute))]
+    pub(crate) voxel_maps: Vec<u32>,
+
+    /// Stores each unique color, it is references in @voxels
+    /// and in @children_buffer as well( in case of solid bricks )
+    #[storage(5, visibility(compute))]
     pub(crate) color_palette: Vec<Vec4>,
 }
 
@@ -122,7 +132,7 @@ pub(crate) struct ShocoVoxRenderNode {
 
 #[cfg(test)]
 mod types_wgpu_byte_compatibility_tests {
-    use super::{OctreeMetaData, SizedNode, Viewport, Voxelement};
+    use super::{OctreeMetaData, Viewport, Voxelement};
     use bevy::render::render_resource::encase::ShaderType;
 
     #[test]
@@ -130,6 +140,5 @@ mod types_wgpu_byte_compatibility_tests {
         Viewport::assert_uniform_compat();
         OctreeMetaData::assert_uniform_compat();
         Voxelement::assert_uniform_compat();
-        SizedNode::assert_uniform_compat();
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     octree::{
         types::{NodeChildrenArray, NodeContent},
-        Cube, Octree, V3c, VoxelData,
+        BrickData, Cube, Octree, V3c, VoxelData,
     },
     spatial::{
         math::{hash_direction, hash_region, octant_bitmask},
@@ -85,7 +85,7 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
-    pub(in crate::octree) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
+    pub(crate) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(
             (1. + (ray.direction.z / ray.direction.x).powf(2.)
                 + (ray.direction.y / ray.direction.x).powf(2.))
@@ -110,7 +110,7 @@ where
     /// * `ray_scale_factors` - Pre-computed dda values for the ray
     /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
     /// output: the step to the next sibling
-    pub(in crate::octree) fn dda_step_to_next_sibling(
+    pub(crate) fn dda_step_to_next_sibling(
         ray: &Ray,
         ray_current_distance: &mut f32,
         current_bounds: &Cube,
@@ -251,6 +251,58 @@ where
         }
     }
 
+    fn probe_brick<'a>(
+        &self,
+        ray: &Ray,
+        ray_current_distance: &mut f32,
+        brick: &'a BrickData<T, DIM>,
+        brick_occupied_bits: u64,
+        brick_bounds: &Cube,
+        ray_scale_factors: &V3c<f32>,
+        direction_lut_index: usize,
+    ) -> Option<(&'a T, V3c<f32>, V3c<f32>)> {
+        match brick {
+            BrickData::Empty => {
+                // No need to do anything, iteration continues with "leaf miss"
+                None
+            }
+            BrickData::Solid(voxel) => {
+                let impact_point = ray.point_at(*ray_current_distance);
+                return Some((
+                    &voxel,
+                    impact_point,
+                    cube_impact_normal(&brick_bounds, &impact_point),
+                ));
+            }
+            BrickData::Parted(brick) => {
+                if let Some(leaf_brick_hit) = Self::traverse_brick(
+                    &ray,
+                    ray_current_distance,
+                    brick,
+                    brick_occupied_bits,
+                    &brick_bounds,
+                    &ray_scale_factors,
+                    direction_lut_index,
+                ) {
+                    let hit_bounds = Cube {
+                        size: brick_bounds.size / DIM as f32,
+                        min_position: brick_bounds.min_position
+                            + V3c::<f32>::from(leaf_brick_hit) * brick_bounds.size / DIM as f32,
+                    };
+                    let impact_point = ray.point_at(*ray_current_distance);
+                    let impact_normal = cube_impact_normal(&hit_bounds, &impact_point);
+                    Some((
+                        &brick[leaf_brick_hit.x][leaf_brick_hit.y][leaf_brick_hit.z],
+                        impact_point,
+                        impact_normal,
+                    ))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
@@ -286,43 +338,63 @@ where
                     .nodes
                     .key_is_valid(*node_stack.last().unwrap() as usize));
 
-                let mut leaf_miss = false;
-                if self.nodes.get(current_node_key).is_leaf() {
-                    debug_assert!(matches!(
-                        self.node_children[current_node_key].content,
-                        NodeChildrenArray::OccupancyBitmap(_)
-                    ));
-                    if let Some(leaf_brick_hit) = Self::traverse_brick(
-                        &ray,
-                        &mut ray_current_distance,
-                        self.nodes.get(current_node_key).leaf_data(),
-                        match self.node_children[current_node_key].content {
-                            NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
-                            _ => {
-                                debug_assert!(false);
-                                0
+                let mut do_backtrack_after_leaf_miss = false;
+                if target_octant != OOB_OCTANT {
+                    match self.nodes.get(current_node_key) {
+                        NodeContent::UniformLeaf(brick) => {
+                            debug_assert!(matches!(
+                                self.node_children[current_node_key].content,
+                                NodeChildrenArray::OccupancyBitmap(_)
+                            ));
+                            if let Some(hit) = self.probe_brick(
+                                ray,
+                                &mut ray_current_distance,
+                                brick,
+                                match self.node_children[current_node_key].content {
+                                    NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
+                                    _ => {
+                                        debug_assert!(false);
+                                        0
+                                    }
+                                },
+                                &current_bounds,
+                                &ray_scale_factors,
+                                direction_lut_index,
+                            ) {
+                                return Some(hit);
                             }
-                        },
-                        &current_bounds,
-                        &ray_scale_factors,
-                        direction_lut_index,
-                    ) {
-                        current_bounds.size /= DIM as f32;
-                        current_bounds.min_position = current_bounds.min_position
-                            + V3c::<f32>::from(leaf_brick_hit) * current_bounds.size;
-                        let impact_point = ray.point_at(ray_current_distance);
-                        let impact_normal = cube_impact_normal(&current_bounds, &impact_point);
-                        return Some((
-                            &self.nodes.get(current_node_key).leaf_data()[leaf_brick_hit.x]
-                                [leaf_brick_hit.y][leaf_brick_hit.z],
-                            impact_point,
-                            impact_normal,
-                        ));
+                            do_backtrack_after_leaf_miss = true;
+                        }
+                        NodeContent::Leaf(bricks) => {
+                            debug_assert!(matches!(
+                                self.node_children[current_node_key].content,
+                                NodeChildrenArray::OccupancyBitmaps(_)
+                            ));
+                            if let Some(hit) = self.probe_brick(
+                                ray,
+                                &mut ray_current_distance,
+                                &bricks[target_octant as usize],
+                                match self.node_children[current_node_key].content {
+                                    NodeChildrenArray::OccupancyBitmaps(bitmaps) => {
+                                        bitmaps[target_octant as usize]
+                                    }
+                                    _ => {
+                                        debug_assert!(false);
+                                        0
+                                    }
+                                },
+                                &current_bounds.child_bounds_for(target_octant),
+                                &ray_scale_factors,
+                                direction_lut_index,
+                            ) {
+                                return Some(hit);
+                            }
+                        }
+                        NodeContent::Internal(_) | NodeContent::Nothing => {}
                     }
-                    leaf_miss = true;
-                }
+                };
 
-                if leaf_miss
+                if do_backtrack_after_leaf_miss
                     || target_octant == OOB_OCTANT
                     // In case the current Node is empty
                     || 0 == current_node_occupied_bits
@@ -394,19 +466,35 @@ where
                                 self.node_children[current_node_key][target_octant as u32];
                         }
                         if target_octant == OOB_OCTANT
-                            || (self.nodes.key_is_valid(target_child_key as usize)
+                        // In case the current node has a valid target child
+                        || (self.nodes.key_is_valid(target_child_key as usize)
                             // current node is occupied at target octant
                             && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
                             // target child collides with the ray
                             && 0 != match self.nodes.get(target_child_key as usize) {
                                 NodeContent::Nothing => 0,
-                                NodeContent::Internal(_) | NodeContent::Leaf(_)=> self.occupied_8bit(target_child_key)
+                                NodeContent::Internal(_) | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                                self.occupied_8bit(target_child_key)
                                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                         &(ray.point_at(ray_current_distance) - target_bounds.min_position),
                                         target_bounds.size / 2.,
                                     ) as usize]
-                                    [direction_lut_index as usize],
+                                    [direction_lut_index as usize]
+                                }
                             })
+                            // In case the current node is leaf
+                            || match self.nodes.get(current_node_key as usize) {
+                                    // Empty or internal nodes are not evaluated in this condition;
+                                    // Basically if there's no hit with a uniformleaf
+                                    // | It's either because the leaf is solid empty
+                                    // | Or the parted brick did not have any non-empty voxels intersecting with the ray
+                                    // --> Both reasons are valid to go forward, so don't break the advancement
+                                NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::UniformLeaf(_) => false,
+                                NodeContent::Leaf(bricks) => {
+                                    // Stop advancement if brick under target octant is not empty
+                                    !matches!(bricks[target_octant as usize], BrickData::Empty)
+                                }
+                            }
                         {
                             // stop advancing because current target is either
                             // - OOB
