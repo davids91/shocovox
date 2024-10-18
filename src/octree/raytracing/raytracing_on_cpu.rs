@@ -253,10 +253,10 @@ where
 
     fn probe_brick<'a>(
         &self,
-        brick: &'a BrickData<T, DIM>,
-        brick_occupied_bits: u64,
         ray: &Ray,
         ray_current_distance: &mut f32,
+        brick: &'a BrickData<T, DIM>,
+        brick_occupied_bits: u64,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
         direction_lut_index: usize,
@@ -338,11 +338,8 @@ where
                     .nodes
                     .key_is_valid(*node_stack.last().unwrap() as usize));
 
-                let leaf_miss = if target_octant == OOB_OCTANT {
-                    // Do not evaluate leaf if the target octant is out of bounds
-                    false
-                } else {
-                    let target_bounds = current_bounds.child_bounds_for(target_octant);
+                let mut do_backtrack_after_leaf_miss = false;
+                if target_octant != OOB_OCTANT {
                     match self.nodes.get(current_node_key) {
                         NodeContent::UniformLeaf(brick) => {
                             debug_assert!(matches!(
@@ -350,6 +347,8 @@ where
                                 NodeChildrenArray::OccupancyBitmap(_)
                             ));
                             if let Some(hit) = self.probe_brick(
+                                ray,
+                                &mut ray_current_distance,
                                 brick,
                                 match self.node_children[current_node_key].content {
                                     NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
@@ -358,23 +357,22 @@ where
                                         0
                                     }
                                 },
-                                ray,
-                                &mut ray_current_distance,
                                 &current_bounds,
                                 &ray_scale_factors,
                                 direction_lut_index,
                             ) {
                                 return Some(hit);
                             }
-                            true
+                            do_backtrack_after_leaf_miss = true;
                         }
                         NodeContent::Leaf(bricks) => {
                             debug_assert!(matches!(
                                 self.node_children[current_node_key].content,
                                 NodeChildrenArray::OccupancyBitmaps(_)
                             ));
-
                             if let Some(hit) = self.probe_brick(
+                                ray,
+                                &mut ray_current_distance,
                                 &bricks[target_octant as usize],
                                 match self.node_children[current_node_key].content {
                                     NodeChildrenArray::OccupancyBitmaps(bitmaps) => {
@@ -385,21 +383,18 @@ where
                                         0
                                     }
                                 },
-                                ray,
-                                &mut ray_current_distance,
-                                &target_bounds,
+                                &current_bounds.child_bounds_for(target_octant),
                                 &ray_scale_factors,
                                 direction_lut_index,
                             ) {
                                 return Some(hit);
                             }
-                            false
                         }
-                        NodeContent::Internal(_) | NodeContent::Nothing => false,
+                        NodeContent::Internal(_) | NodeContent::Nothing => {}
                     }
                 };
 
-                if leaf_miss
+                if do_backtrack_after_leaf_miss
                     || target_octant == OOB_OCTANT
                     // In case the current Node is empty
                     || 0 == current_node_occupied_bits
@@ -471,29 +466,14 @@ where
                                 self.node_children[current_node_key][target_octant as u32];
                         }
                         if target_octant == OOB_OCTANT
-                            // In case the current node is leaf
-                            || match self.nodes.get(current_node_key as usize) {
-                                // Empty or internal nodes are not evaluated in this condition
-                                NodeContent::Nothing | NodeContent::Internal(_) => false,
-                                NodeContent::Leaf(bricks) => {
-                                    // Stop advancement if brick under target octant is not empty
-                                    !matches!(bricks[target_octant as usize], BrickData::Empty)
-                                }
-                                 NodeContent::UniformLeaf(_) => {
-                                    // Basically if there's no hit with a uniformleaf
-                                    // | It's either because the leaf is solid empty
-                                    // | Or the parted brick did not have any non-empty voxels intersecting with the ray
-                                    // --> Both reasons are valid to go forward, so don't break the advancement
-                                    false
-                                 }
-                            }
-                            || (self.nodes.key_is_valid(target_child_key as usize)
+                        // In case the current node has a valid target child
+                        || (self.nodes.key_is_valid(target_child_key as usize)
                             // current node is occupied at target octant
                             && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
                             // target child collides with the ray
                             && 0 != match self.nodes.get(target_child_key as usize) {
                                 NodeContent::Nothing => 0,
-                                NodeContent::Internal(_) | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)=> {
+                                NodeContent::Internal(_) | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
                                 self.occupied_8bit(target_child_key)
                                     & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
                                         &(ray.point_at(ray_current_distance) - target_bounds.min_position),
@@ -502,6 +482,19 @@ where
                                     [direction_lut_index as usize]
                                 }
                             })
+                            // In case the current node is leaf
+                            || match self.nodes.get(current_node_key as usize) {
+                                    // Empty or internal nodes are not evaluated in this condition;
+                                    // Basically if there's no hit with a uniformleaf
+                                    // | It's either because the leaf is solid empty
+                                    // | Or the parted brick did not have any non-empty voxels intersecting with the ray
+                                    // --> Both reasons are valid to go forward, so don't break the advancement
+                                NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::UniformLeaf(_) => false,
+                                NodeContent::Leaf(bricks) => {
+                                    // Stop advancement if brick under target octant is not empty
+                                    !matches!(bricks[target_octant as usize], BrickData::Empty)
+                                }
+                            }
                         {
                             // stop advancing because current target is either
                             // - OOB
