@@ -357,6 +357,102 @@ fn get_occupancy_in_bitmap_64bits(
     return 0 < (bitmap_msb & u32(0x01u << (bit_position - 32)));
 }
 
+// +++ DEBUG +++
+fn debug_traverse_brick_for_bitmap(
+    ray: Line,
+    ray_current_distance: ptr<function,f32>,
+    brick_index_start: u32,
+    occupancy_bitmap_lsb: u32,
+    occupancy_bitmap_msb: u32,
+    brick_bounds: Cube,
+    ray_scale_factors: vec3f,
+) -> vec3f {
+    let original_distance = *ray_current_distance;
+
+    var position = vec3f(
+        point_in_ray_at_distance(ray, *ray_current_distance)
+        - brick_bounds.min_position
+    );
+
+    var current_index = vec3i(
+        clamp(i32(position.x), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(position.y), 0, i32(octreeMetaData.voxel_brick_dim - 1)),
+        clamp(i32(position.z), 0, i32(octreeMetaData.voxel_brick_dim - 1))
+    );
+
+    var current_bounds = Cube(
+        (
+            brick_bounds.min_position 
+            + vec3f(current_index) * (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+        ),
+        (brick_bounds.size / f32(octreeMetaData.voxel_brick_dim))
+    );
+
+    position = vec3f(
+        clamp( (position.x * 4. / brick_bounds.size), 0.5, 3.5),
+        clamp( (position.y * 4. / brick_bounds.size), 0.5, 3.5),
+        clamp( (position.z * 4. / brick_bounds.size), 0.5, 3.5),
+    );
+
+    var safety = 0u;
+    var rgb_result = vec3f(current_index) / 4.;
+    loop{
+        safety += 1u;
+        if(safety > u32(f32(octreeMetaData.voxel_brick_dim) * sqrt(3.) * 2.1)) {
+            break;
+        }
+        if current_index.x < 0
+            || current_index.x >= i32(octreeMetaData.voxel_brick_dim)
+            || current_index.y < 0
+            || current_index.y >= i32(octreeMetaData.voxel_brick_dim)
+            || current_index.z < 0
+            || current_index.z >= i32(octreeMetaData.voxel_brick_dim)
+        {
+            break;
+        }
+        
+        if (
+            (
+                (BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)] < 32)
+                && (
+                    0u != (
+                        occupancy_bitmap_lsb
+                        & (0x01u << BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)])
+                    )
+                )
+            )||(
+                (BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)] >= 32)
+                && (
+                    0u != (
+                        occupancy_bitmap_msb
+                        & (0x01u << (BITMAP_INDEX_LUT
+                            [u32(position.x)]
+                            [u32(position.y)]
+                            [u32(position.z)] - 32))
+                    )
+                )
+            )
+        ){
+            rgb_result.b += 10. / f32(safety);
+            break;
+        }
+
+        let step = round(dda_step_to_next_sibling(
+            ray,
+            ray_current_distance,
+            current_bounds,
+            ray_scale_factors
+        ));
+        current_bounds.min_position += step * current_bounds.size;
+        current_index += vec3i(step);
+        position += step * (4. / f32(octreeMetaData.voxel_brick_dim));
+    }
+
+    *ray_current_distance = original_distance;
+    return rgb_result;
+}
+// --- DEBUG ---
+
 struct BrickHit{
     hit: bool,
     index: vec3u
@@ -403,7 +499,7 @@ fn traverse_brick(
             || current_index.y >= i32(octreeMetaData.voxel_brick_dim)
             || current_index.z < 0
             || current_index.z >= i32(octreeMetaData.voxel_brick_dim)
-            || (
+            /*|| ( //TODO: Re-introduce this in #54
                 0 == (
                     RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[
                         BITMAP_INDEX_LUT[u32(position.x)][u32(position.y)][u32(position.z)]
@@ -416,7 +512,7 @@ fn traverse_brick(
                     ][direction_lut_index * 2 + 1]
                     & occupancy_bitmap_msb
                 )
-            )
+            )*/
         {
             return BrickHit(false, vec3u());
         }
@@ -549,7 +645,6 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             round(current_bounds.size / 2.),
         );
     }
-
     while target_octant != OOB_OCTANT {
         current_node_key = OCTREE_ROOT_NODE_KEY;
         current_bounds = Cube(vec3(0.), f32(octreeMetaData.octree_size));

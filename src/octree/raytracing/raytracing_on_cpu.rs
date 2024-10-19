@@ -154,6 +154,93 @@ where
     }
 
     const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32; // how long is one index step in bitmap space
+
+    /// Iterates the given brick to display its occupancy bitmap
+    #[allow(dead_code)]
+    fn debug_traverse_brick_for_bitmap(
+        ray: &Ray,
+        ray_current_distance: &mut f32,
+        brick_occupied_bits: u64,
+        brick_bounds: &Cube,
+        ray_scale_factors: &V3c<f32>,
+    ) -> V3c<u8> {
+        // Decide the starting index inside the brick
+        let mut position = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
+        let mut current_index = V3c::new(
+            (position.x as i32).clamp(0, (DIM - 1) as i32),
+            (position.y as i32).clamp(0, (DIM - 1) as i32),
+            (position.z as i32).clamp(0, (DIM - 1) as i32),
+        );
+
+        // Map the current position to index and bitmap spaces
+        let brick_unit = brick_bounds.size / DIM as f32; // how long is index step in space (set by the bounds)
+        let mut current_bounds = Cube {
+            min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
+            size: brick_unit,
+        };
+        position = position * 4. / brick_bounds.size;
+        debug_assert!(
+            position.x >= 0. - FLOAT_ERROR_TOLERANCE && position.x <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        debug_assert!(
+            position.y >= 0. - FLOAT_ERROR_TOLERANCE && position.y <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        debug_assert!(
+            position.z >= 0. - FLOAT_ERROR_TOLERANCE && position.z <= 4. + FLOAT_ERROR_TOLERANCE,
+            "Expected position {:?} to be inside bitmap bounds",
+            position
+        );
+        position = V3c::new(
+            (position.x).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+            (position.y).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+            (position.z).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+        );
+
+        // Loop through the brick, terminate if no possibility of hit
+        let mut safety = 0;
+        let mut rgb_result = V3c::new(0, 0, 0);
+        loop {
+            safety += 1;
+            if safety as f32 > (DIM as f32 * 3f32.sqrt() * 2.1) {
+                break;
+            }
+            // If index is out of bounds
+            if current_index.x < 0
+                || current_index.x >= DIM as i32
+                || current_index.y < 0
+                || current_index.y >= DIM as i32
+                || current_index.z < 0
+                || current_index.z >= DIM as i32
+            {
+                break;
+            }
+
+            if 0 != (brick_occupied_bits
+                & (0x01
+                    << (BITMAP_INDEX_LUT[position.x as usize][position.y as usize]
+                        [position.z as usize])))
+            {
+                rgb_result = V3c::new(0, (30. * 255. / safety as f32) as u8, 0);
+                break;
+            }
+
+            let step = Self::dda_step_to_next_sibling(
+                ray,
+                ray_current_distance,
+                &current_bounds,
+                ray_scale_factors,
+            );
+            current_bounds.min_position += step * current_bounds.size;
+            current_index += V3c::<i32>::from(step);
+            position += step * Self::UNIT_IN_BITMAP_SPACE;
+        }
+        return rgb_result;
+    }
+
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
     fn traverse_brick(
         ray: &Ray,
@@ -194,10 +281,12 @@ where
             "Expected position {:?} to be inside bitmap bounds",
             position
         );
+
+        // Clamp the position to the middle of a voxel
         position = V3c::new(
-            (position.x).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
-            (position.y).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
-            (position.z).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+            (position.x).clamp(0.5, 3.5),
+            (position.y).clamp(0.5, 3.5),
+            (position.z).clamp(0.5, 3.5),
         );
 
         // Loop through the brick, terminate if no possibility of hit
