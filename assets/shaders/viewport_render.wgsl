@@ -492,7 +492,17 @@ fn traverse_brick(
         clamp( (position.y * 4. / brick_bounds.size), 0.5, 3.5),
         clamp( (position.z * 4. / brick_bounds.size), 0.5, 3.5),
     );
+
+    // +++ DEBUG +++
+    //var safety = 0u;
+    // --- DEBUG ---
     loop{
+        /*// +++ DEBUG +++
+        safety += 1u;
+        if(safety > u32(f32(octreeMetaData.voxel_brick_dim) * sqrt(30.))) {
+            return BrickHit(false, vec3u(1, 1, 1));
+        }
+        */// --- DEBUG ---
         if current_index.x < 0
             || current_index.x >= i32(octreeMetaData.voxel_brick_dim)
             || current_index.y < 0
@@ -645,11 +655,33 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             round(current_bounds.size / 2.),
         );
     }
+    // +++ DEBUG +++
+    //var outer_safety = 0;
+    // --- DEBUG ---
     while target_octant != OOB_OCTANT {
+        /*// +++ DEBUG +++
+        outer_safety += 1;
+        if(outer_safety > octreeMetaData.octree_size * sqrt(3.)) {
+            return OctreeRayIntersection(
+                true, vec4f(1.,0.,0.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+            );
+        }
+        */// --- DEBUG ---
         current_node_key = OCTREE_ROOT_NODE_KEY;
         current_bounds = Cube(vec3(0.), f32(octreeMetaData.octree_size));
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
+        /*// +++ DEBUG +++
+        var safety = 0;
+        */// --- DEBUG ---
         while(!node_stack_is_empty(node_stack_meta)) {
+            /*// +++ DEBUG +++
+            safety += 1;
+            if(safety > octreeMetaData.octree_size * sqrt(30.)) {
+                return OctreeRayIntersection(
+                    true, vec4f(0.,0.,1.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+                );
+            }
+            */// --- DEBUG ---
             var do_backtrack_after_leaf_miss = false;
             if (target_octant != OOB_OCTANT) {
                 if(0 != (0x00000004 & nodes[current_node_key])) { // node is leaf
@@ -738,7 +770,18 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                 node_stack_push(&node_stack, &node_stack_meta, target_child_key);
             } else {
                 // ADVANCE
+                // +++ DEBUG +++
+                //var advance_safety = 0;
+                // --- DEBUG ---
                 loop {
+                    /*// +++ DEBUG +++
+                    advance_safety += 1;
+                    if(advance_safety > 4) {
+                        return OctreeRayIntersection(
+                            true, vec4f(1.,0.,1.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+                        );
+                    }
+                    */// --- DEBUG ---
                     step_vec = dda_step_to_next_sibling(
                         ray,
                         &ray_current_distance,
