@@ -36,6 +36,7 @@ pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
 }
 
 /// Maps direction vector to the octant it points to
+#[cfg(feature = "raytracing")]
 pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1.0 - direction.length()).abs() < 0.1);
     let offset = V3c::unit(1.) + *direction;

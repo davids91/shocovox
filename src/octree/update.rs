@@ -58,7 +58,7 @@ where
                     "Expected Node children to be OccupancyBitmaps instead of {:?}",
                     self.node_children[node_key].content
                 );
-                match &mut bricks[target_child_octant as usize] {
+                match &mut bricks[target_child_octant] {
                     //If there is no brick in the target position of the leaf, create one
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
@@ -76,7 +76,7 @@ where
                             };
 
                         // update the new empty brick at the given position
-                        let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
+                        let mat_index = Self::mat_index(target_bounds, position);
                         Self::update_brick(
                             &mut new_brick,
                             mat_index,
@@ -84,7 +84,7 @@ where
                             &mut new_occupied_bits[target_child_octant],
                             data,
                         );
-                        bricks[target_child_octant as usize] = BrickData::Parted(new_brick);
+                        bricks[target_child_octant] = BrickData::Parted(new_brick);
                         self.node_children[node_key].content =
                             NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                     }
@@ -92,17 +92,17 @@ where
                         debug_assert_eq!(
                                 u64::MAX,
                                 if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
-                                    self.node_children[node_key as usize].content
+                                    self.node_children[node_key].content
                                 {
-                                    occupied_bits[target_child_octant as usize]
+                                    occupied_bits[target_child_octant]
                                 } else {
                                     0xD34D
                                 },
                                 "Solid full voxel should have its occupied bits set to u64::MAX, instead of {:?}",
                                 if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
-                                    self.node_children[node_key as usize].content
+                                    self.node_children[node_key].content
                                 {
-                                    occupied_bits[target_child_octant as usize]
+                                    occupied_bits[target_child_octant]
                                 } else {
                                     0xD34D
                                 }
@@ -111,7 +111,7 @@ where
                         if (data.is_none() && !voxel.is_empty())
                             || (data.is_some() && data.unwrap() != *voxel)
                         {
-                            let mut new_brick = Box::new([[[voxel.clone(); DIM]; DIM]; DIM]);
+                            let mut new_brick = Box::new([[[*voxel; DIM]; DIM]; DIM]);
                             let mut new_occupied_bits =
                                 if let NodeChildrenArray::OccupancyBitmaps(maps) =
                                     self.node_children[node_key].content
@@ -124,7 +124,7 @@ where
                                 );
                                 };
                             // update the new brick at the given position
-                            let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
+                            let mat_index = Self::mat_index(target_bounds, position);
                             Self::update_brick(
                                 &mut new_brick,
                                 mat_index,
@@ -132,7 +132,7 @@ where
                                 &mut new_occupied_bits[target_child_octant],
                                 data,
                             );
-                            bricks[target_child_octant as usize] = BrickData::Parted(new_brick);
+                            bricks[target_child_octant] = BrickData::Parted(new_brick);
                             self.node_children[node_key].content =
                                 NodeChildrenArray::OccupancyBitmaps(new_occupied_bits);
                         } else {
@@ -141,7 +141,7 @@ where
                     }
                     BrickData::Parted(ref mut brick) => {
                         // Let's update the brick at the given position
-                        let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
+                        let mat_index = Self::mat_index(target_bounds, position);
                         if let NodeChildrenArray::OccupancyBitmaps(ref mut maps) =
                             self.node_children[node_key].content
                         {
@@ -180,7 +180,7 @@ where
 
                             // Add a brick to the target octant and update with the given data
                             let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
-                            let mat_index = Self::mat_index(&target_bounds, &V3c::from(*position));
+                            let mat_index = Self::mat_index(target_bounds, position);
                             Self::update_brick(
                                 &mut new_brick,
                                 mat_index,
@@ -215,7 +215,7 @@ where
                                 } else {
                                     u64::MAX
                                 });
-                            *mat = BrickData::Parted(Box::new([[[voxel.clone(); DIM]; DIM]; DIM]));
+                            *mat = BrickData::Parted(Box::new([[[*voxel; DIM]; DIM]; DIM]));
 
                             self.leaf_update(
                                 node_key,
@@ -235,7 +235,7 @@ where
                         // The target position index is to be calculated from the node bounds,
                         // instead of the target bounds because the position should cover the whole leaf
                         // not just one brick in it
-                        let mat_index = Self::mat_index(&node_bounds, &V3c::from(*position));
+                        let mat_index = Self::mat_index(node_bounds, position);
                         let target_voxel = brick[mat_index.x][mat_index.y][mat_index.z];
                         if data.is_none() && target_voxel.is_empty()
                             || data.is_some_and(|d| d == target_voxel)
@@ -290,8 +290,7 @@ where
 
                             // Also update the brick if it is the target
                             if octant == target_child_octant {
-                                let mat_index =
-                                    Self::mat_index(&target_bounds, &V3c::from(*position));
+                                let mat_index = Self::mat_index(target_bounds, position);
                                 Self::update_brick(
                                     &mut new_brick,
                                     mat_index,
@@ -364,12 +363,12 @@ where
         data: Option<T>,
     ) {
         let size = size.min(DIM);
-        mat_index.cut_each_component(&(DIM - size as usize));
+        mat_index.cut_each_component(&(DIM - size));
         for x in mat_index.x..(mat_index.x + size) {
             for y in mat_index.y..(mat_index.y + size) {
                 for z in mat_index.z..(mat_index.z + size) {
                     if let Some(data) = data {
-                        brick[x][y][z] = data.clone();
+                        brick[x][y][z] = data;
                     } else {
                         brick[x][y][z].clear();
                     }
@@ -859,8 +858,8 @@ where
 
                     if !self.nodes.key_is_valid(child_keys[0] as usize) {
                         // At least try to simplify the siblings
-                        for octant in 1..8 {
-                            self.simplify(child_keys[octant]);
+                        for child_key in child_keys.iter().skip(1) {
+                            self.simplify(*child_key);
                         }
                         return false;
                     }

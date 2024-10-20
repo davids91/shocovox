@@ -108,10 +108,7 @@ where
     }
 }
 
-fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>) -> ()>(
-    vox_tree: &DotVoxData,
-    mut fun: F,
-) {
+fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVoxData, mut fun: F) {
     let mut node_stack: Vec<(u32, V3c<i32>, Matrix3<i8>, u32)> = Vec::new();
 
     match &vox_tree.scenes[0] {
@@ -128,7 +125,7 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>) -> ()>(
         }
     }
 
-    while 0 < node_stack.len() {
+    while !node_stack.is_empty() {
         let (current_node, translation, rotation, index) = *node_stack.last().unwrap();
         match &vox_tree.scenes[current_node as usize] {
             SceneNode::Transform {
@@ -251,7 +248,7 @@ where
                 .max(position.z + model_size_half_lyup.z)
                 .max(position.z - model_size_half_lyup.z);
         });
-        max_position_lyup = max_position_lyup - min_position_lyup;
+        max_position_lyup -= min_position_lyup;
         let max_dimension = max_position_lyup
             .x
             .max(max_position_lyup.y)
@@ -265,7 +262,7 @@ where
                 CoordinateSystemType::RZUP,
                 CoordinateSystemType::LYUP,
             );
-            let position = V3c::from(*position);
+            let position = *position;
             let position_lyup = convert_coordinate(
                 position,
                 CoordinateSystemType::RZUP,
@@ -279,7 +276,7 @@ where
                     if model_size_lyup.z < 0 { -1 } else { 0 },
                 );
 
-            let mut vmin = V3c::unit(max_dimension as u32);
+            let mut vmin = V3c::unit(max_dimension);
             let mut vmax = V3c::unit(0u32);
             for voxel in &model.voxels {
                 let voxel_position = convert_coordinate(
@@ -297,7 +294,7 @@ where
 
                 shocovox_octree
                     .insert(
-                        &V3c::<u32>::from(current_position + voxel_position.into()),
+                        &V3c::<u32>::from(current_position + voxel_position),
                         T::new(vox_tree.palette[voxel.i as usize].into(), 0),
                     )
                     .ok()

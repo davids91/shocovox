@@ -119,8 +119,10 @@ where
             BrickData::Empty => (empty_marker(), false),
             BrickData::Solid(voxel) => {
                 let albedo = voxel.albedo();
-                if !map_to_color_index_in_palette.contains_key(&albedo) {
-                    map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    map_to_color_index_in_palette.entry(albedo)
+                {
+                    e.insert(color_palette.len());
                     color_palette.push(Vec4::new(
                         albedo.r as f32 / 255.,
                         albedo.g as f32 / 255.,
@@ -144,8 +146,10 @@ where
                     for y in 0..DIM {
                         for x in 0..DIM {
                             let albedo = brick[x][y][z].albedo();
-                            if !map_to_color_index_in_palette.contains_key(&albedo) {
-                                map_to_color_index_in_palette.insert(albedo, color_palette.len());
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                map_to_color_index_in_palette.entry(albedo)
+                            {
+                                e.insert(color_palette.len());
                                 color_palette.push(Vec4::new(
                                     albedo.r as f32 / 255.,
                                     albedo.g as f32 / 255.,
@@ -190,7 +194,7 @@ where
         let mut map_to_node_index_in_nodes_buffer = HashMap::new();
         for i in 0..self.nodes.len() {
             if self.nodes.key_is_valid(i) {
-                map_to_node_index_in_nodes_buffer.insert(i as usize, nodes.len());
+                map_to_node_index_in_nodes_buffer.insert(i, nodes.len());
                 nodes.push(Self::create_node_properties(self.nodes.get(i)));
             }
         }

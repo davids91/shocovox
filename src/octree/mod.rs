@@ -125,7 +125,7 @@ where
                             return None;
                         }
                         BrickData::Solid(voxel) => {
-                            return Some(&voxel);
+                            return Some(voxel);
                         }
                     }
                 }
@@ -144,7 +144,7 @@ where
                         if voxel.is_empty() {
                             return None;
                         }
-                        return Some(&voxel);
+                        return Some(voxel);
                     }
                 },
                 NodeContent::Internal(_) => {
@@ -181,47 +181,39 @@ where
                 debug_assert!(DIM < self.octree_size as usize);
 
                 // Hash the position to the target child
-                let child_octant_at_position = child_octant_for(&bounds, position);
+                let child_octant_at_position = child_octant_for(bounds, position);
 
                 // If the child exists, query it for the voxel
                 match &mut bricks[child_octant_at_position as usize] {
-                    BrickData::Empty => {
-                        return None;
-                    }
+                    BrickData::Empty => None,
                     BrickData::Parted(ref mut brick) => {
-                        let bounds = Cube::child_bounds_for(&bounds, child_octant_at_position);
+                        let bounds = Cube::child_bounds_for(bounds, child_octant_at_position);
                         let mat_index = Self::mat_index(&bounds, &V3c::from(*position));
                         if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                             return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
                         }
-                        return None;
+                        None
                     }
-                    BrickData::Solid(ref mut voxel) => {
-                        return Some(voxel);
-                    }
+                    BrickData::Solid(ref mut voxel) => Some(voxel),
                 }
             }
             NodeContent::UniformLeaf(brick) => match brick {
-                BrickData::Empty => {
-                    return None;
-                }
+                BrickData::Empty => None,
                 BrickData::Parted(brick) => {
-                    let mat_index = Self::mat_index(&bounds, &V3c::from(*position));
+                    let mat_index = Self::mat_index(bounds, &V3c::from(*position));
                     if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return None;
                     }
-                    return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
+                    Some(&mut brick[mat_index.x][mat_index.y][mat_index.z])
                 }
                 BrickData::Solid(voxel) => {
                     if voxel.is_empty() {
                         return None;
                     }
-                    return Some(voxel);
+                    Some(voxel)
                 }
             },
-            &mut NodeContent::Nothing | &mut NodeContent::Internal(_) => {
-                return None;
-            }
+            &mut NodeContent::Nothing | &mut NodeContent::Internal(_) => None,
         }
     }
 

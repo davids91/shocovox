@@ -176,7 +176,7 @@ fn generate_octant_step_result_lut() -> [[[u32; 3]; 3]; 3] {
         for z in -1i32..=1 {
             for y in -1i32..=1 {
                 for x in -1i32..=1 {
-                    let result_octant = octant_after_step(&V3c::new(x, y, z), octant as u8);
+                    let result_octant = octant_after_step(&V3c::new(x, y, z), octant);
                     lut[(x + 1) as usize][(y + 1) as usize][(z + 1) as usize] |=
                         (result_octant as u32 & 0x0F) << octant_pos_in_32bits;
                     let octant_in_lut = (lut[(x + 1) as usize][(y + 1) as usize][(z + 1) as usize]

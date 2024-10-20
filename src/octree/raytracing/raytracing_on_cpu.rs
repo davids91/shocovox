@@ -61,7 +61,7 @@ where
             } else {
                 self.head_index -= 1;
             }
-            return Some(result);
+            Some(result)
         }
     }
 
@@ -69,14 +69,14 @@ where
         if 0 == self.count {
             None
         } else {
-            return Some(&self.data[self.head_index]);
+            Some(&self.data[self.head_index])
         }
     }
     pub(crate) fn last_mut(&mut self) -> Option<&mut T> {
         if 0 == self.count {
             None
         } else {
-            return Some(&mut self.data[self.head_index]);
+            Some(&mut self.data[self.head_index])
         }
     }
 }
@@ -101,15 +101,15 @@ where
     }
 
     /// https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm)
-    /// Calculate the length of the ray should its iteration be stepped one unit in the [x/y/z] direction.
+    /// Calculate the length of the ray in case the iteration is stepped one unit in the [x/y/z] direction.
     /// Changes with minimum ray iteration length shall be applied
+    /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
+    /// output: the step to the next sibling
     /// The step is also returned in the given unit size ( based on the cell bounds )
     /// * `ray` - The ray to base the step on
     /// * `ray_current_distance` - The distance the ray iteration is currently at
     /// * `current_bounds` - The cell which boundaries the current ray iteration intersects
     /// * `ray_scale_factors` - Pre-computed dda values for the ray
-    /// inputs: current distances of the 3 components of the ray, unit size, Ray, scale factors of each xyz components
-    /// output: the step to the next sibling
     pub(crate) fn dda_step_to_next_sibling(
         ray: &Ray,
         ray_current_distance: &mut f32,
@@ -238,7 +238,7 @@ where
             current_index += V3c::<i32>::from(step);
             position += step * Self::UNIT_IN_BITMAP_SPACE;
         }
-        return rgb_result;
+        rgb_result
     }
 
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
@@ -357,20 +357,20 @@ where
             }
             BrickData::Solid(voxel) => {
                 let impact_point = ray.point_at(*ray_current_distance);
-                return Some((
-                    &voxel,
+                Some((
+                    voxel,
                     impact_point,
-                    cube_impact_normal(&brick_bounds, &impact_point),
-                ));
+                    cube_impact_normal(brick_bounds, &impact_point),
+                ))
             }
             BrickData::Parted(brick) => {
                 if let Some(leaf_brick_hit) = Self::traverse_brick(
-                    &ray,
+                    ray,
                     ray_current_distance,
                     brick,
                     brick_occupied_bits,
-                    &brick_bounds,
-                    &ray_scale_factors,
+                    brick_bounds,
+                    ray_scale_factors,
                     direction_lut_index,
                 ) {
                     let hit_bounds = Cube {
@@ -396,13 +396,13 @@ where
     /// return reference of the data, collision point and normal at impact, should there be any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
         // Pre-calculated optimization variables
-        let ray_scale_factors = Self::get_dda_scale_factors(&ray);
+        let ray_scale_factors = Self::get_dda_scale_factors(ray);
         let direction_lut_index = hash_direction(&ray.direction) as usize;
 
         let mut node_stack: NodeStack<u32> = NodeStack::default();
         let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
         let (mut ray_current_distance, mut target_octant) =
-            if let Some(root_hit) = current_bounds.intersect_ray(&ray) {
+            if let Some(root_hit) = current_bounds.intersect_ray(ray) {
                 let ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
                 (
                     ray_current_distance,
@@ -493,7 +493,7 @@ where
                     // POP
                     node_stack.pop();
                     step_vec = Self::dda_step_to_next_sibling(
-                        &ray,
+                        ray,
                         &mut ray_current_distance,
                         &current_bounds,
                         &ray_scale_factors,
@@ -543,7 +543,7 @@ where
                     loop {
                         // step the iteration to the next sibling cell!
                         step_vec = Self::dda_step_to_next_sibling(
-                            &ray,
+                            ray,
                             &mut ray_current_distance,
                             &target_bounds,
                             &ray_scale_factors,
@@ -572,7 +572,7 @@ where
                                 }
                             })
                             // In case the current node is leaf
-                            || match self.nodes.get(current_node_key as usize) {
+                            || match self.nodes.get(current_node_key) {
                                     // Empty or internal nodes are not evaluated in this condition;
                                     // Basically if there's no hit with a uniformleaf
                                     // | It's either because the leaf is solid empty
