@@ -36,6 +36,7 @@ pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
 }
 
 /// Maps direction vector to the octant it points to
+#[cfg(feature = "raytracing")]
 pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1.0 - direction.length()).abs() < 0.1);
     let offset = V3c::unit(1.) + *direction;
@@ -55,15 +56,15 @@ pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usiz
 
 /// Returns with a bitmask to select the relevant octant based on the relative position
 /// and size of the covered area
-pub(crate) fn position_in_bitmap_64bits(x: usize, y: usize, z: usize, size: usize) -> usize {
+pub(crate) fn position_in_bitmap_64bits(x: usize, y: usize, z: usize, brick_size: usize) -> usize {
     const BITMAP_SPACE_DIMENSION: usize = 4;
-    debug_assert!((x * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
-    debug_assert!((y * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
-    debug_assert!((z * BITMAP_SPACE_DIMENSION / size) < BITMAP_SPACE_DIMENSION);
+    debug_assert!((x * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
+    debug_assert!((y * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
+    debug_assert!((z * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
     let pos_inside_bitmap = flat_projection(
-        x * BITMAP_SPACE_DIMENSION / size,
-        y * BITMAP_SPACE_DIMENSION / size,
-        z * BITMAP_SPACE_DIMENSION / size,
+        x * BITMAP_SPACE_DIMENSION / brick_size,
+        y * BITMAP_SPACE_DIMENSION / brick_size,
+        z * BITMAP_SPACE_DIMENSION / brick_size,
         BITMAP_SPACE_DIMENSION,
     );
     debug_assert!(
@@ -84,11 +85,38 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     x: usize,
     y: usize,
     z: usize,
-    size: usize,
+    brick_size: usize,
     occupied: bool,
     bitmap: &mut u64,
 ) {
-    let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, size);
+    // In case the brick size is smaller than 4, one position sets multiple bits
+    debug_assert!(brick_size >= 4 || (brick_size == 2 || brick_size == 1));
+    debug_assert!(x < brick_size);
+    debug_assert!(y < brick_size);
+    debug_assert!(z < brick_size);
+
+    if brick_size == 1 {
+        *bitmap = if occupied { u64::MAX } else { 0 };
+        return;
+    }
+
+    if brick_size == 2 {
+        // One position will set 4 bits
+        for x_ in (x * 2)..(((x * 2) + 2).min(4)) {
+            for y_ in (y * 2)..(((y * 2) + 2).min(4)) {
+                for z_ in (z * 2)..(((z * 2) + 2).min(4)) {
+                    let pos_mask = 0x01 << position_in_bitmap_64bits(x_, y_, z_, 4);
+                    if occupied {
+                        *bitmap |= pos_mask;
+                    } else {
+                        *bitmap &= !pos_mask
+                    }
+                }
+            }
+        }
+    }
+
+    let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, brick_size);
     if occupied {
         *bitmap |= pos_mask;
     } else {

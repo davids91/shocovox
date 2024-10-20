@@ -183,7 +183,7 @@ fn handle_zoom(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
     mut angles_query: Query<&mut DomePosition>,
 ) {
-    const ADDITION: f32 = 0.05;
+    const ADDITION: f32 = 0.005;
     let angle_update_fn = |angle, delta| -> f32 {
         let new_angle = angle + delta;
         if new_angle < 360. {
@@ -191,6 +191,11 @@ fn handle_zoom(
         } else {
             0.
         }
+    };
+    let multiplier = if keys.pressed(KeyCode::ShiftLeft) {
+        10.0 // Doesn't have any effect?!
+    } else {
+        1.0
     };
     if keys.pressed(KeyCode::ArrowUp) {
         angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
@@ -207,10 +212,18 @@ fn handle_zoom(
         // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::PageUp) {
-        angles_query.single_mut().radius *= 0.9;
+        angles_query.single_mut().radius *= 1. - 0.02 * multiplier;
     }
     if keys.pressed(KeyCode::PageDown) {
-        angles_query.single_mut().radius *= 1.1;
+        angles_query.single_mut().radius *= 1. + 0.02 * multiplier;
+    }
+    if keys.pressed(KeyCode::Home) {
+        viewing_glass.viewport.w_h_fov.x *= 1. + 0.09 * multiplier;
+        viewing_glass.viewport.w_h_fov.y *= 1. + 0.09 * multiplier;
+    }
+    if keys.pressed(KeyCode::End) {
+        viewing_glass.viewport.w_h_fov.x *= 1. - 0.09 * multiplier;
+        viewing_glass.viewport.w_h_fov.y *= 1. - 0.09 * multiplier;
     }
 }
 
