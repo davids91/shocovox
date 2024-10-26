@@ -48,6 +48,7 @@ mod octree_tests {
 
     #[test]
     fn test_get_mut() {
+        std::env::set_var("RUST_BACKTRACE", "1");
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();

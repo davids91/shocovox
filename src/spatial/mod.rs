@@ -1,8 +1,10 @@
+pub mod lut;
 pub mod math;
-pub mod tests;
 
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
+
+mod tests;
 
 use crate::spatial::math::{offset_region, vector::V3c};
 

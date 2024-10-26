@@ -101,15 +101,10 @@ fn test_node_children_serialization() {
         empty_marker: empty_marker(),
         content: NodeChildrenArray::OccupancyBitmap(666),
     };
-    let node_children_bitmaps = NodeChildren {
-        empty_marker: empty_marker(),
-        content: NodeChildrenArray::OccupancyBitmaps([1, 2, 3, 4, 5, 6, 7, 8]),
-    };
 
     let serialized_node_children_empty = node_children_empty.to_bencode();
     let serialized_node_children_filled = node_children_filled.to_bencode();
     let serialized_node_children_bitmap = node_children_bitmap.to_bencode();
-    let serialized_node_children_bitmaps = node_children_bitmaps.to_bencode();
 
     let deserialized_node_children_empty =
         NodeChildren::from_bencode(&serialized_node_children_empty.ok().unwrap())
@@ -123,15 +118,10 @@ fn test_node_children_serialization() {
         NodeChildren::from_bencode(&serialized_node_children_bitmap.ok().unwrap())
             .ok()
             .unwrap();
-    let deserialized_node_children_bitmaps =
-        NodeChildren::from_bencode(&serialized_node_children_bitmaps.ok().unwrap())
-            .ok()
-            .unwrap();
 
     assert!(deserialized_node_children_empty == node_children_empty);
     assert!(deserialized_node_children_filled == node_children_filled);
     assert!(deserialized_node_children_bitmap == node_children_bitmap);
-    assert!(deserialized_node_children_bitmaps == node_children_bitmaps);
 }
 
 #[test]

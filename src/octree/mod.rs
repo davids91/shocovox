@@ -20,7 +20,7 @@ use crate::octree::{
     detail::{bound_contains, child_octant_for},
     types::{NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::Cube;
+use crate::spatial::{math::position_in_bitmap_64bits, Cube};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl<T, const DIM: usize> Octree<T, DIM>
@@ -147,14 +147,35 @@ where
                         return Some(voxel);
                     }
                 },
-                NodeContent::Internal(_) => {
+                NodeContent::Internal(occupied_bits) => {
                     // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
 
-                    // If the target child is valid, recurse into it
+                    // There is a valid child at the given position inside the node, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let bit_position_in_node: V3c<usize> = V3c::from(
+                                (position - current_bounds.min_position) * 4. / DIM as f32,
+                            );
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                0 != (occupied_bits
+                                    & 0x01
+                                        << position_in_bitmap_64bits(
+                                            bit_position_in_node.x,
+                                            bit_position_in_node.y,
+                                            bit_position_in_node.z,
+                                            DIM
+                                        )),
+                                "Node under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#08x}",
+                                current_bounds,
+                                position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);
@@ -166,8 +187,8 @@ where
         }
     }
 
-    /// Provides a mutable reference to the voxel insidethe given node
-    /// Requires the biounds of the Node, and the position inside the node to provide reference from
+    /// Provides a mutable reference to the voxel inside the given node
+    /// Requires the bounds of the Node, and the position inside the node its providing reference from
     fn get_mut_ref(
         &mut self,
         bounds: &Cube,
@@ -231,7 +252,7 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Internal(_) => {
+                NodeContent::Internal(occupied_bits) => {
                     // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
@@ -239,6 +260,27 @@ where
 
                     // If the target child is valid, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let bit_position_in_node: V3c<usize> = V3c::from(
+                                (position - current_bounds.min_position) * 4. / DIM as f32,
+                            );
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                0 != (occupied_bits
+                                    & 0x01
+                                        << position_in_bitmap_64bits(
+                                            bit_position_in_node.x,
+                                            bit_position_in_node.y,
+                                            bit_position_in_node.z,
+                                            DIM
+                                        )),
+                                "Node under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#08x}",
+                                current_bounds,
+                                position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);

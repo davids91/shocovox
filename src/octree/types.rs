@@ -23,7 +23,7 @@ where
 {
     #[default]
     Nothing,
-    Internal(u8), // cache data to store the occupancy of the enclosed nodes
+    Internal(u64), // cache data to store the occupancy of the enclosed nodes
     Leaf([BrickData<T, DIM>; 8]),
     UniformLeaf(BrickData<T, DIM>),
 }
@@ -44,8 +44,7 @@ pub(crate) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
-    OccupancyBitmap(u64),       // In case of homogeneous or uniform leaf nodes
-    OccupancyBitmaps([u64; 8]), // In case of leaf nodes
+    OccupancyBitmap(u64), // In case of leaf nodes
 }
 
 #[derive(Debug, Copy, Clone)]

@@ -35,8 +35,22 @@ pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
         + (offset.y >= size_half) as u8 * 4
 }
 
+/// Generates a bitmask based on teh given octant corresponding to the coverage of the octant in an occupancy bitmap
+pub(crate) fn mask_for_octant_64_bits(octant: u8) -> u64 {
+    match octant {
+        0 => 0x0000000000330033,
+        1 => 0x0000000000cc00cc,
+        2 => 0x0033003300000000,
+        3 => 0x00cc00cc00000000,
+        4 => 0x0000000033003300,
+        5 => 0x00000000cc00cc00,
+        6 => 0x3300330000000000,
+        7 => 0xcc00cc0000000000,
+        _ => panic!("Invalid region hash provided for spatial reference!"),
+    }
+}
+
 /// Maps direction vector to the octant it points to
-#[cfg(feature = "raytracing")]
 pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1.0 - direction.length()).abs() < 0.1);
     let offset = V3c::unit(1.) + *direction;
@@ -91,9 +105,18 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
 ) {
     // In case the brick size is smaller than 4, one position sets multiple bits
     debug_assert!(brick_size >= 4 || (brick_size == 2 || brick_size == 1));
-    debug_assert!(x < brick_size);
-    debug_assert!(y < brick_size);
-    debug_assert!(z < brick_size);
+    debug_assert!(
+        x < brick_size,
+        "Expected coordinate {x} < brick size({brick_size})"
+    );
+    debug_assert!(
+        y < brick_size,
+        "Expected coordinate {x} < brick size({brick_size})"
+    );
+    debug_assert!(
+        z < brick_size,
+        "Expected coordinate {x} < brick size({brick_size})"
+    );
 
     if brick_size == 1 {
         *bitmap = if occupied { u64::MAX } else { 0 };

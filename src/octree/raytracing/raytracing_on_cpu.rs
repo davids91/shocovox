@@ -153,8 +153,6 @@ where
         )
     }
 
-    const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32; // how long is one index step in bitmap space
-
     /// Iterates the given brick to display its occupancy bitmap
     #[allow(dead_code)]
     fn debug_traverse_brick_for_bitmap(

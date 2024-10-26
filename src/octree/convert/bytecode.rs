@@ -225,7 +225,7 @@ where
                 if !is_leaf && !is_uniform {
                     let occupied_bits;
                     match list.next_object()?.unwrap() {
-                        Object::Integer(i) => occupied_bits = i.parse::<u32>().ok().unwrap(),
+                        Object::Integer(i) => occupied_bits = i.parse::<u64>().ok().unwrap(),
                         _ => {
                             return Err(bendy::decoding::Error::unexpected_token(
                                 "int field for Internal Node Occupancy bitmap",
@@ -233,7 +233,7 @@ where
                             ))
                         }
                     };
-                    return Ok(NodeContent::Internal(occupied_bits as u8));
+                    return Ok(NodeContent::Internal(occupied_bits));
                 }
 
                 if is_leaf && !is_uniform {
@@ -305,17 +305,6 @@ impl ToBencode for NodeChildren<u32> {
                 e.emit_str("##b##")?;
                 e.emit(map)
             }),
-            NodeChildrenArray::OccupancyBitmaps(maps) => encoder.emit_list(|e| {
-                e.emit_str("##bs##")?;
-                e.emit(maps[0])?;
-                e.emit(maps[1])?;
-                e.emit(maps[2])?;
-                e.emit(maps[3])?;
-                e.emit(maps[4])?;
-                e.emit(maps[5])?;
-                e.emit(maps[6])?;
-                e.emit(maps[7])
-            }),
         }
     }
 }
@@ -347,22 +336,6 @@ impl FromBencode for NodeChildren<u32> {
                             list.next_object()?.unwrap(),
                         )?),
                     }),
-                    "##bs##" => {
-                        let mut c = Vec::new();
-                        for _ in 0..8 {
-                            c.push(
-                                u64::decode_bencode_object(list.next_object()?.unwrap())
-                                    .ok()
-                                    .unwrap(),
-                            );
-                        }
-                        Ok(NodeChildren {
-                            empty_marker: empty_marker(),
-                            content: NodeChildrenArray::OccupancyBitmaps(
-                                c.try_into().ok().unwrap(),
-                            ),
-                        })
-                    }
                     s => Err(bendy::decoding::Error::unexpected_token(
                         "A NodeChildren marker, either ##b##, ##bs## or ##c##",
                         s,
