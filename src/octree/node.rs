@@ -97,27 +97,28 @@ where
             BrickData::Solid(voxel) => voxel.is_empty(),
             BrickData::Parted(brick) => {
                 if 1 == DIM {
-                    brick[0][0][0].is_empty()
-                } else if 2 == DIM {
+                    return brick[0][0][0].is_empty();
+                }
+
+                if 2 == DIM {
                     let octant_offset = V3c::<usize>::from(offset_region(octant));
-                    brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty()
-                } else {
-                    let extent = Octree::<T, DIM>::BITMAP_SIZE / 2.;
-                    let octant_offset = V3c::<usize>::from(offset_region(octant) * extent);
-                    for x in 0..extent as usize {
-                        for y in 0..extent as usize {
-                            for z in 0..extent as usize {
-                                if !brick[octant_offset.x + x][octant_offset.y + y]
-                                    [octant_offset.z + z]
-                                    .is_empty()
-                                {
-                                    return false;
-                                }
+                    return brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty();
+                }
+
+                let extent = Octree::<T, DIM>::BITMAP_SIZE / 2.;
+                let octant_offset = V3c::<usize>::from(offset_region(octant) * extent);
+                for x in 0..extent as usize {
+                    for y in 0..extent as usize {
+                        for z in 0..extent as usize {
+                            if !brick[octant_offset.x + x][octant_offset.y + y][octant_offset.z + z]
+                                .is_empty()
+                            {
+                                return false;
                             }
                         }
                     }
-                    true
                 }
+                true
             }
         }
     }
@@ -168,7 +169,13 @@ where
             for y in 0..DIM {
                 for z in 0..DIM {
                     if !brick[x][y][z].is_empty() {
-                        set_occupancy_in_bitmap_64bits(x, y, z, DIM, true, &mut bitmap);
+                        set_occupancy_in_bitmap_64bits(
+                            &V3c::new(x, y, z),
+                            1,
+                            DIM,
+                            true,
+                            &mut bitmap,
+                        );
                     }
                 }
             }

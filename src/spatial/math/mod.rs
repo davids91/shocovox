@@ -1,7 +1,7 @@
 mod tests;
 pub mod vector;
 
-use crate::spatial::math::vector::V3c;
+use crate::spatial::{math::vector::V3c, Cube};
 use std::ops::Neg;
 
 ///####################################################################################
@@ -68,37 +68,77 @@ pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usiz
     x + (y * size) + (z * size * size)
 }
 
+const BITMAP_DIMENSION: usize = 4;
+
+/// Provides an index value inside the brick contained in the given bounds
+/// Requires that position is larger, than the min_position of the bounds
+/// It takes into consideration the size of the bounds as well
+pub(crate) fn matrix_index_for(
+    bounds: &Cube,
+    position: &V3c<u32>,
+    matrix_dimension: usize,
+) -> V3c<usize> {
+    // The position should be inside the bounds
+    debug_assert!(
+        bounds.min_position.x <= position.x as f32
+            && bounds.min_position.y <= position.y as f32
+            && bounds.min_position.z <= position.z as f32
+            && bounds.min_position.x + bounds.size > position.x as f32
+            && bounds.min_position.y + bounds.size > position.y as f32
+            && bounds.min_position.z + bounds.size > position.z as f32
+    );
+
+    // --> In case the smallest possible node the contained matrix of voxels
+    // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
+    // --> In case of bigger Nodes the below ratio equation is relevant
+    // mat[xyz]/DIM = (position - min_position) / bounds.size
+    let mat_index = (V3c::<usize>::from(*position - bounds.min_position.into()) * matrix_dimension)
+        / bounds.size as usize;
+    // The difference between the actual position and min bounds
+    // must not be greater, than DIM at each dimension
+    debug_assert!(mat_index.x < matrix_dimension);
+    debug_assert!(mat_index.y < matrix_dimension);
+    debug_assert!(mat_index.z < matrix_dimension);
+    mat_index
+}
+
 /// Returns with a bitmask to select the relevant octant based on the relative position
 /// and size of the covered area
 pub(crate) fn position_in_bitmap_64bits(x: usize, y: usize, z: usize, brick_size: usize) -> usize {
-    const BITMAP_SPACE_DIMENSION: usize = 4;
-    debug_assert!((x * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
-    debug_assert!((y * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
-    debug_assert!((z * BITMAP_SPACE_DIMENSION / brick_size) < BITMAP_SPACE_DIMENSION);
-    let pos_inside_bitmap = flat_projection(
-        x * BITMAP_SPACE_DIMENSION / brick_size,
-        y * BITMAP_SPACE_DIMENSION / brick_size,
-        z * BITMAP_SPACE_DIMENSION / brick_size,
-        BITMAP_SPACE_DIMENSION,
+    debug_assert!(
+        (x * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
+         (x * BITMAP_DIMENSION / brick_size), x, brick_size
     );
     debug_assert!(
-        pos_inside_bitmap
-            < (BITMAP_SPACE_DIMENSION * BITMAP_SPACE_DIMENSION * BITMAP_SPACE_DIMENSION)
+        (y * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
+         (y * BITMAP_DIMENSION / brick_size), y, brick_size
     );
+    debug_assert!(
+        (z * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
+         (z * BITMAP_DIMENSION / brick_size), z, brick_size
+    );
+    let pos_inside_bitmap = flat_projection(
+        x * BITMAP_DIMENSION / brick_size,
+        y * BITMAP_DIMENSION / brick_size,
+        z * BITMAP_DIMENSION / brick_size,
+        BITMAP_DIMENSION,
+    );
+    debug_assert!(pos_inside_bitmap < (BITMAP_DIMENSION * BITMAP_DIMENSION * BITMAP_DIMENSION));
     pos_inside_bitmap
 }
 
-/// Updates the given bitmap based on the position and whether or not it's occupied
-/// * `x` - x coordinate of position
-/// * `y` - y coordinate of position
-/// * `z` - z coordinate of position
-/// * `size` - range of the given coordinate space
+/// Updates occupancy data in parts of the given bitmap defined by the given position and size range
+/// * `position` - start coordinate of position to update
+/// * `size` - size to set inside the bitmap
+/// * `brick_size` - range of the given coordinate space
 /// * `occupied` - the value to set the bitmask at the given position
 /// * `bitmap` - The bitmap to update
 pub(crate) fn set_occupancy_in_bitmap_64bits(
-    x: usize,
-    y: usize,
-    z: usize,
+    position: &V3c<usize>,
+    size: usize,
     brick_size: usize,
     occupied: bool,
     bitmap: &mut u64,
@@ -106,16 +146,19 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     // In case the brick size is smaller than 4, one position sets multiple bits
     debug_assert!(brick_size >= 4 || (brick_size == 2 || brick_size == 1));
     debug_assert!(
-        x < brick_size,
-        "Expected coordinate {x} < brick size({brick_size})"
+        position.x < brick_size,
+        "Expected coordinate {:?} < brick size({brick_size})",
+        position.x
     );
     debug_assert!(
-        y < brick_size,
-        "Expected coordinate {x} < brick size({brick_size})"
+        position.y < brick_size,
+        "Expected coordinate {:?} < brick size({brick_size})",
+        position.y
     );
     debug_assert!(
-        z < brick_size,
-        "Expected coordinate {x} < brick size({brick_size})"
+        position.z < brick_size,
+        "Expected coordinate {:?} < brick size({brick_size})",
+        position.z
     );
 
     if brick_size == 1 {
@@ -123,27 +166,32 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
         return;
     }
 
+    let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_size as f32).ceil() as usize;
+    let update_start;
+
     if brick_size == 2 {
         // One position will set 4 bits
-        for x_ in (x * 2)..(((x * 2) + 2).min(4)) {
-            for y_ in (y * 2)..(((y * 2) + 2).min(4)) {
-                for z_ in (z * 2)..(((z * 2) + 2).min(4)) {
-                    let pos_mask = 0x01 << position_in_bitmap_64bits(x_, y_, z_, 4);
-                    if occupied {
-                        *bitmap |= pos_mask;
-                    } else {
-                        *bitmap &= !pos_mask
-                    }
+        update_start = V3c::<usize>::from(*position) * BITMAP_DIMENSION / brick_size;
+    } else {
+        debug_assert!(brick_size >= 4);
+
+        // One bit covers at leat 1 position
+        update_start = V3c::<usize>::from(
+            V3c::<f32>::from(*position) * BITMAP_DIMENSION as f32 / brick_size as f32,
+        );
+    }
+
+    for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
+        for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
+            for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {
+                let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, BITMAP_DIMENSION);
+                if occupied {
+                    *bitmap |= pos_mask;
+                } else {
+                    *bitmap &= !pos_mask
                 }
             }
         }
-    }
-
-    let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, brick_size);
-    if occupied {
-        *bitmap |= pos_mask;
-    } else {
-        *bitmap &= !pos_mask
     }
 }
 

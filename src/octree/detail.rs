@@ -89,32 +89,72 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData,
 {
-    /// Provides an index value inside the brick contained in the given bounds
-    /// Requires that position is larger, than the min_position of the bounds
-    /// It takes into consideration the size of the bounds as well
-    pub(crate) fn mat_index(bounds: &Cube, position: &V3c<u32>) -> V3c<usize> {
-        // The position should be inside the bounds
-        debug_assert!(
-            bounds.min_position.x <= position.x as f32
-                && bounds.min_position.y <= position.y as f32
-                && bounds.min_position.z <= position.z as f32
-                && bounds.min_position.x + bounds.size > position.x as f32
-                && bounds.min_position.y + bounds.size > position.y as f32
-                && bounds.min_position.z + bounds.size > position.z as f32
+    pub(crate) fn should_bitmap_be_empty_at_index(
+        &self,
+        node_key: usize,
+        index: &V3c<usize>,
+    ) -> bool {
+        let position = V3c::new(0.5, 0.5, 0.5) + (*index).into();
+        let target_octant = hash_region(&position, Self::BITMAP_SIZE / 2.);
+        let target_octant_for_child = hash_region(
+            &(position - (offset_region(target_octant) * Self::BITMAP_SIZE / 2.)),
+            Self::BITMAP_SIZE / 4.,
         );
 
-        // --> In case the smallest possible node the contained matrix of voxels
-        // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
-        // --> In case of bigger Nodes the below ratio equation is relevant
-        // mat[xyz]/DIM = (position - min_position) / bounds.size
-        let mat_index = (V3c::<usize>::from(*position - bounds.min_position.into()) * DIM)
-            / bounds.size as usize;
-        // The difference between the actual position and min bounds
-        // must not be greater, than DIM at each dimension
-        debug_assert!(mat_index.x < DIM);
-        debug_assert!(mat_index.y < DIM);
-        debug_assert!(mat_index.z < DIM);
-        mat_index
+        self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
+    }
+
+    pub(crate) fn should_bitmap_be_empty_at_position(
+        &self,
+        node_key: usize,
+        node_bounds: &Cube,
+        position: &V3c<f32>,
+    ) -> bool {
+        let target_octant = hash_region(
+            &(*position - node_bounds.min_position),
+            node_bounds.size / 2.,
+        );
+        let target_octant_for_child = hash_region(
+            &(*position - node_bounds.child_bounds_for(target_octant).min_position),
+            node_bounds.size / 4.,
+        );
+
+        self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
+    }
+
+    pub(crate) fn should_bitmap_be_empty_at_octants(
+        &self,
+        node_key: usize,
+        target_octant: u8,
+        target_octant_for_child: u8,
+    ) -> bool {
+        match self.nodes.get(node_key) {
+            NodeContent::Nothing => true,
+            NodeContent::Internal(_) => {
+                let child_key = self.node_children[node_key][target_octant as u32] as usize;
+                if self.nodes.key_is_valid(child_key) {
+                    self.node_empty_at(child_key, target_octant_for_child as usize)
+                } else {
+                    true
+                }
+            }
+            NodeContent::UniformLeaf(brick) => {
+                brick.is_part_empty_throughout(target_octant, target_octant_for_child)
+            }
+            NodeContent::Leaf(bricks) => {
+                bricks[target_octant as usize].is_empty_throughout(target_octant_for_child)
+            }
+        }
+    }
+
+    pub(crate) fn is_node_internal(&self, node_key: usize) -> bool {
+        if !self.nodes.key_is_valid(node_key) {
+            return false;
+        }
+        match self.nodes.get(node_key) {
+            NodeContent::Nothing | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => false,
+            NodeContent::Internal(_) => true,
+        }
     }
 
     pub(crate) fn node_empty_at(&self, node_key: usize, target_octant: usize) -> bool {
@@ -152,24 +192,8 @@ where
                     self.node_children[node_key].content,
                 );
 
-                if let NodeChildrenArray::Children(children) = self.node_children[node_key].content
-                {
-                    debug_assert!(
-                        (self.nodes.key_is_valid(children[target_octant] as usize)
-                            && 0 != occupied_bits & mask_for_octant_64_bits(target_octant as u8))
-                            || (!self.nodes.key_is_valid(children[target_octant] as usize)
-                                && 0 == occupied_bits
-                                    & mask_for_octant_64_bits(target_octant as u8)),
-                            "Expected occupancy bitmap({:?}) to align with child content({:?}) at octant({:?})!",
-                            occupied_bits, children, target_octant
-                    );
-                    return self.nodes.key_is_valid(children[target_octant] as usize);
-                }
-                debug_assert!(matches!(
-                    self.node_children[node_key].content,
-                    NodeChildrenArray::NoChildren
-                ));
-                false
+
+                return 0 == (mask_for_octant_64_bits(target_octant as u8) & occupied_bits);
             }
         }
     }
@@ -354,5 +378,53 @@ where
             }
         }
         self.node_children[node as usize].content = NodeChildrenArray::NoChildren;
+    }
+
+    /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
+    /// As they might be empty by fault and to correct them the occupied bits is required.
+    pub(crate) fn stored_occupied_bits(&self, node_key: usize) -> u64 {
+        match self.nodes.get(node_key) {
+            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                match self.node_children[node_key].content {
+                    NodeChildrenArray::OccupancyBitmap(occupied_bits) => occupied_bits,
+                    NodeChildrenArray::NoChildren => 0,
+                    NodeChildrenArray::Children(children) => {
+                        debug_assert!(
+                            false,
+                            "Expected Leaf[{node_key}] nodes to not have children. Children values: {:?}",
+                            children
+                        );
+                        0
+                    }
+                }
+            }
+            NodeContent::Nothing => 0,
+            NodeContent::Internal(occupied_bits) => *occupied_bits,
+        }
+    }
+
+    pub(crate) fn store_occupied_bits(&mut self, node_key: usize, new_occupied_bits: u64) {
+        match self.nodes.get_mut(node_key) {
+            NodeContent::Internal(occupied_bits) => *occupied_bits = new_occupied_bits,
+            NodeContent::Nothing => {
+                self.node_children[node_key].content =
+                    NodeChildrenArray::OccupancyBitmap(new_occupied_bits)
+            }
+            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                match self.node_children[node_key].content {
+                    NodeChildrenArray::NoChildren => {
+                        self.node_children[node_key].content =
+                            NodeChildrenArray::OccupancyBitmap(new_occupied_bits)
+                    }
+                    NodeChildrenArray::OccupancyBitmap(ref mut occupied_bits) => {
+                        *occupied_bits = new_occupied_bits;
+                    }
+                    NodeChildrenArray::Children(_) => panic!(
+                        "Expected Leaf node to have OccupancyBitmap instead of {:?}",
+                        self.node_children[node_key].content
+                    ),
+                }
+            }
+        }
     }
 }

@@ -20,7 +20,13 @@ fn convert_8bit_bitmap_to_64bit() {
         for x in min_pos.x..(min_pos.x + 2) {
             for y in min_pos.y..(min_pos.y + 2) {
                 for z in min_pos.z..(min_pos.z + 2) {
-                    set_occupancy_in_bitmap_64bits(x, y, z, 4, true, &mut result_bitmap);
+                    set_occupancy_in_bitmap_64bits(
+                        &V3c::new(x, y, z),
+                        1,
+                        4,
+                        true,
+                        &mut result_bitmap,
+                    );
                 }
             }
         }
@@ -62,9 +68,8 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
                                 for by in min_y..=max_y {
                                     for bz in min_z..=max_z {
                                         set_occupancy_in_bitmap_64bits(
-                                            bx as usize,
-                                            by as usize,
-                                            bz as usize,
+                                            &V3c::new(bx as usize, by as usize, bz as usize),
+                                            1,
                                             4,
                                             true,
                                             &mut result_bitmask,

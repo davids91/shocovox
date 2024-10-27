@@ -11,16 +11,18 @@ mod tests;
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
 
-use crate::octree::types::BrickData;
 pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{Albedo, Octree, VoxelData};
 
 use crate::object_pool::{empty_marker, ObjectPool};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    types::{NodeChildren, NodeContent, OctreeError},
+    types::{BrickData, NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::{math::position_in_bitmap_64bits, Cube};
+use crate::spatial::{
+    math::{matrix_index_for, position_in_bitmap_64bits},
+    Cube,
+};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl<T, const DIM: usize> Octree<T, DIM>
@@ -117,7 +119,8 @@ where
                         BrickData::Parted(brick) => {
                             current_bounds =
                                 Cube::child_bounds_for(&current_bounds, child_octant_at_position);
-                            let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                            let mat_index =
+                                matrix_index_for(&current_bounds, &V3c::from(position), DIM);
 
                             if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                                 return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
@@ -134,7 +137,8 @@ where
                         return None;
                     }
                     BrickData::Parted(brick) => {
-                        let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                        let mat_index =
+                            matrix_index_for(&current_bounds, &V3c::from(position), DIM);
                         if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                             return None;
                         }
@@ -158,22 +162,29 @@ where
                         #[cfg(debug_assertions)]
                         {
                             // calculate the corresponding position in the nodes occupied bits
-                            let bit_position_in_node: V3c<usize> = V3c::from(
-                                (position - current_bounds.min_position) * 4. / DIM as f32,
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
+                            let should_bit_be_empty = self.should_bitmap_be_empty_at_position(
+                                current_node_key,
+                                &current_bounds,
+                                &position,
+                            );
+
+                            let pos_in_bitmap = position_in_bitmap_64bits(
+                                pos_in_node.x,
+                                pos_in_node.y,
+                                pos_in_node.z,
+                                4,
                             );
                             // the corresponding bit should be set
                             debug_assert!(
-                                0 != (occupied_bits
-                                    & 0x01
-                                        << position_in_bitmap_64bits(
-                                            bit_position_in_node.x,
-                                            bit_position_in_node.y,
-                                            bit_position_in_node.z,
-                                            DIM
-                                        )),
-                                "Node under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#08x}",
-                                current_bounds,
-                                position, occupied_bits
+                                 (should_bit_be_empty && is_bit_empty)||(!should_bit_be_empty && !is_bit_empty),
+                                  "Node[{:?}] under {:?} \n has a child in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}",
+                                  current_node_key,
+                                  current_bounds,
+                                  child_octant_at_position,
+                                  position, occupied_bits
                             );
                         }
                         current_node_key = child_at_position as usize;
@@ -209,7 +220,7 @@ where
                     BrickData::Empty => None,
                     BrickData::Parted(ref mut brick) => {
                         let bounds = Cube::child_bounds_for(bounds, child_octant_at_position);
-                        let mat_index = Self::mat_index(&bounds, &V3c::from(*position));
+                        let mat_index = matrix_index_for(&bounds, &V3c::from(*position), DIM);
                         if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                             return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
                         }
@@ -221,7 +232,7 @@ where
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => None,
                 BrickData::Parted(brick) => {
-                    let mat_index = Self::mat_index(bounds, &V3c::from(*position));
+                    let mat_index = matrix_index_for(bounds, &V3c::from(*position), DIM);
                     if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return None;
                     }
@@ -263,20 +274,20 @@ where
                         #[cfg(debug_assertions)]
                         {
                             // calculate the corresponding position in the nodes occupied bits
-                            let bit_position_in_node: V3c<usize> = V3c::from(
-                                (position - current_bounds.min_position) * 4. / DIM as f32,
-                            );
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
                             // the corresponding bit should be set
                             debug_assert!(
                                 0 != (occupied_bits
                                     & 0x01
                                         << position_in_bitmap_64bits(
-                                            bit_position_in_node.x,
-                                            bit_position_in_node.y,
-                                            bit_position_in_node.z,
-                                            DIM
+                                            pos_in_node.x,
+                                            pos_in_node.y,
+                                            pos_in_node.z,
+                                            4
                                         )),
-                                "Node under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#08x}",
+                                "Node[{current_node_key}] under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#10X}",
                                 current_bounds,
                                 position, occupied_bits
                             );
