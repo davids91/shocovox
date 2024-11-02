@@ -68,7 +68,7 @@ pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usiz
     x + (y * size) + (z * size * size)
 }
 
-const BITMAP_DIMENSION: usize = 4;
+pub(crate) const BITMAP_DIMENSION: usize = 4;
 
 /// Provides an index value inside the brick contained in the given bounds
 /// Requires that position is larger, than the min_position of the bounds
@@ -167,20 +167,7 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     }
 
     let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_size as f32).ceil() as usize;
-    let update_start;
-
-    if brick_size == 2 {
-        // One position will set 4 bits
-        update_start = V3c::<usize>::from(*position) * BITMAP_DIMENSION / brick_size;
-    } else {
-        debug_assert!(brick_size >= 4);
-
-        // One bit covers at leat 1 position
-        update_start = V3c::<usize>::from(
-            V3c::<f32>::from(*position) * BITMAP_DIMENSION as f32 / brick_size as f32,
-        );
-    }
-
+    let update_start = *position * BITMAP_DIMENSION / brick_size;
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
             for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {

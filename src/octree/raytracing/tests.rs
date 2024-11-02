@@ -460,7 +460,6 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_brick_undetected() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let mut tree = Octree::<Albedo, 4>::new(8).ok().unwrap();
 
         for x in 0..4 {

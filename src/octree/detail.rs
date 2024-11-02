@@ -1,4 +1,4 @@
-use crate::spatial::math::{hash_region, mask_for_octant_64_bits, offset_region};
+use crate::spatial::math::{hash_region, mask_for_octant_64_bits, offset_region, BITMAP_DIMENSION};
 use crate::{
     object_pool::empty_marker,
     octree::{
@@ -75,35 +75,33 @@ where
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
-
-    pub(crate) const BITMAP_SIZE: f32 = 4.;
-
-    /// how long is one brick index step in a 4x4x4 bitmap space
-    pub(crate) const BRICK_UNIT_IN_BITMAP_SPACE: f32 = Self::BITMAP_SIZE / DIM as f32;
-
-    /// how long is one bitmap index step in a DIMxDIMxDIM space
-    pub(crate) const BITMAP_UNIT_IN_BRICK_SPACE: f32 = DIM as f32 / Self::BITMAP_SIZE;
 }
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData,
 {
+    /// Checks the content of the content of the node if it is empty at the given index,
+    /// so the corresponding part of the occupied bits of the node can be set. The check targets
+    /// the occupied bits, so it has a resolution of the occupied bit size.
     pub(crate) fn should_bitmap_be_empty_at_index(
         &self,
         node_key: usize,
         index: &V3c<usize>,
     ) -> bool {
         let position = V3c::new(0.5, 0.5, 0.5) + (*index).into();
-        let target_octant = hash_region(&position, Self::BITMAP_SIZE / 2.);
+        let target_octant = hash_region(&position, BITMAP_DIMENSION as f32 / 2.);
         let target_octant_for_child = hash_region(
-            &(position - (offset_region(target_octant) * Self::BITMAP_SIZE / 2.)),
-            Self::BITMAP_SIZE / 4.,
+            &(position - (offset_region(target_octant) * BITMAP_DIMENSION as f32 / 2.)),
+            BITMAP_DIMENSION as f32 / 4.,
         );
 
         self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
     }
 
+    /// Checks the content of the content of the node if it is empty at the given position,
+    /// so the corresponding part of the occupied bits of the node can be set. The check targets
+    /// the occupied bits, so it has a resolution of the occupied bit size.
     pub(crate) fn should_bitmap_be_empty_at_position(
         &self,
         node_key: usize,
@@ -122,6 +120,9 @@ where
         self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
     }
 
+    /// Checks the content of the content of the node at the given @target_octant,
+    /// and the part of it under target_octant_for_child if it is empty, so the
+    /// corresponding part of the occupied bits of the node can be set
     pub(crate) fn should_bitmap_be_empty_at_octants(
         &self,
         node_key: usize,
@@ -147,6 +148,7 @@ where
         }
     }
 
+    /// Can't really be more obvious with the name
     pub(crate) fn is_node_internal(&self, node_key: usize) -> bool {
         if !self.nodes.key_is_valid(node_key) {
             return false;
@@ -157,6 +159,7 @@ where
         }
     }
 
+    /// Returns with true if Node is empty at the given target octant. Uses occupied bits for Internal nodes.
     pub(crate) fn node_empty_at(&self, node_key: usize, target_octant: usize) -> bool {
         match self.nodes.get(node_key) {
             NodeContent::Nothing => true,
@@ -192,8 +195,7 @@ where
                     self.node_children[node_key].content,
                 );
 
-
-                return 0 == (mask_for_octant_64_bits(target_octant as u8) & occupied_bits);
+                0 == (mask_for_octant_64_bits(target_octant as u8) & occupied_bits)
             }
         }
     }
@@ -260,13 +262,6 @@ where
                                 NodeChildrenArray::OccupancyBitmap(u64::MAX);
                         }
                         BrickData::Parted(brick) => {
-                            // Calculcate the occupancy bitmap for the new leaf child node
-                            // As it is a higher resolution, than the current bitmap, it needs to be bruteforced
-                            self.node_children[node_new_children[octant] as usize].content =
-                                NodeChildrenArray::OccupancyBitmap(
-                                    bricks[octant].calculate_occupied_bits(),
-                                );
-
                             // Push in the new child
                             node_new_children[octant] = self
                                 .nodes
@@ -279,6 +274,13 @@ where
                                     .max(node_new_children[octant] as usize + 1),
                                 NodeChildren::new(empty_marker()),
                             );
+
+                            // Calculcate the occupancy bitmap for the new leaf child node
+                            // As it is a higher resolution, than the current bitmap, it needs to be bruteforced
+                            self.node_children[node_new_children[octant] as usize].content =
+                                NodeChildrenArray::OccupancyBitmap(
+                                    bricks[octant].calculate_occupied_bits(),
+                                );
                         }
                     };
                 }
@@ -403,6 +405,7 @@ where
         }
     }
 
+    /// Stores the given occupied bits for the given node based on key
     pub(crate) fn store_occupied_bits(&mut self, node_key: usize, new_occupied_bits: u64) {
         match self.nodes.get_mut(node_key) {
             NodeContent::Internal(occupied_bits) => *occupied_bits = new_occupied_bits,

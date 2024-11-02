@@ -1,8 +1,8 @@
 use crate::octree::{
     types::{NodeChildren, NodeChildrenArray, NodeContent, VoxelData},
-    Octree, V3c,
+    V3c,
 };
-use crate::spatial::math::{offset_region, set_occupancy_in_bitmap_64bits};
+use crate::spatial::math::{offset_region, set_occupancy_in_bitmap_64bits, BITMAP_DIMENSION};
 
 ///####################################################################################
 /// NodeChildren
@@ -105,7 +105,7 @@ where
                     return brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty();
                 }
 
-                let extent = Octree::<T, DIM>::BITMAP_SIZE / 2.;
+                let extent = BITMAP_DIMENSION as f32 / 2.;
                 let octant_offset = V3c::<usize>::from(offset_region(octant) * extent);
                 for x in 0..extent as usize {
                     for y in 0..extent as usize {
@@ -138,8 +138,8 @@ where
                     let octant_offset = V3c::<usize>::from(offset_region(part_octant));
                     brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty()
                 } else {
-                    let outer_extent = Octree::<T, DIM>::BITMAP_SIZE / 2.;
-                    let inner_extent = Octree::<T, DIM>::BITMAP_SIZE / 4.;
+                    let outer_extent = BITMAP_DIMENSION as f32 / 2.;
+                    let inner_extent = BITMAP_DIMENSION as f32 / 4.;
                     let octant_offset = V3c::<usize>::from(
                         offset_region(part_octant) * outer_extent
                             + offset_region(target_octant) * inner_extent,
@@ -163,7 +163,7 @@ where
     }
 
     /// Calculates the Occupancy bitmap for the given Voxel brick
-    pub(crate) fn calculate_brick_occupied_bits(brick: &Box<[[[T; DIM]; DIM]; DIM]>) -> u64 {
+    pub(crate) fn calculate_brick_occupied_bits(brick: &[[[T; DIM]; DIM]; DIM]) -> u64 {
         let mut bitmap = 0;
         for x in 0..DIM {
             for y in 0..DIM {

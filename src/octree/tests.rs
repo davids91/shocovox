@@ -48,7 +48,6 @@ mod octree_tests {
 
     #[test]
     fn test_get_mut() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
@@ -151,7 +150,6 @@ mod octree_tests {
 
     #[test]
     fn test_case_simplified_insert_separated_by_clear_with_aligned_dim() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 1;
         let red: Albedo = 0xFF0000FF.into();
@@ -183,12 +181,11 @@ mod octree_tests {
             }
         }
 
-        assert!(hits == 511);
+        assert!(hits == 511, "Expected 511 hits instead of {hits}");
     }
 
     #[test]
     fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
         let red: Albedo = 0xFF0000FF.into();
@@ -494,7 +491,7 @@ mod octree_tests {
             .ok()
             .unwrap();
 
-        // Fill each octant of the brick with the same data, it should become a uniform leaf
+        // Fill each octant of each brick with the same data, they should become a uniform leaf
         let color_base_original = 0xFFFF00FF;
         let mut color_base = color_base_original;
         for x in 0..(MATRIX_DIMENSION / 2) as u32 {
@@ -572,8 +569,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_insert_at_lod_with_unaligned_size_where_dim_is_aligned() {
-        std::env::set_var("RUST_BACKTRACE", "1");
+    fn test_insert_at_lod_with_unaligned_size_where_dim_is_1() {
         let red: Albedo = 0xFF0000FF.into();
 
         let mut tree = Octree::<Albedo>::new(8).ok().unwrap();
@@ -620,7 +616,6 @@ mod octree_tests {
 
     #[test]
     fn test_insert_at_lod_with_simplify() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
 
@@ -735,7 +730,6 @@ mod octree_tests {
 
     #[test]
     fn test_simple_clear_with_aligned_dim() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
@@ -856,7 +850,6 @@ mod octree_tests {
 
     #[test]
     fn test_clear_to_nothing() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo>::new(2).ok().unwrap();
 
@@ -886,7 +879,6 @@ mod octree_tests {
 
     #[test]
     fn test_clear_at_lod_with_aligned_dim() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
 
@@ -1018,7 +1010,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_clear_at_lod_with_unaligned_size_where_dim_is_aligned() {
+    fn test_clear_at_lod_with_unaligned_size_where_dim_is_1() {
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, albedo)
@@ -1045,7 +1037,6 @@ mod octree_tests {
 
     #[test]
     fn test_clear_at_lod_with_unaligned_size_where_dim_is_4() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo, 4>::new(8).ok().unwrap();
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, albedo)
@@ -1067,5 +1058,31 @@ mod octree_tests {
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
         assert!(hits == (64 - 27));
+    }
+
+    #[test]
+    fn test_edge_case_octree_set() {
+        // const TREE_SIZE: u32 = 128;
+        // const FILL_RANGE_START: u32 = 100;
+        const TREE_SIZE: u32 = 8;
+        const FILL_RANGE_START: u32 = 6;
+        let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+        for x in FILL_RANGE_START..TREE_SIZE {
+            for y in FILL_RANGE_START..TREE_SIZE {
+                for z in FILL_RANGE_START..TREE_SIZE {
+                    let pos = V3c::new(x, y, z);
+                    tree.insert(&pos, (x + y + z).into()).ok().unwrap();
+                    assert!(tree.get(&pos).is_some_and(|v| *v == ((x + y + z).into())));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_case_inserting_empty() {
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.into()).ok().unwrap();
+        let item = tree.get(&V3c::new(3, 0, 0));
+        assert!(item.is_none(), "Item shouldn't exist: {:?}", item);
     }
 }

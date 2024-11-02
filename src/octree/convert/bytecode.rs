@@ -21,11 +21,11 @@ where
         match self {
             BrickData::Empty => encoder.emit_str("#b"),
             BrickData::Solid(voxel) => encoder.emit_list(|e| {
-                e.emit_str("##b")?;
+                e.emit_str("#b#")?;
                 Self::encode_single(voxel, e)
             }),
             BrickData::Parted(brick) => encoder.emit_list(|e| {
-                e.emit_str("###b")?;
+                e.emit_str("##b#")?;
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
@@ -61,8 +61,8 @@ where
                             .unwrap_or("".to_string())
                             .as_str()
                         {
-                            "##b" => Ok(true),   // The content is a single voxel
-                            "###b" => Ok(false), // The content is a brick of voxels
+                            "#b#" => Ok(true),   // The content is a single voxel
+                            "##b#" => Ok(false), // The content is a brick of voxels
                             misc => Err(bendy::decoding::Error::unexpected_token(
                                 "A NodeContent Identifier string, which is either # or ##",
                                 "The string ".to_owned() + misc,

@@ -177,6 +177,7 @@ where
                                 pos_in_node.z,
                                 4,
                             );
+                            let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
                             // the corresponding bit should be set
                             debug_assert!(
                                  (should_bit_be_empty && is_bit_empty)||(!should_bit_be_empty && !is_bit_empty),

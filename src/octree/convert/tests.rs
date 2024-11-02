@@ -67,14 +67,21 @@ fn test_nodecontent_serialization() {
     .ok()
     .unwrap();
 
-    println!(
-        "{:?} <> {:?}",
-        node_content_internal, node_content_internal_deserialized,
+    assert_eq!(
+        node_content_nothing_deserialized, node_content_nothing,
+        "Expected {:?} == {:?}",
+        node_content_nothing_deserialized, node_content_nothing
     );
-
-    assert!(node_content_nothing_deserialized == node_content_nothing);
-    assert!(node_content_leaf_deserialized == node_content_leaf);
-    assert!(node_content_uniform_leaf_deserialized == node_content_uniform_leaf);
+    assert_eq!(
+        node_content_leaf_deserialized, node_content_leaf,
+        "Expected {:?} == {:?}",
+        node_content_leaf_deserialized, node_content_leaf
+    );
+    assert_eq!(
+        node_content_uniform_leaf_deserialized, node_content_uniform_leaf,
+        "Expected {:?} == {:?}",
+        node_content_uniform_leaf_deserialized, node_content_uniform_leaf
+    );
 
     // Node content internal has a special equality implementation, where there is no equality between internal nodes
     match (node_content_internal_deserialized, node_content_internal) {
@@ -159,12 +166,15 @@ fn test_octree_file_io() {
 
 #[test]
 fn test_big_octree_serialize() {
-    let mut tree = Octree::<Albedo>::new(128).ok().unwrap();
-    for x in 100..128 {
-        for y in 100..128 {
-            for z in 100..128 {
+    const TREE_SIZE: u32 = 128;
+    const FILL_RANGE_START: u32 = 100;
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    for x in FILL_RANGE_START..TREE_SIZE {
+        for y in FILL_RANGE_START..TREE_SIZE {
+            for z in FILL_RANGE_START..TREE_SIZE {
                 let pos = V3c::new(x, y, z);
                 tree.insert(&pos, (x + y + z).into()).ok().unwrap();
+                assert!(tree.get(&pos).is_some_and(|v| *v == ((x + y + z).into())));
             }
         }
     }
@@ -172,13 +182,61 @@ fn test_big_octree_serialize() {
     let serialized = tree.to_bytes();
     let deserialized = Octree::<Albedo>::from_bytes(serialized);
 
-    for x in 100..128 {
-        for y in 100..128 {
-            for z in 100..128 {
+    for x in FILL_RANGE_START..TREE_SIZE {
+        for y in FILL_RANGE_START..TREE_SIZE {
+            for z in FILL_RANGE_START..TREE_SIZE {
                 let pos = V3c::new(x, y, z);
                 assert!(deserialized
                     .get(&pos)
                     .is_some_and(|v| *v == ((x + y + z).into())));
+            }
+        }
+    }
+}
+
+#[test]
+fn test_small_octree_serialize_where_dim_is_1() {
+    const TREE_SIZE: u32 = 2;
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    tree.insert(&V3c::new(0, 0, 0), 1.into()).ok().unwrap();
+
+    let serialized = tree.to_bytes();
+    let deserialized = Octree::<Albedo>::from_bytes(serialized);
+    let item_at_000 = deserialized.get(&V3c::new(0, 0, 0));
+    assert!(
+        item_at_000.is_some_and(|v| *v == 1.into()),
+        "Expected inserted item to be Albedo::from(1), instead of {:?}",
+        item_at_000
+    );
+}
+
+#[test]
+fn test_octree_serialize_where_dim_is_1() {
+    const TREE_SIZE: u32 = 4;
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    for x in 0..TREE_SIZE {
+        for y in 0..TREE_SIZE {
+            for z in 0..TREE_SIZE {
+                let pos = V3c::new(x, y, z);
+                let albedo: Albedo = ((x << 24) + (y << 16) + (z << 8) + 0xFF).into();
+                tree.insert(&pos, albedo).ok().unwrap();
+                assert!(tree
+                    .get(&pos)
+                    .is_some_and(|v| { *v == ((x << 24) + (y << 16) + (z << 8) + 0xFF).into() }));
+            }
+        }
+    }
+
+    let serialized = tree.to_bytes();
+    let deserialized = Octree::<Albedo>::from_bytes(serialized);
+
+    for x in 0..TREE_SIZE {
+        for y in 0..TREE_SIZE {
+            for z in 0..TREE_SIZE {
+                let pos = V3c::new(x, y, z);
+                assert!(deserialized
+                    .get(&pos)
+                    .is_some_and(|v| { *v == ((x << 24) + (y << 16) + (z << 8) + 0xFF).into() }));
             }
         }
     }
@@ -193,6 +251,9 @@ fn test_octree_serialize_where_dim_is_2() {
                 let pos = V3c::new(x, y, z);
                 let albedo: Albedo = ((x << 24) + (y << 16) + (z << 8) + 0xFF).into();
                 tree.insert(&pos, albedo).ok().unwrap();
+                assert!(tree
+                    .get(&pos)
+                    .is_some_and(|v| { *v == ((x << 24) + (y << 16) + (z << 8) + 0xFF).into() }));
             }
         }
     }
