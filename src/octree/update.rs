@@ -6,8 +6,9 @@ use crate::octree::{
     Octree, VoxelData,
 };
 use crate::spatial::{
+    lut::OCTANT_OFFSET_REGION_LUT,
     math::{
-        hash_region, matrix_index_for, offset_region, set_occupancy_in_bitmap_64bits, vector::V3c,
+        hash_region, matrix_index_for, set_occupancy_in_bitmap_64bits, vector::V3c,
         BITMAP_DIMENSION,
     },
     Cube,
@@ -191,8 +192,8 @@ where
                         // Each brick is mapped to take up one subsection of the current data
                         let mut update_size = 0;
                         for octant in 0..8usize {
-                            let brick_offset =
-                                V3c::<usize>::from(offset_region(octant as u8)) * (2.min(DIM - 1));
+                            let brick_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                                * (2.min(DIM - 1));
                             let mut new_brick = Box::new(
                                 [[[brick[brick_offset.x][brick_offset.y][brick_offset.z]; DIM];
                                     DIM]; DIM],
@@ -339,7 +340,8 @@ where
             let target_child_octant = child_octant_for(&current_bounds, &position);
             let target_bounds = Cube {
                 min_position: current_bounds.min_position
-                    + offset_region(target_child_octant) * current_bounds.size / 2.,
+                    + OCTANT_OFFSET_REGION_LUT[target_child_octant as usize] * current_bounds.size
+                        / 2.,
                 size: current_bounds.size / 2.,
             };
 
@@ -547,7 +549,8 @@ where
             let target_child_octant = child_octant_for(&current_bounds, &position);
             let target_bounds = Cube {
                 min_position: current_bounds.min_position
-                    + offset_region(target_child_octant) * current_bounds.size / 2.,
+                    + OCTANT_OFFSET_REGION_LUT[target_child_octant as usize] * current_bounds.size
+                        / 2.,
                 size: current_bounds.size / 2.,
             };
 

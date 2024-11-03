@@ -1,4 +1,4 @@
-use crate::spatial::{math::vector::V3c, raytracing::lut::OCTANT_STEP_RESULT_LUT, Cube};
+use crate::spatial::{lut::OCTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
 
 mod tests;
 

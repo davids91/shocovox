@@ -19,11 +19,11 @@ use crate::octree::{
     detail::{bound_contains, child_octant_for},
     types::{BrickData, NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::{
-    math::{matrix_index_for, position_in_bitmap_64bits},
-    Cube,
-};
+use crate::spatial::{math::matrix_index_for, Cube};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
+
+#[cfg(debug_assertions)]
+use crate::spatial::math::position_in_bitmap_64bits;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -171,12 +171,7 @@ where
                                 &position,
                             );
 
-                            let pos_in_bitmap = position_in_bitmap_64bits(
-                                pos_in_node.x,
-                                pos_in_node.y,
-                                pos_in_node.z,
-                                4,
-                            );
+                            let pos_in_bitmap = position_in_bitmap_64bits(&pos_in_node, 4);
                             let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
                             // the corresponding bit should be set
                             debug_assert!(
@@ -283,9 +278,7 @@ where
                                 0 != (occupied_bits
                                     & 0x01
                                         << position_in_bitmap_64bits(
-                                            pos_in_node.x,
-                                            pos_in_node.y,
-                                            pos_in_node.z,
+                                            &pos_in_node,
                                             4
                                         )),
                                 "Node[{current_node_key}] under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#10X}",

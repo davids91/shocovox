@@ -1,6 +1,6 @@
 mod octree_tests {
     use crate::octree::types::{Albedo, Octree, VoxelData};
-    use crate::spatial::math::{offset_region, vector::V3c};
+    use crate::spatial::{lut::OCTANT_OFFSET_REGION_LUT, math::vector::V3c};
 
     #[test]
     fn test_simple_insert_and_get() {
@@ -268,7 +268,7 @@ mod octree_tests {
         let color_base_original = 0xFFFF00FF;
 
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant));
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
             tree.insert(&start_pos, color_base_original.into())
                 .ok()
                 .unwrap();
@@ -283,7 +283,7 @@ mod octree_tests {
 
         // The rest of the voxels should remain intact
         for octant in 1..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant));
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
             assert!(*tree.get(&start_pos).unwrap() == color_base_original.into());
         }
     }
@@ -300,7 +300,7 @@ mod octree_tests {
         let color_base_original = 0xFFFF00FF;
 
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant));
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
             tree.insert(&start_pos, color_base_original.into())
                 .ok()
                 .unwrap();
@@ -317,7 +317,7 @@ mod octree_tests {
 
         // The rest of the voxels should remain intact
         for octant in 1..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant));
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
             assert!(*tree.get(&start_pos).unwrap() == color_base_original.into());
         }
     }
@@ -337,8 +337,8 @@ mod octree_tests {
             for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for z in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for octant in 0..8 {
-                        let start_pos =
-                            V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
                         tree.insert(&(start_pos + V3c::new(x, y, z)), color_base.into())
                             .ok()
                             .unwrap();
@@ -364,8 +364,8 @@ mod octree_tests {
                         if x == 0 && y == 0 && z == 0 && octant == 0 {
                             continue;
                         }
-                        let start_pos =
-                            V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
                         assert!(
                             *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
                                 == color_base.into()
@@ -388,7 +388,8 @@ mod octree_tests {
         // Fill each octant with the same data, they should become a solid bricks
         let color_base = 0xFFFF00AA;
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
             for x in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for z in 0..(MATRIX_DIMENSION / 2) as u32 {
@@ -412,7 +413,8 @@ mod octree_tests {
 
         // The rest of the voxels should remain intact
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
             for x in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for z in 0..(MATRIX_DIMENSION / 2) as u32 {
@@ -440,7 +442,8 @@ mod octree_tests {
         // Fill each octant with the same data, they should become a solid bricks
         let color_base = 0xFFFF00AA;
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
             for x in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for z in 0..(MATRIX_DIMENSION / 2) as u32 {
@@ -466,7 +469,8 @@ mod octree_tests {
 
         // The rest of the voxels should remain intact
         for octant in 0..8 {
-            let start_pos = V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
             for x in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for z in 0..(MATRIX_DIMENSION / 2) as u32 {
@@ -498,8 +502,8 @@ mod octree_tests {
             for y in 0..(MATRIX_DIMENSION / 2) as u32 {
                 for z in 0..(MATRIX_DIMENSION / 2) as u32 {
                     for octant in 0..8 {
-                        let start_pos =
-                            V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
                         tree.insert(&(start_pos + V3c::new(x, y, z)), color_base.into())
                             .ok()
                             .unwrap();
@@ -527,8 +531,8 @@ mod octree_tests {
                         if x == 0 && y == 0 && z == 0 && octant == 0 {
                             continue;
                         }
-                        let start_pos =
-                            V3c::<u32>::from(offset_region(octant)) * (MATRIX_DIMENSION as u32 / 2);
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
                         assert!(
                             *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
                                 == color_base.into()

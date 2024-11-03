@@ -17,7 +17,6 @@ mod vector_tests {
 #[cfg(test)]
 mod octant_tests {
     use crate::spatial::math::hash_region;
-    use crate::spatial::math::offset_region;
     use crate::spatial::V3c;
 
     #[test]
@@ -31,23 +30,12 @@ mod octant_tests {
         assert!(hash_region(&V3c::new(0.0, 6.0, 6.0), 5.0) == 6);
         assert!(hash_region(&V3c::new(6.0, 6.0, 6.0), 5.0) == 7);
     }
-
-    #[test]
-    fn test_offset_region() {
-        assert!(V3c::new(0., 0., 0.) == offset_region(0));
-        assert!(V3c::new(1., 0., 0.) == offset_region(1));
-        assert!(V3c::new(0., 0., 1.) == offset_region(2));
-        assert!(V3c::new(1., 0., 1.) == offset_region(3));
-        assert!(V3c::new(0., 1., 0.) == offset_region(4));
-        assert!(V3c::new(1., 1., 0.) == offset_region(5));
-        assert!(V3c::new(0., 1., 1.) == offset_region(6));
-        assert!(V3c::new(1., 1., 1.) == offset_region(7));
-    }
 }
 
 #[cfg(test)]
 mod bitmask_tests {
 
+    use crate::octree::V3c;
     use crate::spatial::math::{flat_projection, octant_bitmask, position_in_bitmap_64bits};
     use std::collections::HashSet;
 
@@ -89,27 +77,27 @@ mod bitmask_tests {
 
     #[test]
     fn test_lvl1_flat_projection_exact_size_match() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 4));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 2, 4));
-        assert!(63 == position_in_bitmap_64bits(3, 3, 3, 4));
+        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 4));
+        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 2), 4));
+        assert!(63 == position_in_bitmap_64bits(&V3c::new(3, 3, 3), 4));
     }
 
     #[test]
     fn test_lvl1_flat_projection_greater_dimension() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 10));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 5, 10));
-        assert!(42 == position_in_bitmap_64bits(5, 5, 5, 10));
-        assert!(63 == position_in_bitmap_64bits(9, 9, 9, 10));
+        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 10));
+        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 5), 10));
+        assert!(42 == position_in_bitmap_64bits(&V3c::new(5, 5, 5), 10));
+        assert!(63 == position_in_bitmap_64bits(&V3c::new(9, 9, 9), 10));
     }
     #[test]
     fn test_lvl1_flat_projection_smaller_dimension() {
-        assert!(0 == position_in_bitmap_64bits(0, 0, 0, 2));
-        assert!(2 == position_in_bitmap_64bits(1, 0, 0, 2));
-        assert!(8 == position_in_bitmap_64bits(0, 1, 0, 2));
-        assert!(10 == position_in_bitmap_64bits(1, 1, 0, 2));
-        assert!(32 == position_in_bitmap_64bits(0, 0, 1, 2));
-        assert!(34 == position_in_bitmap_64bits(1, 0, 1, 2));
-        assert!(40 == position_in_bitmap_64bits(0, 1, 1, 2));
-        assert!(42 == position_in_bitmap_64bits(1, 1, 1, 2));
+        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 2));
+        assert!(2 == position_in_bitmap_64bits(&V3c::new(1, 0, 0), 2));
+        assert!(8 == position_in_bitmap_64bits(&V3c::new(0, 1, 0), 2));
+        assert!(10 == position_in_bitmap_64bits(&V3c::new(1, 1, 0), 2));
+        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 1), 2));
+        assert!(34 == position_in_bitmap_64bits(&V3c::new(1, 0, 1), 2));
+        assert!(40 == position_in_bitmap_64bits(&V3c::new(0, 1, 1), 2));
+        assert!(42 == position_in_bitmap_64bits(&V3c::new(1, 1, 1), 2));
     }
 }

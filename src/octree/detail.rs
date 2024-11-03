@@ -1,4 +1,7 @@
-use crate::spatial::math::{hash_region, mask_for_octant_64_bits, offset_region, BITMAP_DIMENSION};
+use crate::spatial::{
+    lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
+    math::{hash_region, BITMAP_DIMENSION},
+};
 use crate::{
     object_pool::empty_marker,
     octree::{
@@ -90,11 +93,11 @@ where
         index: &V3c<usize>,
     ) -> bool {
         let position = V3c::new(0.5, 0.5, 0.5) + (*index).into();
-        let target_octant = hash_region(&position, BITMAP_DIMENSION as f32 / 2.);
+        let target_octant = hash_region(&position, BITMAP_DIMENSION as f32 / 2.) as usize;
         let target_octant_for_child = hash_region(
-            &(position - (offset_region(target_octant) * BITMAP_DIMENSION as f32 / 2.)),
+            &(position - (OCTANT_OFFSET_REGION_LUT[target_octant] * BITMAP_DIMENSION as f32 / 2.)),
             BITMAP_DIMENSION as f32 / 4.,
-        );
+        ) as usize;
 
         self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
     }
@@ -117,7 +120,11 @@ where
             node_bounds.size / 4.,
         );
 
-        self.should_bitmap_be_empty_at_octants(node_key, target_octant, target_octant_for_child)
+        self.should_bitmap_be_empty_at_octants(
+            node_key,
+            target_octant as usize,
+            target_octant_for_child as usize,
+        )
     }
 
     /// Checks the content of the content of the node at the given @target_octant,
@@ -126,8 +133,8 @@ where
     pub(crate) fn should_bitmap_be_empty_at_octants(
         &self,
         node_key: usize,
-        target_octant: u8,
-        target_octant_for_child: u8,
+        target_octant: usize,
+        target_octant_for_child: usize,
     ) -> bool {
         match self.nodes.get(node_key) {
             NodeContent::Nothing => true,
@@ -195,7 +202,7 @@ where
                     self.node_children[node_key].content,
                 );
 
-                0 == (mask_for_octant_64_bits(target_octant as u8) & occupied_bits)
+                0 == (BITMAP_MASK_FOR_OCTANT_LUT[target_octant] & occupied_bits)
             }
         }
     }
@@ -321,7 +328,8 @@ where
                         // Each brick is mapped to take up one subsection of the current data
                         for octant in 0..8usize {
                             // Set the data of the new child
-                            let brick_offset = V3c::<usize>::from(offset_region(octant as u8)) * 2;
+                            let brick_offset =
+                                V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * 2;
                             let mut new_brick_data = Box::new(
                                 [[[brick[brick_offset.x][brick_offset.y][brick_offset.z]; DIM];
                                     DIM]; DIM],

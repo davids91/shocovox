@@ -4,23 +4,6 @@ pub mod vector;
 use crate::spatial::{math::vector::V3c, Cube};
 use std::ops::Neg;
 
-///####################################################################################
-/// Octant
-///####################################################################################
-pub(crate) fn offset_region(octant: u8) -> V3c<f32> {
-    match octant {
-        0 => V3c::new(0., 0., 0.),
-        1 => V3c::new(1., 0., 0.),
-        2 => V3c::new(0., 0., 1.),
-        3 => V3c::new(1., 0., 1.),
-        4 => V3c::new(0., 1., 0.),
-        5 => V3c::new(1., 1., 0.),
-        6 => V3c::new(0., 1., 1.),
-        7 => V3c::new(1., 1., 1.),
-        _ => panic!("Invalid region hash provided for spatial reference!"),
-    }
-}
-
 /// Each Node is separated to 8 Octants based on their relative position inside the Nodes occupying space.
 /// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
 /// * `offset` - From range 0..size in each dimensions
@@ -33,21 +16,6 @@ pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
     (offset.x >= size_half) as u8
         + (offset.z >= size_half) as u8 * 2
         + (offset.y >= size_half) as u8 * 4
-}
-
-/// Generates a bitmask based on teh given octant corresponding to the coverage of the octant in an occupancy bitmap
-pub(crate) fn mask_for_octant_64_bits(octant: u8) -> u64 {
-    match octant {
-        0 => 0x0000000000330033,
-        1 => 0x0000000000cc00cc,
-        2 => 0x0033003300000000,
-        3 => 0x00cc00cc00000000,
-        4 => 0x0000000033003300,
-        5 => 0x00000000cc00cc00,
-        6 => 0x3300330000000000,
-        7 => 0xcc00cc0000000000,
-        _ => panic!("Invalid region hash provided for spatial reference!"),
-    }
 }
 
 /// Maps direction vector to the octant it points to
@@ -104,26 +72,26 @@ pub(crate) fn matrix_index_for(
 
 /// Returns with a bitmask to select the relevant octant based on the relative position
 /// and size of the covered area
-pub(crate) fn position_in_bitmap_64bits(x: usize, y: usize, z: usize, brick_size: usize) -> usize {
+pub(crate) fn position_in_bitmap_64bits(index_in_brick: &V3c<usize>, brick_size: usize) -> usize {
     debug_assert!(
-        (x * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        (index_in_brick.x * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
         "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (x * BITMAP_DIMENSION / brick_size), x, brick_size
+         (index_in_brick.x * BITMAP_DIMENSION / brick_size), index_in_brick.x, brick_size
     );
     debug_assert!(
-        (y * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        (index_in_brick.y * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
         "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (y * BITMAP_DIMENSION / brick_size), y, brick_size
+         (index_in_brick.y * BITMAP_DIMENSION / brick_size), index_in_brick.y, brick_size
     );
     debug_assert!(
-        (z * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
+        (index_in_brick.z * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
         "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (z * BITMAP_DIMENSION / brick_size), z, brick_size
+         (index_in_brick.z * BITMAP_DIMENSION / brick_size), index_in_brick.z, brick_size
     );
     let pos_inside_bitmap = flat_projection(
-        x * BITMAP_DIMENSION / brick_size,
-        y * BITMAP_DIMENSION / brick_size,
-        z * BITMAP_DIMENSION / brick_size,
+        index_in_brick.x * BITMAP_DIMENSION / brick_size,
+        index_in_brick.y * BITMAP_DIMENSION / brick_size,
+        index_in_brick.z * BITMAP_DIMENSION / brick_size,
         BITMAP_DIMENSION,
     );
     debug_assert!(pos_inside_bitmap < (BITMAP_DIMENSION * BITMAP_DIMENSION * BITMAP_DIMENSION));
@@ -171,7 +139,8 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
             for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {
-                let pos_mask = 0x01 << position_in_bitmap_64bits(x, y, z, BITMAP_DIMENSION);
+                let pos_mask =
+                    0x01 << position_in_bitmap_64bits(&V3c::new(x, y, z), BITMAP_DIMENSION);
                 if occupied {
                     *bitmap |= pos_mask;
                 } else {

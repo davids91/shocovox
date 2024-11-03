@@ -1,4 +1,6 @@
+/// As in: Look-up Tables
 pub mod lut;
+
 pub mod math;
 
 #[cfg(feature = "raytracing")]
@@ -6,7 +8,7 @@ pub mod raytracing;
 
 mod tests;
 
-use crate::spatial::math::{offset_region, vector::V3c};
+use crate::spatial::{lut::OCTANT_OFFSET_REGION_LUT, math::vector::V3c};
 
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
@@ -30,7 +32,8 @@ impl Cube {
     pub(crate) fn child_bounds_for(&self, octant: u8) -> Cube {
         let child_size = self.size / 2.;
         Cube {
-            min_position: (self.min_position + (offset_region(octant) * child_size)),
+            min_position: (self.min_position
+                + (OCTANT_OFFSET_REGION_LUT[octant as usize] * child_size)),
             size: child_size,
         }
     }
