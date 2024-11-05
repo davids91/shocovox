@@ -1,16 +1,12 @@
-use crate::octree::V3c;
-use crate::spatial::{
-    math::{
-        hash_direction, hash_region, octant_bitmask, position_in_bitmap_64bits,
-        set_occupancy_in_bitmap_64bits,
-    },
-    offset_region,
+use crate::octree::{V3c, V3cf32};
+use crate::spatial::math::{
+    hash_direction, hash_region, position_in_bitmap_64bits, set_occupancy_in_bitmap_64bits,
 };
 
 #[allow(dead_code)]
 fn convert_8bit_bitmap_to_64bit() {
     for octant in 0..8 {
-        let min_pos = offset_region(octant);
+        let min_pos = OCTANT_OFFSET_REGION_LUT[octant];
         let min_pos = V3c::new(
             min_pos.x as usize * 2,
             min_pos.y as usize * 2,
@@ -20,7 +16,13 @@ fn convert_8bit_bitmap_to_64bit() {
         for x in min_pos.x..(min_pos.x + 2) {
             for y in min_pos.y..(min_pos.y + 2) {
                 for z in min_pos.z..(min_pos.z + 2) {
-                    set_occupancy_in_bitmap_64bits(x, y, z, 4, true, &mut result_bitmap);
+                    set_occupancy_in_bitmap_64bits(
+                        &V3c::new(x, y, z),
+                        1,
+                        4,
+                        true,
+                        &mut result_bitmap,
+                    );
                 }
             }
         }
@@ -37,7 +39,7 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
         for y in 0i32..4 {
             for z in 0i32..4 {
                 let bitmask_position =
-                    position_in_bitmap_64bits(x as usize, y as usize, z as usize, 4);
+                    position_in_bitmap_64bits(&V3c::new(x as usize, y as usize, z as usize), 4);
                 //direction
                 for dx in -1i32..=1 {
                     for dy in -1i32..=1 {
@@ -62,9 +64,8 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
                                 for by in min_y..=max_y {
                                     for bz in min_z..=max_z {
                                         set_occupancy_in_bitmap_64bits(
-                                            bx as usize,
-                                            by as usize,
-                                            bz as usize,
+                                            &V3c::new(bx as usize, by as usize, bz as usize),
+                                            1,
                                             4,
                                             true,
                                             &mut result_bitmask,
@@ -84,63 +85,10 @@ fn generate_lut_64_bits() -> [[u64; 8]; 64] {
 }
 
 #[allow(dead_code)]
-fn generate_lut_8_bits() -> [[u8; 8]; 8] {
-    // 8 poisitions, 8 directions
-    let mut bitmap_lut = [[0u8; 8]; 8];
-
-    //position
-    for x in 0i32..2 {
-        for y in 0i32..2 {
-            for z in 0i32..2 {
-                let bitmask_position = hash_region(&V3c::new(x as f32, y as f32, z as f32), 0.5);
-                //direction
-                for dx in -1i32..=1 {
-                    for dy in -1i32..=1 {
-                        for dz in -1i32..=1 {
-                            // step through the brick in the given direction and set the positional bits to occupied
-                            if 0 == dx || 0 == dy || 0 == dz {
-                                continue;
-                            }
-                            let direction_position =
-                                hash_direction(&V3c::new(dx as f32, dy as f32, dz as f32));
-                            let moved_x = (x + dx * 2).clamp(0, 2);
-                            let moved_y = (y + dy * 2).clamp(0, 2);
-                            let moved_z = (z + dz * 2).clamp(0, 2);
-                            let min_x = moved_x.min(x);
-                            let max_x = moved_x.max(x);
-                            let min_y = moved_y.min(y);
-                            let max_y = moved_y.max(y);
-                            let min_z = moved_z.min(z);
-                            let max_z = moved_z.max(z);
-
-                            let mut result_bitmask = 0;
-                            for bx in min_x..=max_x {
-                                for by in min_y..=max_y {
-                                    for bz in min_z..=max_z {
-                                        result_bitmask |= octant_bitmask(hash_region(
-                                            &V3c::new(bx as f32, by as f32, bz as f32),
-                                            0.5,
-                                        ));
-                                    }
-                                }
-                            }
-                            bitmap_lut[bitmask_position as usize][direction_position as usize] =
-                                result_bitmask;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    bitmap_lut
-}
-
-#[allow(dead_code)]
 fn generate_octant_step_result_lut() -> [[[u32; 3]; 3]; 3] {
-    let octant_after_step = |step_vector: &V3c<i32>, octant: u8| {
+    let octant_after_step = |step_vector: &V3c<i32>, octant: usize| {
         const SPACE_SIZE: f32 = 12.;
-        let octant_offset = offset_region(octant);
+        let octant_offset = OCTANT_OFFSET_REGION_LUT[octant];
         let octant_center = (
             SPACE_SIZE / 4. + octant_offset.x * (SPACE_SIZE / 2.),
             SPACE_SIZE / 4. + octant_offset.y * (SPACE_SIZE / 2.),
@@ -172,7 +120,7 @@ fn generate_octant_step_result_lut() -> [[[u32; 3]; 3]; 3] {
 
     let mut lut = [[[0u32; 3]; 3]; 3];
     for octant in 0..8 {
-        let octant_pos_in_32bits: u8 = 4 * octant;
+        let octant_pos_in_32bits = 4 * octant;
         for z in -1i32..=1 {
             for y in -1i32..=1 {
                 for x in -1i32..=1 {
@@ -191,12 +139,12 @@ fn generate_octant_step_result_lut() -> [[[u32; 3]; 3]; 3] {
 }
 
 #[allow(dead_code)]
-fn generate_lvl1_bitmap_index_lut() -> [[[u8; 4]; 4]; 4] {
+fn generate_bitmap_flat_index_lut() -> [[[u8; 4]; 4]; 4] {
     let mut lut = [[[0u8; 4]; 4]; 4];
     for x in 0..4 {
         for y in 0..4 {
             for z in 0..4 {
-                lut[x][y][z] = position_in_bitmap_64bits(x, y, z, 4) as u8;
+                lut[x][y][z] = position_in_bitmap_64bits(&V3c::new(x, y, z), 4) as u8;
             }
         }
     }
@@ -205,7 +153,61 @@ fn generate_lvl1_bitmap_index_lut() -> [[[u8; 4]; 4]; 4] {
 
 pub(crate) const OOB_OCTANT: u8 = 8;
 
-pub(crate) const BITMAP_INDEX_LUT: [[[u8; 4]; 4]; 4] = [
+pub(crate) const OCTANT_OFFSET_REGION_LUT: [V3cf32; 8] = [
+    V3c {
+        x: 0.,
+        y: 0.,
+        z: 0.,
+    },
+    V3c {
+        x: 1.,
+        y: 0.,
+        z: 0.,
+    },
+    V3c {
+        x: 0.,
+        y: 0.,
+        z: 1.,
+    },
+    V3c {
+        x: 1.,
+        y: 0.,
+        z: 1.,
+    },
+    V3c {
+        x: 0.,
+        y: 1.,
+        z: 0.,
+    },
+    V3c {
+        x: 1.,
+        y: 1.,
+        z: 0.,
+    },
+    V3c {
+        x: 0.,
+        y: 1.,
+        z: 1.,
+    },
+    V3c {
+        x: 1.,
+        y: 1.,
+        z: 1.,
+    },
+];
+
+pub(crate) const BITMAP_MASK_FOR_OCTANT_LUT: [u64; 8] = [
+    0x0000000000330033,
+    0x0000000000cc00cc,
+    0x0033003300000000,
+    0x00cc00cc00000000,
+    0x0000000033003300,
+    0x00000000cc00cc00,
+    0x3300330000000000,
+    0xcc00cc0000000000,
+];
+
+pub(crate) const BITMAP_INDEX_LUT: [[[usize; 4]; 4]; 4] = [
     [
         [0, 16, 32, 48],
         [4, 20, 36, 52],
@@ -250,18 +252,7 @@ pub(crate) const OCTANT_STEP_RESULT_LUT: [[[u32; 3]; 3]; 3] = [
     ],
 ];
 
-pub(crate) const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u8; 8]; 8] = [
-    [1, 3, 5, 15, 17, 51, 85, 255],
-    [3, 2, 15, 10, 51, 34, 255, 170],
-    [5, 15, 4, 12, 85, 255, 68, 204],
-    [15, 10, 12, 8, 255, 170, 204, 136],
-    [17, 51, 85, 255, 16, 48, 80, 240],
-    [51, 34, 255, 170, 48, 32, 240, 160],
-    [85, 255, 68, 204, 80, 240, 64, 192],
-    [255, 170, 204, 136, 240, 160, 192, 128],
-];
-
-pub(crate) const RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
+pub(crate) const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
     [
         1,
         15,

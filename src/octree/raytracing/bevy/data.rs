@@ -1,9 +1,14 @@
-use crate::object_pool::empty_marker;
-use crate::octree::types::BrickData;
-use crate::octree::{
-    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, Voxelement},
-    types::{NodeChildrenArray, NodeContent},
-    Albedo, Octree, V3c, VoxelData,
+use crate::{
+    object_pool::empty_marker,
+    octree::{
+        types::BrickData,
+        {
+            raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, Voxelement},
+            types::{NodeChildrenArray, NodeContent},
+            Albedo, Octree, V3c, VoxelData,
+        },
+    },
+    spatial::lut::BITMAP_MASK_FOR_OCTANT_LUT,
 };
 use bevy::math::Vec4;
 use std::collections::HashMap;
@@ -24,11 +29,6 @@ where
             (*sized_node_meta & 0xFFFFFFF7) | if is_uniform { 0x00000008 } else { 0x00000000 };
     }
 
-    /// Updates the meta element value to store that the corresponding node is a leaf node
-    fn meta_set_node_occupancy_bitmap(sized_node_meta: &mut u32, bitmap: u8) {
-        *sized_node_meta = (*sized_node_meta & 0xFFFF00FF) | ((bitmap as u32) << 8);
-    }
-
     /// Updates the meta element value to store the brick structure of the given leaf node.
     /// Does not erase anything in @sized_node_meta, it's expected to be cleared before
     /// the first use of this function
@@ -44,7 +44,7 @@ where
         match brick {
             BrickData::Empty => {} // Child structure properties already set to NIL
             BrickData::Solid(_voxel) => {
-                // set child Occupied bits, child Structure bits already set to 0
+                // set child Occupied bits, child Structure bits already set to NIL
                 *sized_node_meta |= 0x01 << (8 + brick_octant);
             }
             BrickData::Parted(_brick) => {
@@ -83,21 +83,12 @@ where
     fn create_node_properties(node: &NodeContent<T, DIM>) -> u32 {
         let mut meta = 0;
         match node {
-            NodeContent::UniformLeaf(_) => {
+            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
                 Self::meta_set_is_leaf(&mut meta, true);
                 Self::meta_set_leaf_structure(&mut meta, node);
             }
-            NodeContent::Leaf(_) => {
-                Self::meta_set_is_leaf(&mut meta, true);
-                Self::meta_set_leaf_structure(&mut meta, node);
-            }
-            NodeContent::Internal(occupied_bits) => {
+            NodeContent::Internal(_) | NodeContent::Nothing => {
                 Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_node_occupancy_bitmap(&mut meta, *occupied_bits);
-            }
-            NodeContent::Nothing => {
-                Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_node_occupancy_bitmap(&mut meta, 0x00);
             }
         };
         meta
@@ -185,9 +176,9 @@ where
         };
 
         let mut nodes = Vec::new();
-        let mut children_buffer = Vec::new();
+        let mut children_buffer = Vec::with_capacity(self.nodes.len() * 8);
         let mut voxels = Vec::new();
-        let mut voxel_maps = Vec::new();
+        let mut node_occupied_bits = Vec::new();
         let mut color_palette = Vec::new();
 
         // Build up Nodes
@@ -200,15 +191,18 @@ where
         }
 
         // Build up voxel content
-        children_buffer.reserve(self.nodes.len() * 8);
         let mut map_to_color_index_in_palette = HashMap::new();
         for i in 0..self.nodes.len() {
             if !self.nodes.key_is_valid(i) {
                 continue;
             }
+            let occupied_bits = self.stored_occupied_bits(i);
+            node_occupied_bits.extend_from_slice(&[
+                (occupied_bits & 0x00000000FFFFFFFF) as u32,
+                ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
+            ]);
             match self.nodes.get(i) {
                 NodeContent::UniformLeaf(brick) => {
-                    voxel_maps.reserve(2);
                     debug_assert!(
                         matches!(
                             self.node_children[i].content,
@@ -225,39 +219,39 @@ where
                         &mut map_to_color_index_in_palette,
                     );
 
-                    children_buffer.extend_from_slice(&[brick_index, 0, 0, 0, 0, 0, 0, 0]);
-                    if brick_added {
-                        if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
-                            self.node_children[i].content
-                        {
-                            voxel_maps.extend_from_slice(&[
-                                (occupied_bits & 0x00000000FFFFFFFF) as u32,
-                                ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
-                            ]);
-                        } else {
-                            panic!("Leaf node is expected to have Occupied bitmap array!");
-                        }
-                    } else {
-                        // If no brick was added, the occupied bits should either be empty or full
-                        if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
-                            self.node_children[i].content
-                        {
-                            debug_assert!(occupied_bits == 0 || occupied_bits == u64::MAX);
+                    children_buffer.extend_from_slice(&[
+                        brick_index,
+                        empty_marker(),
+                        empty_marker(),
+                        empty_marker(),
+                        empty_marker(),
+                        empty_marker(),
+                        empty_marker(),
+                        empty_marker(),
+                    ]);
+                    #[cfg(debug_assertions)]
+                    {
+                        if !brick_added {
+                            // If no brick was added, the occupied bits should either be empty or full
+                            if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                self.node_children[i].content
+                            {
+                                debug_assert!(occupied_bits == 0 || occupied_bits == u64::MAX);
+                            }
                         }
                     }
                 }
                 NodeContent::Leaf(bricks) => {
-                    voxel_maps.reserve(16);
                     debug_assert!(
                         matches!(
                             self.node_children[i].content,
-                            NodeChildrenArray::OccupancyBitmaps(_)
+                            NodeChildrenArray::OccupancyBitmap(_)
                         ),
                         "Expected Leaf to have OccupancyBitmaps(_) instead of {:?}",
                         self.node_children[i].content
                     );
 
-                    let mut children = vec![0; 8];
+                    let mut children = vec![empty_marker(); 8];
                     for octant in 0..8 {
                         let (brick_index, brick_added) = Self::add_brick_to_vec(
                             &bricks[octant],
@@ -267,35 +261,20 @@ where
                         );
 
                         children[octant] = brick_index;
-                        if brick_added {
-                            if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
-                                self.node_children[i].content
-                            {
-                                voxel_maps.extend_from_slice(&[
-                                    (occupied_bits[octant] & 0x00000000FFFFFFFF) as u32,
-                                    ((occupied_bits[octant] & 0xFFFFFFFF00000000) >> 32) as u32,
-                                ]);
-                                debug_assert_eq!(
-                                    (occupied_bits[octant] & 0x00000000FFFFFFFF) as u32,
-                                    voxel_maps[brick_index as usize * 2],
-                                    "Expected brick occupied bits lsb to match voxel maps data!",
-                                );
-                                debug_assert_eq!(
-                                    ((occupied_bits[octant] & 0xFFFFFFFF00000000) >> 32) as u32,
-                                    voxel_maps[brick_index as usize * 2 + 1],
-                                    "Expected brick occupied bits lsb to match voxel maps data!",
-                                );
-                            } else {
-                                panic!("Leaf node is expected to have Occupied bitmap array!");
-                            }
-                        } else {
-                            // If no brick was added, the occupied bits should either be empty or full
-                            if let NodeChildrenArray::OccupancyBitmaps(occupied_bits) =
-                                self.node_children[i].content
-                            {
-                                debug_assert!(
-                                    occupied_bits[octant] == 0 || occupied_bits[octant] == u64::MAX
-                                );
+                        #[cfg(debug_assertions)]
+                        {
+                            if !brick_added {
+                                // If no brick was added, the relevant occupied bits should either be empty or full
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[i].content
+                                {
+                                    debug_assert!(
+                                        0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                            || BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                                == occupied_bits
+                                                    & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                    );
+                                }
                             }
                         }
                     }
@@ -315,21 +294,23 @@ where
                         }
                     }
                 }
-                NodeContent::Nothing => {} // Nothing to do with an empty node
+                NodeContent::Nothing => {
+                    children_buffer.extend_from_slice(&[empty_marker(); 8]);
+                }
             }
         }
 
         debug_assert_eq!(
-            voxel_maps.len() / 2,
-            voxels.len() / (DIM * DIM * DIM),
-            "Voxel occupancy bitmaps length({:?}) should match length of voxel buffer({:?})!",
-            voxel_maps.len(),
-            voxels.len()
+            nodes.len() * 2,
+            node_occupied_bits.len(),
+            "Node occupancy bitmaps length({:?}) should match node count({:?})!",
+            node_occupied_bits.len(),
+            nodes.len(),
         );
 
         debug_assert_eq!(
-            nodes.len(),
-            children_buffer.len() / (8),
+            nodes.len() * 8,
+            children_buffer.len(),
             "Node count({:?}) should match length of children buffer({:?})!",
             nodes.len(),
             children_buffer.len()
@@ -340,7 +321,7 @@ where
             nodes,
             children_buffer,
             voxels,
-            voxel_maps,
+            node_occupied_bits,
             color_palette,
         }
     }

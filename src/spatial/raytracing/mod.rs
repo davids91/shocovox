@@ -1,6 +1,5 @@
-use crate::spatial::{math::vector::V3c, raytracing::lut::OCTANT_STEP_RESULT_LUT, Cube};
+use crate::spatial::{lut::OCTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
 
-pub mod lut;
 mod tests;
 
 pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
@@ -30,7 +29,6 @@ impl Cube {
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
     /// https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
-    #[cfg(feature = "raytracing")]
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         debug_assert!(ray.is_valid());
 

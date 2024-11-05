@@ -11,17 +11,19 @@ mod tests;
 #[cfg(feature = "raytracing")]
 pub mod raytracing;
 
-use crate::octree::types::BrickData;
 pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{Albedo, Octree, VoxelData};
 
 use crate::object_pool::{empty_marker, ObjectPool};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    types::{NodeChildren, NodeContent, OctreeError},
+    types::{BrickData, NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::Cube;
+use crate::spatial::{math::matrix_index_for, Cube};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
+
+#[cfg(debug_assertions)]
+use crate::spatial::math::position_in_bitmap_64bits;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -117,7 +119,8 @@ where
                         BrickData::Parted(brick) => {
                             current_bounds =
                                 Cube::child_bounds_for(&current_bounds, child_octant_at_position);
-                            let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                            let mat_index =
+                                matrix_index_for(&current_bounds, &V3c::from(position), DIM);
 
                             if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                                 return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
@@ -134,7 +137,8 @@ where
                         return None;
                     }
                     BrickData::Parted(brick) => {
-                        let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
+                        let mat_index =
+                            matrix_index_for(&current_bounds, &V3c::from(position), DIM);
                         if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                             return None;
                         }
@@ -147,14 +151,38 @@ where
                         return Some(voxel);
                     }
                 },
-                NodeContent::Internal(_) => {
+                NodeContent::Internal(occupied_bits) => {
                     // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
 
-                    // If the target child is valid, recurse into it
+                    // There is a valid child at the given position inside the node, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
+                            let should_bit_be_empty = self.should_bitmap_be_empty_at_position(
+                                current_node_key,
+                                &current_bounds,
+                                &position,
+                            );
+
+                            let pos_in_bitmap = position_in_bitmap_64bits(&pos_in_node, 4);
+                            let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                 (should_bit_be_empty && is_bit_empty)||(!should_bit_be_empty && !is_bit_empty),
+                                  "Node[{:?}] under {:?} \n has a child in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}",
+                                  current_node_key,
+                                  current_bounds,
+                                  child_octant_at_position,
+                                  position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);
@@ -166,8 +194,8 @@ where
         }
     }
 
-    /// Provides a mutable reference to the voxel insidethe given node
-    /// Requires the biounds of the Node, and the position inside the node to provide reference from
+    /// Provides a mutable reference to the voxel inside the given node
+    /// Requires the bounds of the Node, and the position inside the node its providing reference from
     fn get_mut_ref(
         &mut self,
         bounds: &Cube,
@@ -188,7 +216,7 @@ where
                     BrickData::Empty => None,
                     BrickData::Parted(ref mut brick) => {
                         let bounds = Cube::child_bounds_for(bounds, child_octant_at_position);
-                        let mat_index = Self::mat_index(&bounds, &V3c::from(*position));
+                        let mat_index = matrix_index_for(&bounds, &V3c::from(*position), DIM);
                         if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                             return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
                         }
@@ -200,7 +228,7 @@ where
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => None,
                 BrickData::Parted(brick) => {
-                    let mat_index = Self::mat_index(bounds, &V3c::from(*position));
+                    let mat_index = matrix_index_for(bounds, &V3c::from(*position), DIM);
                     if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
                         return None;
                     }
@@ -231,7 +259,7 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Internal(_) => {
+                NodeContent::Internal(occupied_bits) => {
                     // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
@@ -239,6 +267,25 @@ where
 
                     // If the target child is valid, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                0 != (occupied_bits
+                                    & 0x01
+                                        << position_in_bitmap_64bits(
+                                            &pos_in_node,
+                                            4
+                                        )),
+                                "Node[{current_node_key}] under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#10X}",
+                                current_bounds,
+                                position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);

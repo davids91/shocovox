@@ -72,7 +72,7 @@ pub struct ShocoVoxRenderData {
     /// | Byte 1  | Child occupied                                            |
     /// |---------------------------------------------------------------------|
     /// | If Leaf | each bit is 0 if child brick is empty at octant *(1)      |
-    /// | If Node | lvl1 occupancy bitmap                                     |
+    /// | If Node | unused                                                    |
     /// |=====================================================================|
     /// | Byte 2  | Child structure                                           |
     /// |---------------------------------------------------------------------|
@@ -101,10 +101,10 @@ pub struct ShocoVoxRenderData {
     #[storage(3, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 
-    /// Buffer of Voxel brick occupancy bitmaps. Each brick has a 64 bit bitmap,
+    /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
     #[storage(4, visibility(compute))]
-    pub(crate) voxel_maps: Vec<u32>,
+    pub(crate) node_occupied_bits: Vec<u32>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )

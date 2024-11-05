@@ -4,15 +4,12 @@ use crate::{
         BrickData, Cube, Octree, V3c, VoxelData,
     },
     spatial::{
-        math::{hash_direction, hash_region, octant_bitmask},
-        raytracing::{
-            cube_impact_normal,
-            lut::{
-                BITMAP_INDEX_LUT, OOB_OCTANT, RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT,
-                RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
-            },
-            step_octant, Ray, FLOAT_ERROR_TOLERANCE,
+        lut::{
+            BITMAP_INDEX_LUT, BITMAP_MASK_FOR_OCTANT_LUT, OOB_OCTANT,
+            RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
         },
+        math::{hash_direction, hash_region, position_in_bitmap_64bits, BITMAP_DIMENSION},
+        raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
     },
 };
 
@@ -153,110 +150,22 @@ where
         )
     }
 
-    const UNIT_IN_BITMAP_SPACE: f32 = 4. / DIM as f32; // how long is one index step in bitmap space
-
-    /// Iterates the given brick to display its occupancy bitmap
-    #[allow(dead_code)]
-    fn debug_traverse_brick_for_bitmap(
-        ray: &Ray,
-        ray_current_distance: &mut f32,
-        brick_occupied_bits: u64,
-        brick_bounds: &Cube,
-        ray_scale_factors: &V3c<f32>,
-    ) -> V3c<u8> {
-        // Decide the starting index inside the brick
-        let mut position = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
-        let mut current_index = V3c::new(
-            (position.x as i32).clamp(0, (DIM - 1) as i32),
-            (position.y as i32).clamp(0, (DIM - 1) as i32),
-            (position.z as i32).clamp(0, (DIM - 1) as i32),
-        );
-
-        // Map the current position to index and bitmap spaces
-        let brick_unit = brick_bounds.size / DIM as f32; // how long is index step in space (set by the bounds)
-        let mut current_bounds = Cube {
-            min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
-            size: brick_unit,
-        };
-        position = position * 4. / brick_bounds.size;
-        debug_assert!(
-            position.x >= 0. - FLOAT_ERROR_TOLERANCE && position.x <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-        debug_assert!(
-            position.y >= 0. - FLOAT_ERROR_TOLERANCE && position.y <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-        debug_assert!(
-            position.z >= 0. - FLOAT_ERROR_TOLERANCE && position.z <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-        position = V3c::new(
-            (position.x).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
-            (position.y).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
-            (position.z).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
-        );
-
-        // Loop through the brick, terminate if no possibility of hit
-        let mut safety = 0;
-        let mut rgb_result = V3c::new(0, 0, 0);
-        loop {
-            safety += 1;
-            if safety as f32 > (DIM as f32 * 3f32.sqrt() * 2.1) {
-                break;
-            }
-            // If index is out of bounds
-            if current_index.x < 0
-                || current_index.x >= DIM as i32
-                || current_index.y < 0
-                || current_index.y >= DIM as i32
-                || current_index.z < 0
-                || current_index.z >= DIM as i32
-            {
-                break;
-            }
-
-            if 0 != (brick_occupied_bits
-                & (0x01
-                    << (BITMAP_INDEX_LUT[position.x as usize][position.y as usize]
-                        [position.z as usize])))
-            {
-                rgb_result = V3c::new(0, (30. * 255. / safety as f32) as u8, 0);
-                break;
-            }
-
-            let step = Self::dda_step_to_next_sibling(
-                ray,
-                ray_current_distance,
-                &current_bounds,
-                ray_scale_factors,
-            );
-            current_bounds.min_position += step * current_bounds.size;
-            current_index += V3c::<i32>::from(step);
-            position += step * Self::UNIT_IN_BITMAP_SPACE;
-        }
-        rgb_result
-    }
-
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
     fn traverse_brick(
         ray: &Ray,
         ray_current_distance: &mut f32,
         brick: &[[[T; DIM]; DIM]; DIM],
-        brick_occupied_bits: u64,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
-        direction_lut_index: usize,
     ) -> Option<V3c<usize>> {
         // Decide the starting index inside the brick
-        let mut position = ray.point_at(*ray_current_distance) - brick_bounds.min_position;
+        let position_in_brick = (ray.point_at(*ray_current_distance) - brick_bounds.min_position)
+            * DIM as f32
+            / brick_bounds.size;
         let mut current_index = V3c::new(
-            (position.x as i32).clamp(0, (DIM - 1) as i32),
-            (position.y as i32).clamp(0, (DIM - 1) as i32),
-            (position.z as i32).clamp(0, (DIM - 1) as i32),
+            (position_in_brick.x as i32).clamp(0, (DIM - 1) as i32),
+            (position_in_brick.y as i32).clamp(0, (DIM - 1) as i32),
+            (position_in_brick.z as i32).clamp(0, (DIM - 1) as i32),
         );
 
         // Map the current position to index and bitmap spaces
@@ -265,46 +174,17 @@ where
             min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
             size: brick_unit,
         };
-        position = position * 4. / brick_bounds.size;
-        debug_assert!(
-            position.x >= 0. - FLOAT_ERROR_TOLERANCE && position.x <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-        debug_assert!(
-            position.y >= 0. - FLOAT_ERROR_TOLERANCE && position.y <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-        debug_assert!(
-            position.z >= 0. - FLOAT_ERROR_TOLERANCE && position.z <= 4. + FLOAT_ERROR_TOLERANCE,
-            "Expected position {:?} to be inside bitmap bounds",
-            position
-        );
-
-        // Clamp the position to the middle of a voxel
-        position = V3c::new(
-            (position.x).clamp(0.5, 3.5),
-            (position.y).clamp(0.5, 3.5),
-            (position.z).clamp(0.5, 3.5),
-        );
 
         // Loop through the brick, terminate if no possibility of hit
         loop {
             if
-            // If index is out of bounds
+            // If index is out of bounds, there's no hit
             current_index.x < 0
                 || current_index.x >= DIM as i32
                 || current_index.y < 0
                 || current_index.y >= DIM as i32
                 || current_index.z < 0
                 || current_index.z >= DIM as i32
-
-                // OR If there's no chance of a hit
-                || 0 == (RAY_TO_LEAF_OCCUPANCY_BITMASK_LUT[BITMAP_INDEX_LUT[position.x as usize]
-                [position.y as usize][position.z as usize]
-                as usize][direction_lut_index]
-                & brick_occupied_bits)
             {
                 return None;
             }
@@ -323,9 +203,9 @@ where
             );
             current_bounds.min_position += step * brick_unit;
             current_index += V3c::<i32>::from(step);
-            position += step * Self::UNIT_IN_BITMAP_SPACE;
             #[cfg(debug_assertions)]
             {
+                // Check if the resulting point is inside bounds still
                 let relative_point =
                     ray.point_at(*ray_current_distance) - current_bounds.min_position;
                 debug_assert!(
@@ -345,10 +225,8 @@ where
         ray: &Ray,
         ray_current_distance: &mut f32,
         brick: &'a BrickData<T, DIM>,
-        brick_occupied_bits: u64,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
-        direction_lut_index: usize,
     ) -> Option<(&'a T, V3c<f32>, V3c<f32>)> {
         match brick {
             BrickData::Empty => {
@@ -368,10 +246,8 @@ where
                     ray,
                     ray_current_distance,
                     brick,
-                    brick_occupied_bits,
                     brick_bounds,
                     ray_scale_factors,
-                    direction_lut_index,
                 ) {
                     let hit_bounds = Cube {
                         size: brick_bounds.size / DIM as f32,
@@ -422,7 +298,8 @@ where
             current_bounds = Cube::root_bounds(self.octree_size as f32);
             node_stack.push(Octree::<T, DIM>::ROOT_NODE_KEY);
             while !node_stack.is_empty() {
-                let current_node_occupied_bits = self.occupied_8bit(*node_stack.last().unwrap());
+                let current_node_occupied_bits =
+                    self.stored_occupied_bits(*node_stack.last().unwrap() as usize);
                 debug_assert!(self
                     .nodes
                     .key_is_valid(*node_stack.last().unwrap() as usize));
@@ -439,16 +316,8 @@ where
                                 ray,
                                 &mut ray_current_distance,
                                 brick,
-                                match self.node_children[current_node_key].content {
-                                    NodeChildrenArray::OccupancyBitmap(bitmap) => bitmap,
-                                    _ => {
-                                        debug_assert!(false);
-                                        0
-                                    }
-                                },
                                 &current_bounds,
                                 &ray_scale_factors,
-                                direction_lut_index,
                             ) {
                                 return Some(hit);
                             }
@@ -457,24 +326,14 @@ where
                         NodeContent::Leaf(bricks) => {
                             debug_assert!(matches!(
                                 self.node_children[current_node_key].content,
-                                NodeChildrenArray::OccupancyBitmaps(_)
+                                NodeChildrenArray::OccupancyBitmap(_)
                             ));
                             if let Some(hit) = self.probe_brick(
                                 ray,
                                 &mut ray_current_distance,
                                 &bricks[target_octant as usize],
-                                match self.node_children[current_node_key].content {
-                                    NodeChildrenArray::OccupancyBitmaps(bitmaps) => {
-                                        bitmaps[target_octant as usize]
-                                    }
-                                    _ => {
-                                        debug_assert!(false);
-                                        0
-                                    }
-                                },
                                 &current_bounds.child_bounds_for(target_octant),
                                 &ray_scale_factors,
-                                direction_lut_index,
                             ) {
                                 return Some(hit);
                             }
@@ -483,12 +342,27 @@ where
                     }
                 };
 
+                // the position of the current iteration inside the current bounds in bitmap dimensions
+                let mut bitmap_pos_in_node = (ray.point_at(ray_current_distance)
+                    - current_bounds.min_position)
+                    * BITMAP_DIMENSION as f32
+                    / current_bounds.size;
+                bitmap_pos_in_node = V3c::new(
+                    (bitmap_pos_in_node.x).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+                    (bitmap_pos_in_node.y).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+                    (bitmap_pos_in_node.z).clamp(FLOAT_ERROR_TOLERANCE, 4. - FLOAT_ERROR_TOLERANCE),
+                );
+                let mut flat_pos_in_bitmap = BITMAP_INDEX_LUT
+                    [bitmap_pos_in_node.x.floor() as usize]
+                    [bitmap_pos_in_node.y.floor() as usize]
+                    [bitmap_pos_in_node.z.floor() as usize];
+
                 if do_backtrack_after_leaf_miss
                     || target_octant == OOB_OCTANT
-                    // In case the current Node is empty
+                    // The current Node is empty
                     || 0 == current_node_occupied_bits
-                    // In case there is no overlap between the node occupancy and the potential slots the ray would hit
-                    || 0 == (current_node_occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_octant as usize][direction_lut_index as usize])
+                    // There is no overlap between node occupancy and the area the ray potentially hits
+                    || 0 == (current_node_occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[flat_pos_in_bitmap][direction_lut_index])
                 {
                     // POP
                     node_stack.pop();
@@ -526,7 +400,8 @@ where
                 let mut target_child_key =
                     self.node_children[current_node_key][target_octant as u32];
                 if self.nodes.key_is_valid(target_child_key as usize)
-                    && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
+                    && 0 != (current_node_occupied_bits
+                        & BITMAP_MASK_FOR_OCTANT_LUT[target_octant as usize])
                 {
                     // PUSH
                     current_node_key = target_child_key as usize;
@@ -553,28 +428,25 @@ where
                             target_bounds = current_bounds.child_bounds_for(target_octant);
                             target_child_key =
                                 self.node_children[current_node_key][target_octant as u32];
+                            bitmap_pos_in_node += step_vec * 4. / current_bounds.size;
+                            flat_pos_in_bitmap = BITMAP_INDEX_LUT
+                                [bitmap_pos_in_node.x.floor() as usize]
+                                [bitmap_pos_in_node.y.floor() as usize]
+                                [bitmap_pos_in_node.z.floor() as usize];
                         }
                         if target_octant == OOB_OCTANT
-                        // In case the current node has a valid target child
+                        // In case the current internal node has a valid target child
                         || (self.nodes.key_is_valid(target_child_key as usize)
                             // current node is occupied at target octant
-                            && 0 != current_node_occupied_bits & octant_bitmask(target_octant)
-                            // target child collides with the ray
-                            && 0 != match self.nodes.get(target_child_key as usize) {
-                                NodeContent::Nothing => 0,
-                                NodeContent::Internal(_) | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
-                                self.occupied_8bit(target_child_key)
-                                    & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[hash_region(
-                                        &(ray.point_at(ray_current_distance) - target_bounds.min_position),
-                                        target_bounds.size / 2.,
-                                    ) as usize]
-                                    [direction_lut_index as usize]
-                                }
-                            })
+                            && 0 != current_node_occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[target_octant as usize]
+                            //  target child is in the area the ray can potentially hit
+                            && 0 != (RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[flat_pos_in_bitmap][direction_lut_index]
+                                & current_node_occupied_bits)
+                            )
                             // In case the current node is leaf
                             || match self.nodes.get(current_node_key) {
                                     // Empty or internal nodes are not evaluated in this condition;
-                                    // Basically if there's no hit with a uniformleaf
+                                    // Basically if there's no hit with a uniform leaf
                                     // | It's either because the leaf is solid empty
                                     // | Or the parted brick did not have any non-empty voxels intersecting with the ray
                                     // --> Both reasons are valid to go forward, so don't break the advancement

@@ -1,5 +1,11 @@
-use crate::octree::types::{NodeChildren, NodeChildrenArray, NodeContent, VoxelData};
-use crate::spatial::math::octant_bitmask;
+use crate::octree::{
+    types::{NodeChildren, NodeChildrenArray, NodeContent, VoxelData},
+    V3c,
+};
+use crate::spatial::{
+    lut::OCTANT_OFFSET_REGION_LUT,
+    math::{set_occupancy_in_bitmap_64bits, BITMAP_DIMENSION},
+};
 
 ///####################################################################################
 /// NodeChildren
@@ -14,7 +20,6 @@ where
             NodeChildrenArray::NoChildren => true,
             NodeChildrenArray::Children(_) => false,
             NodeChildrenArray::OccupancyBitmap(mask) => 0 == *mask,
-            NodeChildrenArray::OccupancyBitmaps(masks) => 0 == masks.iter().fold(0, |m, x| m | x),
         }
     }
 
@@ -42,22 +47,6 @@ where
             if 8 == c.iter().filter(|e| **e == self.empty_marker).count() {
                 self.content = NodeChildrenArray::NoChildren;
             }
-        }
-    }
-
-    /// Provides lvl2 occupancy bitmap based on the availability of the children
-    pub(crate) fn occupied_bits(&self) -> u8 {
-        match &self.content {
-            NodeChildrenArray::Children(c) => {
-                let mut result = 0;
-                for (child_octant, child) in c.iter().enumerate().take(8) {
-                    if *child != self.empty_marker {
-                        result |= octant_bitmask(child_octant as u8);
-                    }
-                }
-                result
-            }
-            _ => 0,
         }
     }
 }
@@ -103,6 +92,119 @@ impl<T, const DIM: usize> BrickData<T, DIM>
 where
     T: VoxelData + PartialEq + Clone + Copy + Default,
 {
+    /// Provides occupancy information for the part of the brick corresponmding
+    /// to the given octant based on the contents of the brick
+    pub(crate) fn is_empty_throughout(&self, octant: usize) -> bool {
+        match self {
+            BrickData::Empty => true,
+            BrickData::Solid(voxel) => voxel.is_empty(),
+            BrickData::Parted(brick) => {
+                if 1 == DIM {
+                    return brick[0][0][0].is_empty();
+                }
+
+                if 2 == DIM {
+                    let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+                    return brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty();
+                }
+
+                let extent = BITMAP_DIMENSION as f32 / 2.;
+                let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant] * extent);
+                for x in 0..extent as usize {
+                    for y in 0..extent as usize {
+                        for z in 0..extent as usize {
+                            if !brick[octant_offset.x + x][octant_offset.y + y][octant_offset.z + z]
+                                .is_empty()
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    /// Provides occupancy information for the part of the brick corresponding to
+    /// part_octant and target octant. The Brick is subdivided on 2 levels,
+    /// the larger target octant is set by @part_octant, the part inside that octant
+    /// is set by @target_octant
+    pub(crate) fn is_part_empty_throughout(
+        &self,
+        part_octant: usize,
+        target_octant: usize,
+    ) -> bool {
+        match self {
+            BrickData::Empty => true,
+            BrickData::Solid(voxel) => voxel.is_empty(),
+            BrickData::Parted(brick) => {
+                if 1 == DIM {
+                    brick[0][0][0].is_empty()
+                } else if 2 == DIM {
+                    let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant]);
+                    brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty()
+                } else {
+                    let outer_extent = BITMAP_DIMENSION as f32 / 2.;
+                    let inner_extent = BITMAP_DIMENSION as f32 / 4.;
+                    let octant_offset = V3c::<usize>::from(
+                        OCTANT_OFFSET_REGION_LUT[part_octant] * outer_extent
+                            + OCTANT_OFFSET_REGION_LUT[target_octant] * inner_extent,
+                    );
+                    for x in 0..inner_extent as usize {
+                        for y in 0..inner_extent as usize {
+                            for z in 0..inner_extent as usize {
+                                if !brick[octant_offset.x + x][octant_offset.y + y]
+                                    [octant_offset.z + z]
+                                    .is_empty()
+                                {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    true
+                }
+            }
+        }
+    }
+
+    /// Calculates the Occupancy bitmap for the given Voxel brick
+    pub(crate) fn calculate_brick_occupied_bits(brick: &[[[T; DIM]; DIM]; DIM]) -> u64 {
+        let mut bitmap = 0;
+        for x in 0..DIM {
+            for y in 0..DIM {
+                for z in 0..DIM {
+                    if !brick[x][y][z].is_empty() {
+                        set_occupancy_in_bitmap_64bits(
+                            &V3c::new(x, y, z),
+                            1,
+                            DIM,
+                            true,
+                            &mut bitmap,
+                        );
+                    }
+                }
+            }
+        }
+        bitmap
+    }
+
+    /// Calculates the occupancy bitmap based on self
+    pub(crate) fn calculate_occupied_bits(&self) -> u64 {
+        match self {
+            BrickData::Empty => 0,
+            BrickData::Solid(voxel) => {
+                if voxel.is_empty() {
+                    0
+                } else {
+                    u64::MAX
+                }
+            }
+            BrickData::Parted(brick) => Self::calculate_brick_occupied_bits(brick),
+        }
+    }
+
     /// In case all contained voxels are the same, returns with a reference to the data
     pub(crate) fn get_homogeneous_data(&self) -> Option<&T> {
         match self {
