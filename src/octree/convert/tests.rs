@@ -1,6 +1,5 @@
 use crate::octree::types::{Albedo, NodeChildrenArray};
 use crate::octree::types::{BrickData, NodeContent};
-use crate::octree::VoxelData;
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 use crate::object_pool::empty_marker;

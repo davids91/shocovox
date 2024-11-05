@@ -29,11 +29,6 @@ where
             (*sized_node_meta & 0xFFFFFFF7) | if is_uniform { 0x00000008 } else { 0x00000000 };
     }
 
-    /// Updates the meta element value to store that the corresponding node is a leaf node
-    fn meta_set_node_occupancy_bitmap(sized_node_meta: &mut u32, bitmap: u8) {
-        *sized_node_meta = (*sized_node_meta & 0xFFFF00FF) | ((bitmap as u32) << 8);
-    }
-
     /// Updates the meta element value to store the brick structure of the given leaf node.
     /// Does not erase anything in @sized_node_meta, it's expected to be cleared before
     /// the first use of this function
@@ -49,7 +44,7 @@ where
         match brick {
             BrickData::Empty => {} // Child structure properties already set to NIL
             BrickData::Solid(_voxel) => {
-                // set child Occupied bits, child Structure bits already set to 0
+                // set child Occupied bits, child Structure bits already set to NIL
                 *sized_node_meta |= 0x01 << (8 + brick_octant);
             }
             BrickData::Parted(_brick) => {
@@ -88,20 +83,12 @@ where
     fn create_node_properties(node: &NodeContent<T, DIM>) -> u32 {
         let mut meta = 0;
         match node {
-            NodeContent::UniformLeaf(_) => {
+            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
                 Self::meta_set_is_leaf(&mut meta, true);
                 Self::meta_set_leaf_structure(&mut meta, node);
             }
-            NodeContent::Leaf(_) => {
-                Self::meta_set_is_leaf(&mut meta, true);
-                Self::meta_set_leaf_structure(&mut meta, node);
-            }
-            NodeContent::Internal(_occupied_bits) => {
+            NodeContent::Internal(_) | NodeContent::Nothing => {
                 Self::meta_set_is_leaf(&mut meta, false);
-            }
-            NodeContent::Nothing => {
-                Self::meta_set_is_leaf(&mut meta, false);
-                Self::meta_set_node_occupancy_bitmap(&mut meta, 0x00);
             }
         };
         meta

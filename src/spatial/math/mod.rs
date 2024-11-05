@@ -151,11 +151,6 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     }
 }
 
-/// Creates a bitmask for a single octant position in an 8bit bitmask
-pub(crate) fn octant_bitmask(octant: u8) -> u8 {
-    0x01 << octant
-}
-
 #[cfg(feature = "dot_vox_support")]
 pub(crate) enum CoordinateSystemType {
     LZUP, // Left handed Z Up

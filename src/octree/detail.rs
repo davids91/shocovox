@@ -141,7 +141,7 @@ where
             NodeContent::Internal(_) => {
                 let child_key = self.node_children[node_key][target_octant as u32] as usize;
                 if self.nodes.key_is_valid(child_key) {
-                    self.node_empty_at(child_key, target_octant_for_child as usize)
+                    self.node_empty_at(child_key, target_octant_for_child)
                 } else {
                     true
                 }
@@ -150,7 +150,7 @@ where
                 brick.is_part_empty_throughout(target_octant, target_octant_for_child)
             }
             NodeContent::Leaf(bricks) => {
-                bricks[target_octant as usize].is_empty_throughout(target_octant_for_child)
+                bricks[target_octant].is_empty_throughout(target_octant_for_child)
             }
         }
     }

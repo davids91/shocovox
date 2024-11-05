@@ -256,85 +256,6 @@ fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
     return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
 }
 
-/*// +++ DEBUG +++
-fn debug_traverse_brick_for_bitmap(
-    ray: ptr<function, Line>,
-    ray_current_distance: ptr<function,f32>,
-    node_key: u32,
-    node_bounds: ptr<function, Cube>,
-    ray_scale_factors: ptr<function, vec3f>,
-) -> vec3f {
-    let original_distance = *ray_current_distance;
-
-    var position = vec3f(
-        point_in_ray_at_distance(ray, *ray_current_distance)
-        - (*node_bounds).min_position
-    );
-
-    var current_index = vec3i(vec3f(
-        clamp( (position.x * 4. / (*node_bounds).size), 0.5, 3.5),
-        clamp( (position.y * 4. / (*node_bounds).size), 0.5, 3.5),
-        clamp( (position.z * 4. / (*node_bounds).size), 0.5, 3.5),
-    ));
-
-    var current_bounds = Cube(
-        (
-            (*node_bounds).min_position
-            + vec3f(current_index) * ((*node_bounds).size / 4.)
-        ),
-        round((*node_bounds).size / 4.)
-    );
-
-    var safety = 0u;
-    var rgb_result = vec3f(0.); //vec3f(current_index) / 4.;
-    loop{
-        safety += 1u;
-        if(safety > u32(4. * sqrt(3.) * 2.1)) {
-            break;
-        }
-        if current_index.x < 0 || current_index.x >= 4
-            || current_index.y < 0 || current_index.y >= 4
-            || current_index.z < 0 || current_index.z >= 4
-        {
-            break;
-        }
-        
-        let bitmap_index = BITMAP_INDEX_LUT[current_index.x][current_index.y][current_index.z];
-        if (
-            (
-                (bitmap_index < 32)
-                && (
-                    0u != (
-                        node_occupied_bits[node_key * 2] & (0x01u << bitmap_index) )
-                    )
-            )||(
-                (bitmap_index >= 32)
-                && (
-                    0u != (
-                        node_occupied_bits[node_key * 2 + 1] & (0x01u << (bitmap_index - 32))
-                    )
-                )
-            )
-        ){
-            rgb_result.b += 1. / f32(safety);
-            break;
-        }
-
-        let step = round(dda_step_to_next_sibling(
-            ray,
-            ray_current_distance,
-            &current_bounds,
-            ray_scale_factors
-        ));
-        current_bounds.min_position += step * current_bounds.size;
-        current_index += vec3i(step);
-    }
-
-    *ray_current_distance = original_distance;
-    return rgb_result;
-}
-*/// --- DEBUG ---
-
 struct BrickHit{
     hit: bool,
     index: vec3u,
@@ -350,21 +271,19 @@ fn traverse_brick(
     direction_lut_index: u32,
 ) -> BrickHit {
     let dimension = i32(octreeMetaData.voxel_brick_dim);
-    let position = vec3f(
-        point_in_ray_at_distance(ray, *ray_current_distance)
-        - (*brick_bounds).min_position
-    );
 
-    var current_index = vec3i(
-        clamp(i32(position.x), 0, (dimension - 1)),
-        clamp(i32(position.y), 0, (dimension - 1)),
-        clamp(i32(position.z), 0, (dimension - 1))
+    var current_index = clamp(
+        vec3i(vec3f( // entry position in brick
+            point_in_ray_at_distance(ray, *ray_current_distance)
+            - (*brick_bounds).min_position
+        ) * f32(dimension) / (*brick_bounds).size),
+        vec3i(0),
+        vec3i(dimension - 1)
     );
-
     var current_bounds = Cube(
         (
             (*brick_bounds).min_position 
-            + vec3f(current_index) * ((*brick_bounds).size / f32(dimension))
+            + vec3f(current_index) * round((*brick_bounds).size / f32(dimension))
         ),
         round((*brick_bounds).size / f32(dimension))
     );
@@ -393,7 +312,7 @@ fn traverse_brick(
             brick_start_index * u32(dimension * dimension * dimension)
             + flat_projection(vec3u(current_index), vec2u(u32(dimension), u32(dimension)))
         );
-        if (mapped_index) >= arrayLength(&voxels)
+        if mapped_index >= arrayLength(&voxels)
         {
             return BrickHit(false, vec3u(current_index), mapped_index);
         }
@@ -510,7 +429,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
         }
        */ // --- DEBUG ---
         current_node_key = OCTREE_ROOT_NODE_KEY;
-        current_node_meta = nodes[current_node_key];
+        current_node_meta = nodes[OCTREE_ROOT_NODE_KEY];
         current_bounds = Cube(vec3(0.), f32(octreeMetaData.octree_size));
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
         /*// +++ DEBUG +++
@@ -555,33 +474,31 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                 }
             }
 
-            var pos_in_node = (
-                point_in_ray_at_distance(ray, ray_current_distance)
-                - current_bounds.min_position
+            var bitmap_pos_in_node = clamp(
+                (
+                    point_in_ray_at_distance(ray, ray_current_distance)
+                    - current_bounds.min_position
+                ) * 4. / current_bounds.size,
+                vec3f(FLOAT_ERROR_TOLERANCE),
+                vec3f(4. - FLOAT_ERROR_TOLERANCE)
             );
-            var index_in_node = vec3u(
-                clamp(u32(pos_in_node.x), 0u, (u32(current_bounds.size) - 1)),
-                clamp(u32(pos_in_node.y), 0u, (u32(current_bounds.size) - 1)),
-                clamp(u32(pos_in_node.z), 0u, (u32(current_bounds.size) - 1))
-            );
-
             if( do_backtrack_after_leaf_miss
                 || target_octant == OOB_OCTANT
                 || EMPTY_MARKER == current_node_key // Guards statements in other conditions, but should never happen
-                || ( // The current node is empty
-                    (0 == node_occupied_bits[current_node_key * 2])
-                    && (0 == node_occupied_bits[current_node_key * 2 + 1])
-                )
-                || ( // There is no overlap between node occupancy and the area the ray potentially hits
+                || ( // There is no overlap in node occupancy and ray potential hit area
                     0 == (
                         RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
-                            BITMAP_INDEX_LUT[index_in_node.x][index_in_node.y][index_in_node.z]
+                            BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                            [u32(bitmap_pos_in_node.y)]
+                                            [u32(bitmap_pos_in_node.z)]
                         ][direction_lut_index * 2]
                         & node_occupied_bits[current_node_key * 2]
                     )
                     && 0 == (
                         RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
-                            BITMAP_INDEX_LUT[index_in_node.x][index_in_node.y][index_in_node.z]
+                            BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                            [u32(bitmap_pos_in_node.y)]
+                                            [u32(bitmap_pos_in_node.z)]
                         ][direction_lut_index * 2 + 1]
                         & node_occupied_bits[current_node_key * 2 + 1]
                     )
@@ -622,14 +539,22 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                     0 == (0x00000004 & current_node_meta) // node is not a leaf
                     && target_child_key < arrayLength(&nodes) //!crate::object_pool::key_is_valid
                 )
-                && (
-                    0u != (
-                        node_occupied_bits[current_node_key * 2]
-                        & BITMAP_MASK_FOR_OCTANT_LUT[target_octant][0]
+                && ( // There is overlap in node occupancy and potential ray hit area
+                    0 != (
+                        RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
+                            BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                            [u32(bitmap_pos_in_node.y)]
+                                            [u32(bitmap_pos_in_node.z)]
+                        ][direction_lut_index * 2]
+                        & node_occupied_bits[current_node_key * 2]
                     )
-                    || 0u != (
-                        node_occupied_bits[current_node_key * 2 + 1]
-                        & BITMAP_MASK_FOR_OCTANT_LUT[target_octant][1]
+                    || 0 != (
+                        RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
+                            BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                            [u32(bitmap_pos_in_node.y)]
+                                            [u32(bitmap_pos_in_node.z)]
+                        ][direction_lut_index * 2 + 1]
+                        & node_occupied_bits[current_node_key * 2 + 1]
                     )
                 )
             ) {
@@ -656,54 +581,36 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                         );
                     }
                     */// --- DEBUG ---
-                    step_vec = dda_step_to_next_sibling(
+                    step_vec = round(dda_step_to_next_sibling(
                         ray, &ray_current_distance,
                         &target_bounds,
                         &ray_scale_factors
-                    );
+                    ));
                     target_octant = step_octant(target_octant, &step_vec);
                     if OOB_OCTANT != target_octant {
                         target_bounds = child_bounds_for(&current_bounds, target_octant);
                         target_child_key = children_buffer[(current_node_key * 8) + target_octant];
-                        pos_in_node = (
-                            point_in_ray_at_distance(ray, ray_current_distance)
-                            - current_bounds.min_position
-                        );
-                        index_in_node = vec3u(
-                            clamp(u32(pos_in_node.x), 0u, (u32(current_bounds.size) - 1)),
-                            clamp(u32(pos_in_node.y), 0u, (u32(current_bounds.size) - 1)),
-                            clamp(u32(pos_in_node.z), 0u, (u32(current_bounds.size) - 1))
-                        );
+                        bitmap_pos_in_node += step_vec * 4. / current_bounds.size;
                     }
-
                     if (
                         target_octant == OOB_OCTANT
                         || ( // In case the current internal node has a valid target child
                             target_child_key < arrayLength(&nodes) //crate::object_pool::key_is_valid
                             && 0 == (0x00000004 & current_node_meta) // node is not a leaf
-                            && ( // current node is occupied at target octant
-                                (
-                                    0 != (
-                                        BITMAP_MASK_FOR_OCTANT_LUT[target_octant][0]
-                                        & node_occupied_bits[current_node_key * 2]
-                                    )
-                                )&& (
-                                    0 != (
-                                        BITMAP_MASK_FOR_OCTANT_LUT[target_octant][1]
-                                        & node_occupied_bits[current_node_key * 2 + 1]
-                                    )
-                                )
-                            )
                             && ( // target child is in the area the ray can potentially hit
                                 0 != (
                                     RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
-                                        BITMAP_INDEX_LUT[index_in_node.x][index_in_node.y][index_in_node.z]
+                                        BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                                        [u32(bitmap_pos_in_node.y)]
+                                                        [u32(bitmap_pos_in_node.z)]
                                     ][direction_lut_index * 2]
                                     & node_occupied_bits[current_node_key * 2]
                                 )
                                 || 0 != (
                                     RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[
-                                        BITMAP_INDEX_LUT[index_in_node.x][index_in_node.y][index_in_node.z]
+                                        BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
+                                                        [u32(bitmap_pos_in_node.y)]
+                                                        [u32(bitmap_pos_in_node.z)]
                                     ][direction_lut_index * 2 + 1]
                                     & node_occupied_bits[current_node_key * 2 + 1]
                                 )
@@ -836,19 +743,6 @@ fn update(
     var root_bounds = Cube(vec3(0.,0.,0.), f32(octreeMetaData.octree_size));
     let root_intersect = cube_intersect_ray(root_bounds, &ray);
     if root_intersect.hit == true {
-
-        // Display the occupied bitzs for the root node
-        var ray_scale_factors = get_dda_scale_factors(&ray);
-        var ray_current_distance = 0.0;
-        if(root_intersect.impact_hit) {
-            ray_current_distance = root_intersect.impact_distance;
-        }
-        rgb_result = debug_traverse_brick_for_bitmap(
-            &ray, &ray_current_distance,
-            0u/*root_node_key*/, &root_bounds,
-            &ray_scale_factors
-        );
-
         // Display the xyz axes
         if root_intersect. impact_hit == true {
             let axes_length = f32(octreeMetaData.octree_size) / 2.;
@@ -876,19 +770,6 @@ var<private> OCTANT_OFFSET_REGION_LUT: array<vec3f, 8> = array<vec3f, 8>(
     vec3f(0., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(1., 0., 1.),
     vec3f(0., 1., 0.), vec3f(1., 1., 0.), vec3f(0., 1., 1.), vec3f(1.,1.,1.)
 );
-
-//crate::spatial::math::mask_for_octant_64_bits
-var<private> BITMAP_MASK_FOR_OCTANT_LUT: array<array<u32, 2>, 8> = array<array<u32, 2>, 8>(
-    array<u32, 2>(0x00330033u,0x00000000u),
-    array<u32, 2>(0x00CC00CCu,0x00000000u),
-    array<u32, 2>(0x00000000u,0x00330033u),
-    array<u32, 2>(0x00000000u,0x00CC00CCu),
-    array<u32, 2>(0x33003300u,0x00000000u),
-    array<u32, 2>(0xCC00CC00u,0x00000000u),
-    array<u32, 2>(0x00000000u,0x33003300u),
-    array<u32, 2>(0x00000000u,0xCC00CC00u),
-);
-
 // Note: should be const
 var<private> OCTANT_STEP_RESULT_LUT: array<array<array<u32, 3>, 3>, 3> = array<array<array<u32, 3>, 3>, 3>(
     array<array<u32, 3>, 3>(

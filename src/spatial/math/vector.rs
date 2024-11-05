@@ -78,6 +78,13 @@ impl V3c<f32> {
             z: self.z.signum(),
         }
     }
+    pub fn floor(&self) -> V3c<f32> {
+        V3c {
+            x: self.x.floor(),
+            y: self.y.floor(),
+            z: self.z.floor(),
+        }
+    }
 }
 
 impl V3c<i32> {
