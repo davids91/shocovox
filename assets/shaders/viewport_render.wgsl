@@ -317,11 +317,101 @@ fn dda_step_to_next_sibling(
 
 // Unique to this implementation, not adapted from rust code, corresponds to:
 //crate::octree::raytracing::classic_raytracing_on_bevy_wgpu::set_node_meta_inner
-fn get_node_occupancy_bitmap(node_key: u32, data_meta_bytes: u32) -> u32{
-    if 0 == (node_key % 2) {
-        return ((data_meta_bytes & 0x0000FF00u) >> 8u );
-    } else {
-        return ((data_meta_bytes & 0xFF000000u) >> 24u );
+fn get_node_occupancy_bitmap(node_key: u32, data_meta: u32) -> u32 {
+    // u32(i32(node_key % 2u) - 1)
+    // node key is even: (node_key % 2u) == 0
+    // --> u32(i32(0) - 1) == 0xFFFFFFFF
+    // node key is odd: (node_key % 2u) == 1
+    // --> u32(i32(1) - 1) == 0
+    return (
+        (
+            ((data_meta & 0x0000FF00u) >> 8u )
+             & u32(i32(node_key % 2u) - 1)
+        )|(
+            ((data_meta & 0xFF000000u) >> 24u )
+             & ~u32(i32(node_key % 2u) - 1)
+        )
+    );
+}
+
+// Unique to this implementation, not adapted from rust code
+fn set_node_used(node_key: u32) {
+    var current_value;
+    var target_value;
+
+    if 0 < ( // no need to set if already true
+        data_meta_bytes[node_key / 2]
+        & (
+            0x00000001u & u32(i32(node_key % 2u) - 1)
+            | 0x00010000u & ~u32(i32(node_key % 2u) - 1)
+        )
+    ) {
+        return;
+    }
+
+    loop{
+        current_value = data_meta_bytes[node_key / 2];
+        target_value = current_value | (
+            0x00000001u & u32(i32(node_key % 2u) - 1)
+            | 0x00010000u & ~u32(i32(node_key % 2u) - 1)
+        );
+        let exchange_result = atomicCompareExchangeWeak(
+            &data_meta_bytes[node_key / 2], current_value, target_value
+        );
+        if(
+            exchange_result.exchanged
+            || (
+                0 < (
+                    exchange_result.old_value
+                    & (
+                        0x00000001u & u32(i32(node_key % 2u) - 1)
+                        | 0x00010000u & ~u32(i32(node_key % 2u) - 1)
+                    )
+                )
+            )
+        ){
+            break;
+        }
+    }
+}
+
+fn set_brick_used(node_key: u32) {
+    var current_value;
+    var target_value;
+
+    if 0 < ( // no need to set if already true
+        data_meta_bytes[node_key / 2]
+        & (
+            0x00000002u & u32(i32(node_key % 2u) - 1)
+            | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+        )
+    ) {
+        return;
+    }
+
+    loop{
+        current_value = data_meta_bytes[node_key / 2];
+        target_value = current_value | (
+            0x00000002u & u32(i32(node_key % 2u) - 1)
+            | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+        );
+        let exchange_result = atomicCompareExchangeWeak(
+            &data_meta_bytes[node_key / 2], current_value, target_value
+        );
+        if(
+            exchange_result.exchanged
+            || (
+                0 < (
+                    exchange_result.old_value
+                    & (
+                        0x00000002u & u32(i32(node_key % 2u) - 1)
+                        | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+                    )
+                )
+            )
+        ){
+            break;
+        }
     }
 }
 
@@ -352,19 +442,6 @@ fn position_in_bitmap_64bits(i: vec3u, dimension: u32) -> u32{
     return flat_projection(
         i * 4 / dimension, vec2u(4, 4)
     );
-}
-
-// Unique to this implementation, not adapted from rust code
-fn get_occupancy_in_bitmap_64bits(
-    bit_position: u32,
-    bitmap_lsb: u32,
-    bitmap_msb: u32
-) -> bool {
-    // not possible to create a position mask directly, because of missing u64 type
-    if bit_position < 32 {
-        return 0 < (bitmap_lsb & u32(0x01u << bit_position));
-    }
-    return 0 < (bitmap_msb & u32(0x01u << (bit_position - 32)));
 }
 
 struct BrickHit{
@@ -517,6 +594,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         current_bounds = Cube(vec3(0.), f32(octree_meta_data.octree_size));
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
         while(!node_stack_is_empty(node_stack_meta)) {
+            set_node_used(current_node_key);
             var leaf_miss = false;
             if ( // is_leaf
                 (
@@ -792,7 +870,6 @@ fn update(
 
     }
     */// --- DEBUG ---
-
     textureStore(output_texture, vec2u(invocation_id.xy), vec4f(rgb_result, 1.));
 }
 
