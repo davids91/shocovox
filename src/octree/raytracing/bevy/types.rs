@@ -23,20 +23,6 @@ pub(crate) struct Voxelement {
 
 #[derive(Clone, ShaderType)]
 pub(crate) struct SizedNode {
-    /// Cache index of where the data about this node is found in children_buffer
-    /// - In case of internal nodes:
-    ///   - 8 Index value of node children
-    /// - In case of leaf nodes:
-    ///   - Byte 1-4: Occupancy bitmap LSB
-    ///   - Byte 5-8: Occupancy bitmap MSB
-    ///   - Byte 9-12: TBD
-    ///   - Byte 13-16: TBD
-    ///   - Byte 17-20: TBD
-    ///   - Byte 21-24: TBD
-    ///   - Byte 25-28: TBD
-    ///   - Byte 29-32: TBD
-    pub(crate) children_start_at: u32,
-
     /// Cache index of where the voxel values contained in the node start inside the voxels buffer,
     /// or a "none_value". Should the field contain an index, the next voxel_brick_dim^3 elements
     /// inside the @voxels array count as part of the voxels associated with the node
@@ -106,9 +92,9 @@ pub struct ShocoVoxRenderData {
     /// |  bit 0 | 1 in case node is used by the raytracing algorithm*        |
     /// |  bit 1 | 1 in case voxel brick is used by the raytracing algorithm  |
     /// |  bit 2 | 1 in case node is a leaf                                   |
+    /// |  ...   | unused, potentially: 1 if node has children                |
     /// |  ...   | unused, potentially: 1 if node has user data               |
     /// |  ...   | unused, potentially: 1 if node has voxels                  |
-    /// |  ...   | unused, potentially: children_buffer size: 2 or 8          |
     /// |  ...   | unused, potentially: voxel brick size: 1, full or sparse   |
     /// |---------------------------------------------------------------------|
     /// | Byte 1 | nodes lvl2 occupancy bitmap                                |
@@ -125,6 +111,18 @@ pub struct ShocoVoxRenderData {
     #[storage(1, visibility(compute))]
     pub(crate) nodes: Vec<SizedNode>,
 
+    /// [u32; 8] for each node, with the structure:
+    /// - In case of internal nodes:
+    ///   - 8 Index value of node children
+    /// - In case of leaf nodes:
+    ///   - Byte 1-4: Occupancy bitmap LSB
+    ///   - Byte 5-8: Occupancy bitmap MSB
+    ///   - Byte 9-12: TBD
+    ///   - Byte 13-16: TBD
+    ///   - Byte 17-20: TBD
+    ///   - Byte 21-24: TBD
+    ///   - Byte 25-28: TBD
+    ///   - Byte 29-32: TBD
     #[storage(2, visibility(compute))]
     pub node_children: Vec<u32>,
 

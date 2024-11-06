@@ -92,23 +92,23 @@ where
             ),
         };
 
-        let mut nodes = Vec::new();
-        let mut node_children = Vec::new();
-        let mut voxels = Vec::new();
+        let mut nodes = Vec::with_capacity(self.nodes.len());
+        let mut voxels = Vec::with_capacity(self.nodes.len() * DIM * DIM * DIM);
         let mut color_palette = Vec::new();
-        // Size of meta for one element is 2 Bytes,
-        // let mut data_meta_bytes = vec![0u32; self.nodes.len() / 2];
-        //DEBUG interface +1 element
-        let mut data_meta_bytes = vec![0u32; (self.nodes.len() / 2) + 1];
+        // Size of meta for one element is 2 Bytes, so array should be half + 1 for odd numbers
+        let mut data_meta_bytes = Vec::with_capacity((self.nodes.len() / 2) + 1);
+        let mut node_children = Vec::with_capacity(self.nodes.len() * 8);
 
         // Build up Nodes
         let mut map_to_node_index_in_nodes_buffer = HashMap::new();
         for node_key in 0..self.nodes.len() {
             if self.nodes.key_is_valid(node_key) {
                 map_to_node_index_in_nodes_buffer.insert(node_key as usize, nodes.len());
+                if 0 == (nodes.len() % 2) {
+                    data_meta_bytes.push(0);
+                }
                 self.set_meta_bytes_for_node(&mut data_meta_bytes, node_key, nodes.len());
                 nodes.push(SizedNode {
-                    children_start_at: empty_marker(),
                     voxels_start_at: empty_marker(),
                 });
             }
@@ -120,8 +120,6 @@ where
             if !self.nodes.key_is_valid(i) {
                 continue;
             }
-            nodes[map_to_node_index_in_nodes_buffer[&i]].children_start_at =
-                node_children.len() as u32;
             if let NodeContent::Leaf(data) = self.nodes.get(i) {
                 debug_assert!(matches!(
                     self.node_children[i].content,
@@ -134,6 +132,12 @@ where
                 node_children.extend_from_slice(&[
                     (occupied_bits & 0x00000000FFFFFFFF) as u32,
                     ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
                 ]);
                 nodes[map_to_node_index_in_nodes_buffer[&i]].voxels_start_at = voxels.len() as u32;
                 debug_assert_eq!(0, voxels.len() % (DIM * DIM * DIM));

@@ -617,8 +617,8 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                 // --- DEBUG ---
                 let leaf_brick_hit = traverse_brick(
                     ray, &ray_current_distance, nodes[current_node_key].voxels_start_at,
-                    node_children[nodes[current_node_key].children_starts_at],
-                    node_children[nodes[current_node_key].children_starts_at + 1],
+                    node_children[current_node_key * 8u],
+                    node_children[current_node_key * 8u + 1u],
                     current_bounds, ray_scale_factors, direction_lut_index
                 );
                 if leaf_brick_hit.hit == true {
@@ -702,9 +702,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
             }
 
             var target_bounds = child_bounds_for(current_bounds, target_octant);
-            var target_child_key = node_children[
-                nodes[current_node_key].children_starts_at + target_octant
-            ];
+            var target_child_key = node_children[current_node_key * 8u + target_octant];
             if (
                 target_child_key < arrayLength(&nodes) //!crate::object_pool::key_is_valid
                 && 0 != (
@@ -734,9 +732,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                     target_octant = step_octant(target_octant, step_vec);
                     if OOB_OCTANT != target_octant {
                         target_bounds = child_bounds_for(current_bounds, target_octant);
-                        target_child_key = node_children[
-                            nodes[current_node_key].children_starts_at + target_octant
-                        ];
+                        target_child_key = node_children[current_node_key * 8u + target_octant];
                     }
 
                     if (
@@ -801,7 +797,6 @@ fn is_empty(e: Voxelement) -> bool {
 }
 
 struct SizedNode {
-    children_starts_at: u32,
     voxels_start_at: u32,
 }
 
