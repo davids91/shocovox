@@ -1,10 +1,16 @@
 use crate::object_pool::empty_marker;
 use crate::octree::{
-    raytracing::bevy::types::{OctreeMetaData, ShocoVoxRenderData, SizedNode, Voxelement},
+    raytracing::bevy::types::{
+        OctreeMetaData, ShocoVoxRenderData, ShocoVoxRenderPipeline, SizedNode, Voxelement,
+    },
     types::{NodeChildrenArray, NodeContent},
     Octree, V3c, VoxelData,
 };
-use bevy::math::Vec4;
+use bevy::{
+    ecs::system::{Res, ResMut},
+    math::Vec4,
+    render::{renderer::RenderDevice, MainWorld},
+};
 use std::collections::HashMap;
 
 impl<T, const DIM: usize> Octree<T, DIM>
@@ -190,4 +196,108 @@ where
     ) {
         //TODO: find the first unused element, and overwrite it with the item
     }
+}
+
+pub(crate) fn handle_gpu_readback(
+    render_device: Res<RenderDevice>,
+    svx_data: Option<ResMut<ShocoVoxRenderData>>,
+    svx_pipeline: Option<ResMut<ShocoVoxRenderPipeline>>,
+) {
+    // // Data updates triggered by debug interface
+    // if let Some(svx_data) = svx_data {
+    //     let mut render_data_mainworld = world.get_resource_mut::<ShocoVoxRenderData>().unwrap();
+    //     let svx_pipeline = svx_pipeline.unwrap();
+    //     if svx_data.do_the_thing {
+    //         // GPU buffer read
+    //         // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
+    //         let buffer_slice = svx_pipeline
+    //             .readable_cache_bytes_buffer
+    //             .as_ref()
+    //             .unwrap()
+    //             .slice(..);
+    //         let (s, r) = crossbeam::channel::unbounded::<()>();
+    //         buffer_slice.map_async(
+    //             bevy::render::render_resource::MapMode::Read,
+    //             move |d| match d {
+    //                 Ok(_) => s.send(()).expect("Failed to send map update"),
+    //                 Err(err) => println!("Something's wrong: {err}"),
+    //             },
+    //         );
+
+    //         render_device
+    //             .poll(bevy::render::render_resource::Maintain::wait())
+    //             .panic_on_timeout();
+
+    //         r.recv().expect("Failed to receive the map_async message");
+    //         {
+    //             let buffer_view = buffer_slice.get_mapped_range();
+
+    //             let data = buffer_view
+    //                 .chunks(std::mem::size_of::<u32>())
+    //                 .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+    //                 .collect::<Vec<u32>>();
+    //             println!("data: {}", data[0]);
+    //         }
+
+    //         svx_pipeline
+    //             .readable_cache_bytes_buffer
+    //             .as_ref()
+    //             .unwrap()
+    //             .unmap();
+
+    //         render_data_mainworld.do_the_thing = false;
+    //     }
+    // }
+}
+
+pub(crate) fn sync_with_main_world(// svx_data: Option<ResMut<ShocoVoxRenderData>>,
+    // svx_pipeline: Option<ResMut<ShocoVoxRenderPipeline>>,
+    // mut world: ResMut<MainWorld>,
+) {
+}
+
+pub(crate) fn handle_cache(
+    svx_data: Option<ResMut<ShocoVoxRenderData>>,
+    svx_pipeline: Option<ResMut<ShocoVoxRenderPipeline>>,
+) {
+    //TODO: Document that all components are lost during extract transition
+    // Data updates triggered by debug interface
+    // if let Some(svx_data) = svx_data {
+    //     let mut render_data_mainworld = world.get_resource_mut::<ShocoVoxRenderData>().unwrap();
+    //     let svx_pipeline = svx_pipeline.unwrap();
+    //     let render_queue = &svx_pipeline.render_queue.0;
+    //     if svx_data.do_the_thing {
+    //         let mut data: [u32; 2] = [0; 2];
+    //         data[0] = svx_data.children_buffer[1];
+    //         data[1] = svx_data.children_buffer[0];
+
+    //         // GPU buffer Write
+    //         // render_data_mainworld.children_buffer[0] = data[0];
+    //         // render_data_mainworld.children_buffer[1] = data[1];
+    //         // use bevy::render::render_resource::encase::StorageBuffer;
+    //         // let mut data_buffer = StorageBuffer::new(Vec::<u8>::new());
+    //         // data_buffer.write(&data).unwrap();
+    //         // render_queue.write_buffer(
+    //         //     svx_pipeline.nodes_children_buffer.as_ref().unwrap(),
+    //         //     0,
+    //         //     &data_buffer.into_inner(),
+    //         // );
+
+    //         // GPU buffer read
+    //         let buffer_slice = svx_pipeline.cache_bytes_buffer.as_ref().unwrap().slice(..);
+
+    //         // .map_async(
+    //         //     bevy::render::render_resource::MapMode::Read,
+    //         //     move |d| match d {
+    //         //         Ok(_) => println!("data!"),
+    //         //         Err(err) => println!("Something's wrong kiddo"),
+    //         //     },
+    //         // );
+    //         let data = 0;
+    //         render_data_mainworld.cache_bytes[0] = data;
+    //         println!("data: {}", render_data_mainworld.cache_bytes[0]);
+
+    //         render_data_mainworld.do_the_thing = false;
+    //     }
+    // }
 }

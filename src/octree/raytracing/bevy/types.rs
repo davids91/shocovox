@@ -145,7 +145,6 @@ pub(crate) struct ShocoVoxRenderPipeline {
     pub(crate) update_pipeline: CachedComputePipelineId,
 
     // Render data buffers
-    pub(crate) viewport_buffer: Option<Buffer>,
     pub(crate) octree_meta_buffer: Option<Buffer>,
     pub(crate) nodes_buffer: Option<Buffer>,
     pub(crate) node_children_buffer: Option<Buffer>,
