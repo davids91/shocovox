@@ -97,7 +97,9 @@ where
         let mut voxels = Vec::new();
         let mut color_palette = Vec::new();
         // Size of meta for one element is 2 Bytes,
-        let mut data_meta_bytes = vec![0u32; self.nodes.len() / 2];
+        // let mut data_meta_bytes = vec![0u32; self.nodes.len() / 2];
+        //DEBUG interface +1 element
+        let mut data_meta_bytes = vec![0u32; (self.nodes.len() / 2) + 1];
 
         // Build up Nodes
         let mut map_to_node_index_in_nodes_buffer = HashMap::new();
@@ -134,6 +136,7 @@ where
                     ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32,
                 ]);
                 nodes[map_to_node_index_in_nodes_buffer[&i]].voxels_start_at = voxels.len() as u32;
+                debug_assert_eq!(0, voxels.len() % (DIM * DIM * DIM));
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
@@ -254,6 +257,7 @@ pub(crate) fn sync_with_main_world(// svx_data: Option<ResMut<ShocoVoxRenderData
     // svx_pipeline: Option<ResMut<ShocoVoxRenderPipeline>>,
     // mut world: ResMut<MainWorld>,
 ) {
+    // let mut render_data_mainworld = world.get_resource_mut::<ShocoVoxRenderData>().unwrap();
 }
 
 pub(crate) fn handle_cache(
@@ -262,42 +266,22 @@ pub(crate) fn handle_cache(
 ) {
     //TODO: Document that all components are lost during extract transition
     // Data updates triggered by debug interface
-    // if let Some(svx_data) = svx_data {
-    //     let mut render_data_mainworld = world.get_resource_mut::<ShocoVoxRenderData>().unwrap();
+    // if let Some(mut svx_data) = svx_data {
     //     let svx_pipeline = svx_pipeline.unwrap();
     //     let render_queue = &svx_pipeline.render_queue.0;
     //     if svx_data.do_the_thing {
-    //         let mut data: [u32; 2] = [0; 2];
-    //         data[0] = svx_data.children_buffer[1];
-    //         data[1] = svx_data.children_buffer[0];
-
     //         // GPU buffer Write
-    //         // render_data_mainworld.children_buffer[0] = data[0];
-    //         // render_data_mainworld.children_buffer[1] = data[1];
-    //         // use bevy::render::render_resource::encase::StorageBuffer;
-    //         // let mut data_buffer = StorageBuffer::new(Vec::<u8>::new());
-    //         // data_buffer.write(&data).unwrap();
-    //         // render_queue.write_buffer(
-    //         //     svx_pipeline.nodes_children_buffer.as_ref().unwrap(),
-    //         //     0,
-    //         //     &data_buffer.into_inner(),
-    //         // );
+    //         let data: u32 = 1;
+    //         use bevy::render::render_resource::encase::StorageBuffer;
+    //         let mut data_buffer = StorageBuffer::new(Vec::<u8>::new());
+    //         data_buffer.write(&data).unwrap();
+    //         render_queue.write_buffer(
+    //             svx_pipeline.data_meta_bytes_buffer.as_ref().unwrap(),
+    //             ((svx_data.data_meta_bytes.len() - 1) * std::mem::size_of::<u32>()) as u64,
+    //             &data_buffer.into_inner(),
+    //         );
 
-    //         // GPU buffer read
-    //         let buffer_slice = svx_pipeline.cache_bytes_buffer.as_ref().unwrap().slice(..);
-
-    //         // .map_async(
-    //         //     bevy::render::render_resource::MapMode::Read,
-    //         //     move |d| match d {
-    //         //         Ok(_) => println!("data!"),
-    //         //         Err(err) => println!("Something's wrong kiddo"),
-    //         //     },
-    //         // );
-    //         let data = 0;
-    //         render_data_mainworld.cache_bytes[0] = data;
-    //         println!("data: {}", render_data_mainworld.cache_bytes[0]);
-
-    //         render_data_mainworld.do_the_thing = false;
+    //         svx_data.do_the_thing = false;
     //     }
     // }
 }

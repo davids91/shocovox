@@ -336,8 +336,8 @@ fn get_node_occupancy_bitmap(node_key: u32, data_meta: u32) -> u32 {
 
 // Unique to this implementation, not adapted from rust code
 fn set_node_used(node_key: u32) {
-    var current_value;
-    var target_value;
+    var current_value: u32;
+    var target_value: u32;
 
     if 0 < ( // no need to set if already true
         data_meta_bytes[node_key / 2]
@@ -375,28 +375,28 @@ fn set_node_used(node_key: u32) {
     }
 }
 
-fn set_brick_used(node_key: u32) {
-    var current_value;
-    var target_value;
+fn set_brick_used(key: u32) {
+    var current_value: u32;
+    var target_value: u32;
 
     if 0 < ( // no need to set if already true
-        data_meta_bytes[node_key / 2]
+        data_meta_bytes[key / 2]
         & (
-            0x00000002u & u32(i32(node_key % 2u) - 1)
-            | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+            0x00000002u & u32(i32(key % 2u) - 1)
+            | 0x00020000u & ~u32(i32(key % 2u) - 1)
         )
     ) {
         return;
     }
 
     loop{
-        current_value = data_meta_bytes[node_key / 2];
+        current_value = data_meta_bytes[key / 2];
         target_value = current_value | (
-            0x00000002u & u32(i32(node_key % 2u) - 1)
-            | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+            0x00000002u & u32(i32(key % 2u) - 1)
+            | 0x00020000u & ~u32(i32(key % 2u) - 1)
         );
         let exchange_result = atomicCompareExchangeWeak(
-            &data_meta_bytes[node_key / 2], current_value, target_value
+            &data_meta_bytes[key / 2], current_value, target_value
         );
         if(
             exchange_result.exchanged
@@ -404,8 +404,8 @@ fn set_brick_used(node_key: u32) {
                 0 < (
                     exchange_result.old_value
                     & (
-                        0x00000002u & u32(i32(node_key % 2u) - 1)
-                        | 0x00020000u & ~u32(i32(node_key % 2u) - 1)
+                        0x00000002u & u32(i32(key % 2u) - 1)
+                        | 0x00020000u & ~u32(i32(key % 2u) - 1)
                     )
                 )
             )
@@ -594,7 +594,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
         current_bounds = Cube(vec3(0.), f32(octree_meta_data.octree_size));
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
         while(!node_stack_is_empty(node_stack_meta)) {
-            set_node_used(current_node_key);
+            //set_node_used(current_node_key);
             var leaf_miss = false;
             if ( // is_leaf
                 (
@@ -605,6 +605,16 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                     && (0 != (data_meta_bytes[current_node_key / 2] & 0x00040000u))
                 )
             ){
+                let current_brick_key = (
+                    nodes[current_node_key].voxels_start_at
+                    / (octree_meta_data.voxel_brick_dim * octree_meta_data.voxel_brick_dim * octree_meta_data.voxel_brick_dim)
+                );
+                //set_brick_used(current_brick_key);
+                // +++ DEBUG +++
+                if(0 == data_meta_bytes[arrayLength(&data_meta_bytes) - 1]){
+                    set_brick_used(current_brick_key);
+                }
+                // --- DEBUG ---
                 let leaf_brick_hit = traverse_brick(
                     ray, &ray_current_distance, nodes[current_node_key].voxels_start_at,
                     node_children[nodes[current_node_key].children_starts_at],
@@ -622,6 +632,26 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                     current_bounds.size = round(current_bounds.size / f32(octree_meta_data.voxel_brick_dim));
                     current_bounds.min_position = current_bounds.min_position
                         + vec3f(leaf_brick_hit.index) * current_bounds.size;
+
+                    /*/// +++ DEBUG +++
+                    var result_rgb = color_palette[voxels[hit_in_voxels].albedo_index];
+                    if 0 < ( // If brick marked "used"
+                        data_meta_bytes[current_brick_key / 2]
+                        & (
+                            0x00000002u & u32(i32(current_brick_key % 2u) - 1)
+                            | 0x00020000u & ~u32(i32(current_brick_key % 2u) - 1)
+                        )
+                    ) {
+                        result_rgb.r += 0.2;
+                    }
+                    return OctreeRayIntersection(
+                        true,
+                        result_rgb,
+                        voxels[hit_in_voxels].content,
+                        point_in_ray_at_distance(ray, ray_current_distance),
+                        cube_impact_normal(current_bounds, point_in_ray_at_distance(ray, ray_current_distance))
+                    );
+                    *//// --- DEBUG ---
                     return OctreeRayIntersection(
                         true,
                         color_palette[voxels[hit_in_voxels].albedo_index],
@@ -629,6 +659,7 @@ fn get_by_ray(ray: Line) -> OctreeRayIntersection{
                         point_in_ray_at_distance(ray, ray_current_distance),
                         cube_impact_normal(current_bounds, point_in_ray_at_distance(ray, ray_current_distance))
                     );
+
                 }
                 leaf_miss = true;
             }
@@ -810,7 +841,7 @@ var<storage, read_write> voxels: array<Voxelement>;
 var<storage, read_write> color_palette: array<vec4f>;
 
 @group(1) @binding(5)
-var<storage, read_write> data_meta_bytes: array<u32>;
+var<storage, read_write> data_meta_bytes: array<atomic<u32>>;
 
 @compute @workgroup_size(8, 8, 1)
 fn update(
