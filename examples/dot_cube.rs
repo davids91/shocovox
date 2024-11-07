@@ -12,17 +12,17 @@ use shocovox_rs::octree::{
     raytracing::{
         bevy::create_viewing_glass, ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
     },
-    Albedo, Octree, V3c,
+    Albedo, V3c,
 };
 
 #[cfg(feature = "bevy_wgpu")]
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const BRICK_DIMENSION: usize = 32;
+const BRICK_DIMENSION: usize = 2;
 
 #[cfg(feature = "bevy_wgpu")]
-const TREE_SIZE: u32 = 256;
+const TREE_SIZE: u32 = 16;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -53,56 +53,60 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
 
     // fill octree with data
-    let tree_path = "example_junk_dotcube";
-    let mut tree;
-    if std::path::Path::new(tree_path).exists() {
-        tree = Octree::<Albedo, BRICK_DIMENSION>::load(&tree_path)
-            .ok()
-            .unwrap();
-    } else {
-        tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
-            .ok()
-            .unwrap();
+    let mut tree = shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::new(TREE_SIZE)
+        .ok()
+        .unwrap();
 
-        tree.insert(&V3c::new(1, 3, 3), Albedo::from(0x66FFFF))
-            .ok()
-            .unwrap();
-        for x in 0..TREE_SIZE {
-            for y in 0..TREE_SIZE {
-                for z in 0..TREE_SIZE {
-                    if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
-                        && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
-                        || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
-                    {
-                        let r = if 0 == x % (TREE_SIZE / 4) {
-                            (x as f32 / TREE_SIZE as f32 * 255.) as u32
-                        } else {
-                            128
-                        };
-                        let g = if 0 == y % (TREE_SIZE / 4) {
-                            (y as f32 / TREE_SIZE as f32 * 255.) as u32
-                        } else {
-                            128
-                        };
-                        let b = if 0 == z % (TREE_SIZE / 4) {
-                            (z as f32 / TREE_SIZE as f32 * 255.) as u32
-                        } else {
-                            128
-                        };
-                        tree.insert(
-                            &V3c::new(x, y, z),
-                            Albedo::default()
-                                .with_red(r as u8)
-                                .with_green(g as u8)
-                                .with_blue(b as u8),
-                        )
-                        .ok()
-                        .unwrap();
-                    }
+    // +++ DEBUG +++
+    // tree.insert(&V3c::new(0, 0, 0), Albedo::from(0x66FFFF))
+    //     .ok()
+    //     .unwrap();
+    // tree.insert(&V3c::new(3, 3, 3), Albedo::from(0x66FFFF))
+    //     .ok()
+    //     .unwrap();
+    // assert!(tree.get(&V3c::new(3, 3, 3)).is_some());
+    // tree.insert_at_lod(&V3c::new(0, 0, 0), 128, Albedo::from(0x66FFFF))
+    //     .ok()
+    //     .unwrap();
+
+    // ---DEBUG ---
+    for x in 0..TREE_SIZE {
+        for y in 0..TREE_SIZE {
+            for z in 0..TREE_SIZE {
+                if ((x < (TREE_SIZE / 4) || y < (TREE_SIZE / 4) || z < (TREE_SIZE / 4))
+                    && (0 == x % 2 && 0 == y % 4 && 0 == z % 2))
+                    || ((TREE_SIZE / 2) <= x && (TREE_SIZE / 2) <= y && (TREE_SIZE / 2) <= z)
+                {
+                    let r = if 0 == x % (TREE_SIZE / 4) {
+                        (x as f32 / TREE_SIZE as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    let g = if 0 == y % (TREE_SIZE / 4) {
+                        (y as f32 / TREE_SIZE as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    let b = if 0 == z % (TREE_SIZE / 4) {
+                        (z as f32 / TREE_SIZE as f32 * 255.) as u32
+                    } else {
+                        128
+                    };
+                    // println!("Inserting at: {:?}", (x, y, z));
+                    tree.insert(
+                        &V3c::new(x, y, z),
+                        Albedo::default()
+                            .with_red(r as u8)
+                            .with_green(g as u8)
+                            .with_blue(b as u8)
+                            .with_alpha(255),
+                    )
+                    .ok()
+                    .unwrap();
+                    assert!(tree.get(&V3c::new(x, y, z)).is_some());
                 }
             }
         }
-        tree.save(&tree_path).ok().unwrap();
     }
 
     let render_data = tree.create_bevy_view();
@@ -162,7 +166,7 @@ struct DomePosition {
 
 #[cfg(feature = "bevy_wgpu")]
 fn rotate_camera(
-    mut angles_query: Query<&mut DomePosition>,
+    angles_query: Query<&mut DomePosition>,
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
 ) {
     let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
@@ -183,7 +187,7 @@ fn handle_zoom(
     mut viewing_glass: ResMut<ShocoVoxViewingGlass>,
     mut angles_query: Query<&mut DomePosition>,
 ) {
-    const ADDITION: f32 = 0.05;
+    const ADDITION: f32 = 0.02;
     let angle_update_fn = |angle, delta| -> f32 {
         let new_angle = angle + delta;
         if new_angle < 360. {
@@ -191,6 +195,11 @@ fn handle_zoom(
         } else {
             0.
         }
+    };
+    let multiplier = if keys.pressed(KeyCode::ShiftLeft) {
+        10.0 // Doesn't have any effect?!
+    } else {
+        1.0
     };
     if keys.pressed(KeyCode::ArrowUp) {
         angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
@@ -207,10 +216,18 @@ fn handle_zoom(
         // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::PageUp) {
-        angles_query.single_mut().radius *= 0.9;
+        angles_query.single_mut().radius *= 1. - 0.02 * multiplier;
     }
     if keys.pressed(KeyCode::PageDown) {
-        angles_query.single_mut().radius *= 1.1;
+        angles_query.single_mut().radius *= 1. + 0.02 * multiplier;
+    }
+    if keys.pressed(KeyCode::Home) {
+        viewing_glass.viewport.w_h_fov.x *= 1. + 0.09 * multiplier;
+        viewing_glass.viewport.w_h_fov.y *= 1. + 0.09 * multiplier;
+    }
+    if keys.pressed(KeyCode::End) {
+        viewing_glass.viewport.w_h_fov.x *= 1. - 0.09 * multiplier;
+        viewing_glass.viewport.w_h_fov.y *= 1. - 0.09 * multiplier;
     }
 }
 

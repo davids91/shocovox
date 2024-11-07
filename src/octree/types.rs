@@ -1,29 +1,46 @@
 use crate::object_pool::ObjectPool;
+use std::error::Error;
 
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T: Clone, const DIM: usize = 1> {
+pub(crate) enum BrickData<T, const DIM: usize>
+where
+    T: Clone + PartialEq + Clone + VoxelData,
+{
+    Empty,
+    Parted(Box<[[[T; DIM]; DIM]; DIM]>),
+    Solid(T),
+}
+
+#[derive(Debug, Default, Clone)]
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+pub(crate) enum NodeContent<T, const DIM: usize>
+where
+    T: Clone + PartialEq + Clone + VoxelData,
+{
     #[default]
     Nothing,
-    Internal(u8), // cache data to store the enclosed nodes
-    Leaf(Box<[[[T; DIM]; DIM]; DIM]>),
+    Internal(u64), // cache data to store the occupancy of the enclosed nodes
+    Leaf([BrickData<T, DIM>; 8]),
+    UniformLeaf(BrickData<T, DIM>),
 }
 
 /// error types during usage or creation of the octree
 #[derive(Debug)]
 pub enum OctreeError {
-    InvalidNodeSize(u32),
+    InvalidSize(u32),
     InvalidBrickDimension(u32),
+    InvalidStructure(Box<dyn Error>),
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
-#[derive(Debug, Default, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[cfg_attr(test, derive(Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(in crate::octree) enum NodeChildrenArray<T: Default> {
+pub(crate) enum NodeChildrenArray<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
@@ -33,12 +50,12 @@ pub(in crate::octree) enum NodeChildrenArray<T: Default> {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(in crate::octree) struct NodeChildren<T: Default> {
+pub(crate) struct NodeChildren<T: Default> {
     /// The key value to signify "no child" at a given slot
-    pub(in crate::octree) empty_marker: T,
+    pub(crate) empty_marker: T,
 
     /// The contained child key values
-    pub(in crate::octree) content: NodeChildrenArray<T>,
+    pub(crate) content: NodeChildrenArray<T>,
 }
 
 pub trait VoxelData {
@@ -62,12 +79,12 @@ pub trait VoxelData {
 #[cfg_attr(feature = "serialization", derive(Serialize))]
 pub struct Octree<T, const DIM: usize = 1>
 where
-    T: Default + Clone + VoxelData,
+    T: Default + Clone + PartialEq + VoxelData,
 {
     pub auto_simplify: bool,
-    pub(in crate::octree) octree_size: u32,
-    pub(in crate::octree) nodes: ObjectPool<NodeContent<T, DIM>>,
-    pub(in crate::octree) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
+    pub(crate) octree_size: u32,
+    pub(crate) nodes: ObjectPool<NodeContent<T, DIM>>,
+    pub(crate) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]

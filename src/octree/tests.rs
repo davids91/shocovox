@@ -1,206 +1,6 @@
-#[cfg(test)]
-#[cfg(feature = "bevy_wgpu")]
-mod types_byte_compatibility {
-    use crate::octree::Albedo;
-    use bevy::render::render_resource::{
-        encase::{ShaderSize, StorageBuffer},
-        ShaderType,
-    };
-
-    #[test]
-    fn albedo_size_is_as_expected() {
-        const SIZE: usize = std::mem::size_of::<Albedo>();
-        const EXPECTED_SIZE: usize = 4 * std::mem::size_of::<u8>();
-        assert_eq!(
-            SIZE, EXPECTED_SIZE,
-            "RGBA should be {} bytes wide but was {}",
-            EXPECTED_SIZE, SIZE
-        );
-    }
-
-    // #[test]
-    // fn test_wgpu_compatibility() {
-    //     Albedo::assert_uniform_compat();
-    // }
-
-    // #[test]
-    // fn test_buffer_readback() {
-    //     let original_value = Albedo::default()
-    //         .with_red(1.)
-    //         .with_blue(0.5)
-    //         .with_alpha(0.6);
-    //     let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-    //     buffer.write(&original_value).unwrap();
-    //     let mut byte_buffer = buffer.into_inner();
-    //     let buffer = StorageBuffer::new(&mut byte_buffer);
-    //     let mut value = Albedo::default();
-    //     buffer.read(&mut value).unwrap();
-    //     assert_eq!(value, original_value);
-    // }
-}
-
-#[cfg(test)]
-mod octree_serialization_tests {
-    use crate::octree::types::Albedo;
-    use bendy::decoding::FromBencode;
-
-    use crate::object_pool::empty_marker;
-    use crate::octree::types::NodeChildren;
-    use crate::octree::Octree;
-    use crate::octree::V3c;
-
-    #[test]
-    fn test_node_children_serialization() {
-        use bendy::encoding::ToBencode;
-
-        let node_children_empty = NodeChildren::new(empty_marker());
-        let node_children_filled = NodeChildren::from(empty_marker(), [1, 2, 3, 4, 5, 6, 7, 8]);
-        let node_children_bitmap = NodeChildren::bitmasked(empty_marker(), 666);
-
-        let serialized_node_children_empty = node_children_empty.to_bencode();
-        let serialized_node_children_filled = node_children_filled.to_bencode();
-        let serialized_node_children_bitmap = node_children_bitmap.to_bencode();
-
-        let deserialized_node_children_empty =
-            NodeChildren::from_bencode(&serialized_node_children_empty.ok().unwrap())
-                .ok()
-                .unwrap();
-        let deserialized_node_children_filled =
-            NodeChildren::from_bencode(&serialized_node_children_filled.ok().unwrap())
-                .ok()
-                .unwrap();
-        let deserialized_node_children_bitmap =
-            NodeChildren::from_bencode(&serialized_node_children_bitmap.ok().unwrap())
-                .ok()
-                .unwrap();
-
-        assert!(deserialized_node_children_empty == node_children_empty);
-        assert!(deserialized_node_children_filled == node_children_filled);
-        assert!(deserialized_node_children_bitmap == node_children_bitmap);
-    }
-
-    #[test]
-    fn test_octree_file_io() {
-        let red: Albedo = 0xFF0000FF.into();
-
-        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
-
-        // This will set the area equal to 64 1-sized nodes
-        tree.insert_at_lod(&V3c::new(0, 0, 0), 4, red).ok().unwrap();
-
-        // This will clear an area equal to 8 1-sized nodes
-        tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok().unwrap();
-
-        // save andd load into a new tree
-        tree.save("test_junk_octree").ok().unwrap();
-        let tree_copy = Octree::<Albedo>::load("test_junk_octree").ok().unwrap();
-
-        let mut hits = 0;
-        for x in 0..4 {
-            for y in 0..4 {
-                for z in 0..4 {
-                    assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
-                    if let Some(hit) = tree_copy.get(&V3c::new(x, y, z)) {
-                        assert_eq!(*hit, red);
-                        hits += 1;
-                    }
-                }
-            }
-        }
-
-        // number of hits should be the number of nodes set minus the number of nodes cleared
-        assert!(hits == (64 - 8));
-    }
-
-    #[test]
-    fn test_big_octree_serialize() {
-        let mut tree = Octree::<Albedo>::new(128).ok().unwrap();
-        for x in 100..128 {
-            for y in 100..128 {
-                for z in 100..128 {
-                    let pos = V3c::new(x, y, z);
-                    tree.insert(&pos, (x + y + z).into()).ok().unwrap();
-                }
-            }
-        }
-
-        let serialized = tree.to_bytes();
-        let deserialized = Octree::<Albedo>::from_bytes(serialized);
-
-        for x in 100..128 {
-            for y in 100..128 {
-                for z in 100..128 {
-                    let pos = V3c::new(x, y, z);
-                    assert!(deserialized
-                        .get(&pos)
-                        .is_some_and(|v| *v == ((x + y + z).into())));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_octree_serialize_where_dim_is_2() {
-        let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
-        for x in 0..4 {
-            for y in 0..4 {
-                for z in 0..4 {
-                    let pos = V3c::new(x, y, z);
-                    let albedo: Albedo = ((x << 24) + (y << 16) + (z << 8) + 0xFF).into();
-                    tree.insert(&pos, albedo).ok().unwrap();
-                }
-            }
-        }
-
-        let serialized = tree.to_bytes();
-        let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
-
-        for x in 0..4 {
-            for y in 0..4 {
-                for z in 0..4 {
-                    let pos = V3c::new(x, y, z);
-                    assert!(deserialized.get(&pos).is_some_and(|v| {
-                        *v == ((x << 24) + (y << 16) + (z << 8) + 0xFF).into()
-                    }));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_big_octree_serialize_where_dim_is_2() {
-        let mut tree = Octree::<Albedo, 2>::new(128).ok().unwrap();
-        for x in 100..128 {
-            for y in 100..128 {
-                for z in 100..128 {
-                    let pos = V3c::new(x, y, z);
-                    tree.insert(&pos, ((x << 24) + (y << 16) + (z << 8) + 0xFF).into())
-                        .ok()
-                        .unwrap();
-                }
-            }
-        }
-
-        let serialized = tree.to_bytes();
-        let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
-
-        for x in 100..128 {
-            for y in 100..128 {
-                for z in 100..128 {
-                    let pos = V3c::new(x, y, z);
-                    assert!(deserialized
-                        .get(&pos)
-                        .is_some_and(|v| *v == (((x << 24) + (y << 16) + (z << 8) + 0xFF).into())));
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
 mod octree_tests {
     use crate::octree::types::{Albedo, Octree, VoxelData};
-    use crate::spatial::math::vector::V3c;
+    use crate::spatial::{lut::OCTANT_OFFSET_REGION_LUT, math::vector::V3c};
 
     #[test]
     fn test_simple_insert_and_get() {
@@ -265,7 +65,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_insert_at_lod() {
+    fn test_insert_at_lod__() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
 
@@ -349,9 +149,81 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_case_simplified_insert_separated_by_clear() {
+    fn test_case_simplified_insert_separated_by_clear_with_aligned_dim() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 1;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    tree.insert(&V3c::new(x, y, z), red).ok().unwrap();
+                }
+            }
+        }
+
+        tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
+        let item_at_333 = tree.get(&V3c::new(3, 3, 3));
+        assert!(item_at_333.is_none() || item_at_333.is_some_and(|v| v.is_empty()));
+
+        let mut hits = 0;
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == red);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(hits == 511, "Expected 511 hits instead of {hits}");
+    }
+
+    #[test]
+    fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
         let tree_size = 8;
         const MATRIX_DIMENSION: usize = 2;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    tree.insert(&V3c::new(x, y, z), red).ok().unwrap();
+                }
+            }
+        }
+
+        tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
+        let item_at_333 = tree.get(&V3c::new(3, 3, 3));
+        assert!(item_at_333.is_none() || item_at_333.is_some_and(|v| v.is_empty()));
+
+        let mut hits = 0;
+        for x in 0..tree_size {
+            for y in 0..tree_size {
+                for z in 0..tree_size {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == red);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(hits == 511);
+    }
+
+    #[test]
+    fn test_case_simplified_insert_separated_by_clear_where_dim_is_4() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 4;
         let red: Albedo = 0xFF0000FF.into();
         let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
             .ok()
@@ -385,6 +257,294 @@ mod octree_tests {
     }
 
     #[test]
+    fn test_uniform_solid_leaf_separated_by_clear__() {
+        let tree_size = 2;
+        const MATRIX_DIMENSION: usize = 1;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant of the leaf with the same data, it should become a uniform leaf
+        let color_base_original = 0xFFFF00FF;
+
+        for octant in 0..8 {
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+            tree.insert(&start_pos, color_base_original.into())
+                .ok()
+                .unwrap();
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base_original.into());
+
+        // Separate Uniform leaf by clearing a voxel
+        tree.clear(&V3c::unit(0)).ok().unwrap();
+        assert!(tree.get(&V3c::unit(0)).is_none());
+
+        // The rest of the voxels should remain intact
+        for octant in 1..8 {
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+            assert!(*tree.get(&start_pos).unwrap() == color_base_original.into());
+        }
+    }
+
+    #[test]
+    fn test_uniform_solid_leaf_separated_by_insert__() {
+        let tree_size = 2;
+        const MATRIX_DIMENSION: usize = 1;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant of the leaf with the same data, it should become a uniform leaf
+        let color_base_original = 0xFFFF00FF;
+
+        for octant in 0..8 {
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+            tree.insert(&start_pos, color_base_original.into())
+                .ok()
+                .unwrap();
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base_original.into());
+
+        // Separate Uniform leaf by overwriting a voxel
+        tree.insert(&V3c::unit(0), 0x000000FF.into()).ok().unwrap();
+        assert!(tree
+            .get(&V3c::unit(0))
+            .is_some_and(|v| *v == 0x000000FF.into()));
+
+        // The rest of the voxels should remain intact
+        for octant in 1..8 {
+            let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+            assert!(*tree.get(&start_pos).unwrap() == color_base_original.into());
+        }
+    }
+
+    #[test]
+    fn test_uniform_parted_brick_leaf_separated_by_clear_where_dim_is_4() {
+        let tree_size = 4;
+        const MATRIX_DIMENSION: usize = 2;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant of the leaf with the same data, it should become a uniform leaf
+        let color_base_original = 0xFFFF00FF;
+        let mut color_base = color_base_original;
+        for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+            for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for octant in 0..8 {
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
+                        tree.insert(&(start_pos + V3c::new(x, y, z)), color_base.into())
+                            .ok()
+                            .unwrap();
+                    }
+                    color_base += 0xAA;
+                }
+            }
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base_original.into());
+
+        // Separate Uniform leaf by clearing a voxel
+        tree.clear(&V3c::unit(0)).ok().unwrap();
+        assert!(tree.get(&V3c::unit(0)).is_none());
+
+        // The rest of the voxels should remain intact
+        color_base = color_base_original;
+        for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+            for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for octant in 0..8 {
+                        if x == 0 && y == 0 && z == 0 && octant == 0 {
+                            continue;
+                        }
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
+                        assert!(
+                            *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
+                                == color_base.into()
+                        );
+                    }
+                    color_base += 0xAA;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_uniform_solid_leaf_separated_by_clear_where_dim_is_4() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 4;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant with the same data, they should become a solid bricks
+        let color_base = 0xFFFF00AA;
+        for octant in 0..8 {
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
+            for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                        tree.insert(
+                            &(start_pos + V3c::new(x, y, z)),
+                            (color_base + octant as u32).into(),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
+                }
+            }
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base.into());
+
+        // Separate Uniform leaf by clearing a voxel
+        tree.clear(&V3c::unit(0)).ok().unwrap();
+        assert!(tree.get(&V3c::unit(0)).is_none());
+
+        // The rest of the voxels should remain intact
+        for octant in 0..8 {
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
+            for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                        if x == 0 && y == 0 && z == 0 && octant == 0 {
+                            continue;
+                        }
+                        assert!(
+                            *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
+                                == (color_base + octant as u32).into(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_uniform_solid_leaf_separated_by_insert_where_dim_is_4() {
+        let tree_size = 8;
+        const MATRIX_DIMENSION: usize = 4;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant with the same data, they should become a solid bricks
+        let color_base = 0xFFFF00AA;
+        for octant in 0..8 {
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
+            for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                        tree.insert(
+                            &(start_pos + V3c::new(x, y, z)),
+                            (color_base + octant as u32).into(),
+                        )
+                        .ok()
+                        .unwrap();
+                    }
+                }
+            }
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base.into());
+
+        // Separate Uniform leaf by overwriting a voxel
+        tree.insert(&V3c::unit(0), 0x000000FF.into()).ok().unwrap();
+        assert!(tree
+            .get(&V3c::unit(0))
+            .is_some_and(|v| *v == 0x000000FF.into()));
+
+        // The rest of the voxels should remain intact
+        for octant in 0..8 {
+            let start_pos =
+                V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant]) * (MATRIX_DIMENSION as u32 / 2);
+            for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                        if x == 0 && y == 0 && z == 0 && octant == 0 {
+                            continue;
+                        }
+                        assert!(
+                            *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
+                                == (color_base + octant as u32).into(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_uniform_parted_brick_leaf_separated_by_insert() {
+        let tree_size = 4;
+        const MATRIX_DIMENSION: usize = 2;
+        let mut tree = Octree::<Albedo, MATRIX_DIMENSION>::new(tree_size)
+            .ok()
+            .unwrap();
+
+        // Fill each octant of each brick with the same data, they should become a uniform leaf
+        let color_base_original = 0xFFFF00FF;
+        let mut color_base = color_base_original;
+        for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+            for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for octant in 0..8 {
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
+                        tree.insert(&(start_pos + V3c::new(x, y, z)), color_base.into())
+                            .ok()
+                            .unwrap();
+                    }
+                    color_base += 0xAA;
+                }
+            }
+        }
+
+        let item_at_000 = tree.get(&V3c::unit(0)).unwrap();
+        assert!(*item_at_000 == color_base_original.into());
+
+        // Separate Uniform leaf by setting a voxel
+        tree.insert(&V3c::unit(0), 0x000000FF.into()).ok().unwrap();
+        assert!(tree
+            .get(&V3c::unit(0))
+            .is_some_and(|v| *v == 0x000000FF.into()));
+
+        // The rest of the voxels should remain intact
+        color_base = color_base_original;
+        for x in 0..(MATRIX_DIMENSION / 2) as u32 {
+            for y in 0..(MATRIX_DIMENSION / 2) as u32 {
+                for z in 0..(MATRIX_DIMENSION / 2) as u32 {
+                    for octant in 0..8 {
+                        if x == 0 && y == 0 && z == 0 && octant == 0 {
+                            continue;
+                        }
+                        let start_pos = V3c::<u32>::from(OCTANT_OFFSET_REGION_LUT[octant])
+                            * (MATRIX_DIMENSION as u32 / 2);
+                        assert!(
+                            *tree.get(&(start_pos + V3c::new(x, y, z))).unwrap()
+                                == color_base.into()
+                        );
+                    }
+                    color_base += 0xAA;
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_insert_at_lod_with_unaligned_position_where_dim_is_4() {
         let red: Albedo = 0xFF0000FF.into();
 
@@ -413,7 +573,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_insert_at_lod_with_unaligned_size__() {
+    fn test_insert_at_lod_with_unaligned_size_where_dim_is_1() {
         let red: Albedo = 0xFF0000FF.into();
 
         let mut tree = Octree::<Albedo>::new(8).ok().unwrap();
@@ -496,7 +656,18 @@ mod octree_tests {
                 }
             }
         }
-        assert!(hits == 64);
+
+        for x in 4..6 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    if let Some(hit) = tree.get(&V3c::new(x, y, z)) {
+                        assert!(*hit == red);
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert!(hits == (64 + 8), "Expected 64 + 8 hits instead of {hits}");
     }
 
     #[test]
@@ -562,7 +733,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_simple_clear() {
+    fn test_simple_clear_with_aligned_dim() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
@@ -588,7 +759,7 @@ mod octree_tests {
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
 
-        let mut tree = Octree::<Albedo, 2>::new(2).ok().unwrap();
+        let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(1, 0, 0), red).ok().unwrap();
         tree.insert(&V3c::new(0, 1, 0), green).ok().unwrap();
@@ -711,7 +882,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_clear_at_lod() {
+    fn test_clear_at_lod_with_aligned_dim() {
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
 
@@ -843,7 +1014,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_clear_at_lod_with_unaligned_size() {
+    fn test_clear_at_lod_with_unaligned_size_where_dim_is_1() {
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, albedo)
@@ -864,7 +1035,7 @@ mod octree_tests {
         }
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
-        // in this case, clear size is taken as 2 as it is the largest smaller number where n == 2^x
+        // in this case, clear size is taken as 2 as it is the smaller number where 2^x < clear_size < 2^(x+1)
         assert!(hits == (64 - 8));
     }
 
@@ -891,5 +1062,31 @@ mod octree_tests {
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
         assert!(hits == (64 - 27));
+    }
+
+    #[test]
+    fn test_edge_case_octree_set() {
+        // const TREE_SIZE: u32 = 128;
+        // const FILL_RANGE_START: u32 = 100;
+        const TREE_SIZE: u32 = 8;
+        const FILL_RANGE_START: u32 = 6;
+        let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+        for x in FILL_RANGE_START..TREE_SIZE {
+            for y in FILL_RANGE_START..TREE_SIZE {
+                for z in FILL_RANGE_START..TREE_SIZE {
+                    let pos = V3c::new(x, y, z);
+                    tree.insert(&pos, (x + y + z).into()).ok().unwrap();
+                    assert!(tree.get(&pos).is_some_and(|v| *v == ((x + y + z).into())));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_case_inserting_empty() {
+        let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+        tree.insert(&V3c::new(3, 0, 0), 0.into()).ok().unwrap();
+        let item = tree.get(&V3c::new(3, 0, 0));
+        assert!(item.is_none(), "Item shouldn't exist: {:?}", item);
     }
 }

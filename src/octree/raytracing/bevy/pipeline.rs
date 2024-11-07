@@ -50,10 +50,10 @@ impl FromWorld for ShocoVoxRenderPipeline {
             octree_meta_buffer: None,
             nodes_buffer: None,
             node_children_buffer: None,
+            node_ocbits_buffer: None,
             voxels_buffer: None,
             color_palette_buffer: None,
-            data_meta_bytes_buffer: None,
-            readable_data_meta_bytes_buffer: None,
+            readable_nodes_buffer: None,
             update_tree: true,
             viewing_glass_bind_group_layout,
             render_data_bind_group_layout,
@@ -114,12 +114,9 @@ impl render_graph::Node for ShocoVoxRenderNode {
             }
 
             command_encoder.copy_buffer_to_buffer(
-                svx_pipeline.data_meta_bytes_buffer.as_ref().unwrap(),
+                svx_pipeline.nodes_buffer.as_ref().unwrap(),
                 0,
-                svx_pipeline
-                    .readable_data_meta_bytes_buffer
-                    .as_ref()
-                    .unwrap(),
+                svx_pipeline.readable_nodes_buffer.as_ref().unwrap(),
                 0,
                 std::mem::size_of::<u32>() as u64,
             )
@@ -177,7 +174,7 @@ pub(crate) fn prepare_bind_groups(
             let nodes_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
                 label: Some("Octree Nodes Buffer"),
                 contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
             pipeline.nodes_buffer = Some(nodes_buffer);
         }
@@ -190,11 +187,26 @@ pub(crate) fn prepare_bind_groups(
                 .write_buffer(children_buffer, 0, &buffer.into_inner())
         } else {
             let children_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Children Buffer"),
+                label: Some("Octree Node Children Buffer"),
                 contents: &buffer.into_inner(),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             });
             pipeline.node_children_buffer = Some(children_buffer);
+        }
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&render_data.node_occupied_bits).unwrap();
+        if let Some(ocbits_buffer) = &pipeline.node_ocbits_buffer {
+            pipeline
+                .render_queue
+                .write_buffer(ocbits_buffer, 0, &buffer.into_inner())
+        } else {
+            let ocbits_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("Octree Node Occupied bits Buffer"),
+                contents: &buffer.into_inner(),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            });
+            pipeline.node_ocbits_buffer = Some(ocbits_buffer);
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
@@ -210,22 +222,6 @@ pub(crate) fn prepare_bind_groups(
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
             });
             pipeline.voxels_buffer = Some(voxels_buffer);
-        }
-
-        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.data_meta_bytes).unwrap();
-        if let Some(data_meta_bytes_buffer) = &pipeline.data_meta_bytes_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(data_meta_bytes_buffer, 0, &buffer.into_inner())
-        } else {
-            let data_meta_bytes_buffer =
-                render_device.create_buffer_with_data(&BufferInitDescriptor {
-                    label: Some("Octree Meta Bytes Buffer"),
-                    contents: &buffer.into_inner(),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                });
-            pipeline.data_meta_bytes_buffer = Some(data_meta_bytes_buffer);
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
@@ -271,20 +267,20 @@ pub(crate) fn prepare_bind_groups(
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 3,
-                    resource: pipeline.voxels_buffer.as_ref().unwrap().as_entire_binding(),
-                },
-                bevy::render::render_resource::BindGroupEntry {
-                    binding: 4,
                     resource: pipeline
-                        .color_palette_buffer
+                        .node_ocbits_buffer
                         .as_ref()
                         .unwrap()
                         .as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
+                    binding: 4,
+                    resource: pipeline.voxels_buffer.as_ref().unwrap().as_entire_binding(),
+                },
+                bevy::render::render_resource::BindGroupEntry {
                     binding: 5,
                     resource: pipeline
-                        .data_meta_bytes_buffer
+                        .color_palette_buffer
                         .as_ref()
                         .unwrap()
                         .as_entire_binding(),
@@ -327,21 +323,19 @@ pub(crate) fn prepare_bind_groups(
 
         // Create the staging buffer helping in reading data from the GPU
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.data_meta_bytes).unwrap();
-        if let Some(readable_data_meta_bytes_buffer) = &pipeline.readable_data_meta_bytes_buffer {
-            pipeline.render_queue.write_buffer(
-                readable_data_meta_bytes_buffer,
-                0,
-                &buffer.into_inner(),
-            )
+        buffer.write(&render_data.nodes).unwrap();
+        if let Some(readable_nodes_buffer) = &pipeline.readable_nodes_buffer {
+            pipeline
+                .render_queue
+                .write_buffer(readable_nodes_buffer, 0, &buffer.into_inner())
         } else {
-            let readable_data_meta_bytes_buffer =
+            let readable_nodes_buffer =
                 render_device.create_buffer_with_data(&BufferInitDescriptor {
                     label: Some("Octree Cache Bytes Buffer"),
                     contents: &buffer.into_inner(),
                     usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
                 });
-            pipeline.readable_data_meta_bytes_buffer = Some(readable_data_meta_bytes_buffer);
+            pipeline.readable_nodes_buffer = Some(readable_nodes_buffer);
         }
 
         pipeline.update_tree = false;

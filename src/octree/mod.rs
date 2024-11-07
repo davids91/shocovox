@@ -3,6 +3,9 @@ pub mod update;
 
 mod convert;
 mod detail;
+mod node;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(feature = "raytracing")]
@@ -14,10 +17,13 @@ pub use types::{Albedo, Octree, VoxelData};
 use crate::object_pool::{empty_marker, ObjectPool};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    types::{NodeChildren, NodeContent, OctreeError},
+    types::{BrickData, NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::Cube;
+use crate::spatial::{math::matrix_index_for, Cube};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
+
+#[cfg(debug_assertions)]
+use crate::spatial::math::position_in_bitmap_64bits;
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -53,14 +59,19 @@ where
     }
 
     /// creates an octree with overall size nodes_dimension * DIM
-    /// Generic parameter DIM must be one of `(2^x)`
+    /// Generic parameter DIM must be one of `(2^x)` and smaller, than the size of the octree
     /// * `size` - must be `DIM * (2^x)`, e.g: DIM == 2 --> size can be 2,4,8,16,32...
     pub fn new(size: u32) -> Result<Self, OctreeError> {
         if 0 == size || (DIM as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidBrickDimension(DIM as u32));
         }
         if DIM > size as usize || 0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0 {
-            return Err(OctreeError::InvalidNodeSize(size));
+            return Err(OctreeError::InvalidSize(size));
+        }
+        if DIM >= size as usize {
+            return Err(OctreeError::InvalidStructure(
+                "Octree size must be larger, than the brick dimension".into(),
+            ));
         }
         let node_count_estimation = (size / DIM as u32).pow(3);
         let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(
@@ -89,21 +100,89 @@ where
 
         loop {
             match self.nodes.get(current_node_key) {
-                NodeContent::Nothing => {
-                    return None;
-                }
-                NodeContent::Leaf(mat) => {
-                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
-                    if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
-                        return Some(&mat[mat_index.x][mat_index.y][mat_index.z]);
+                NodeContent::Nothing => return None,
+                NodeContent::Leaf(bricks) => {
+                    // In case DIM == octree size, the root node can not be a leaf...
+                    debug_assert!(DIM < self.octree_size as usize);
+                    debug_assert!(
+                        0 < self.nodes.get(current_node_key).count_non_empties(),
+                        "At least some children should be Some(x) in a Leaf!"
+                    );
+                    // Hash the position to the target child
+                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+
+                    // If the child exists, query it for the voxel
+                    match &bricks[child_octant_at_position as usize] {
+                        BrickData::Empty => {
+                            return None;
+                        }
+                        BrickData::Parted(brick) => {
+                            current_bounds =
+                                Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                            let mat_index =
+                                matrix_index_for(&current_bounds, &V3c::from(position), DIM);
+
+                            if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                                return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
+                            }
+                            return None;
+                        }
+                        BrickData::Solid(voxel) => {
+                            return Some(voxel);
+                        }
                     }
-                    return None;
                 }
-                _ => {
+                NodeContent::UniformLeaf(brick) => match brick {
+                    BrickData::Empty => {
+                        return None;
+                    }
+                    BrickData::Parted(brick) => {
+                        let mat_index =
+                            matrix_index_for(&current_bounds, &V3c::from(position), DIM);
+                        if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                            return None;
+                        }
+                        return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
+                    }
+                    BrickData::Solid(voxel) => {
+                        if voxel.is_empty() {
+                            return None;
+                        }
+                        return Some(voxel);
+                    }
+                },
+                NodeContent::Internal(occupied_bits) => {
+                    // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
+
+                    // There is a valid child at the given position inside the node, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
+                            let should_bit_be_empty = self.should_bitmap_be_empty_at_position(
+                                current_node_key,
+                                &current_bounds,
+                                &position,
+                            );
+
+                            let pos_in_bitmap = position_in_bitmap_64bits(&pos_in_node, 4);
+                            let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                 (should_bit_be_empty && is_bit_empty)||(!should_bit_be_empty && !is_bit_empty),
+                                  "Node[{:?}] under {:?} \n has a child in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}",
+                                  current_node_key,
+                                  current_bounds,
+                                  child_octant_at_position,
+                                  position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);
@@ -112,6 +191,57 @@ where
                     }
                 }
             }
+        }
+    }
+
+    /// Provides a mutable reference to the voxel inside the given node
+    /// Requires the bounds of the Node, and the position inside the node its providing reference from
+    fn get_mut_ref(
+        &mut self,
+        bounds: &Cube,
+        position: &V3c<f32>,
+        node_key: usize,
+    ) -> Option<&mut T> {
+        debug_assert!(bound_contains(bounds, position));
+        match self.nodes.get_mut(node_key) {
+            NodeContent::Leaf(bricks) => {
+                // In case DIM == octree size, the root node can not be a leaf...
+                debug_assert!(DIM < self.octree_size as usize);
+
+                // Hash the position to the target child
+                let child_octant_at_position = child_octant_for(bounds, position);
+
+                // If the child exists, query it for the voxel
+                match &mut bricks[child_octant_at_position as usize] {
+                    BrickData::Empty => None,
+                    BrickData::Parted(ref mut brick) => {
+                        let bounds = Cube::child_bounds_for(bounds, child_octant_at_position);
+                        let mat_index = matrix_index_for(&bounds, &V3c::from(*position), DIM);
+                        if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                            return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
+                        }
+                        None
+                    }
+                    BrickData::Solid(ref mut voxel) => Some(voxel),
+                }
+            }
+            NodeContent::UniformLeaf(brick) => match brick {
+                BrickData::Empty => None,
+                BrickData::Parted(brick) => {
+                    let mat_index = matrix_index_for(bounds, &V3c::from(*position), DIM);
+                    if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                        return None;
+                    }
+                    Some(&mut brick[mat_index.x][mat_index.y][mat_index.z])
+                }
+                BrickData::Solid(voxel) => {
+                    if voxel.is_empty() {
+                        return None;
+                    }
+                    Some(voxel)
+                }
+            },
+            &mut NodeContent::Nothing | &mut NodeContent::Internal(_) => None,
         }
     }
 
@@ -129,30 +259,46 @@ where
                 NodeContent::Nothing => {
                     return None;
                 }
-                NodeContent::Leaf(mat) => {
-                    let mat_index = Self::mat_index(&current_bounds, &V3c::from(position));
-                    if !mat[mat_index.x][mat_index.y][mat_index.z].is_empty() {
-                        return Some(
-                            &mut self
-                                .nodes
-                                .get_mut(current_node_key)
-                                .as_mut_leaf_ref()
-                                .unwrap()[mat_index.x][mat_index.y][mat_index.z],
-                        );
-                    }
-                    return None;
-                }
-                _ => {
+                NodeContent::Internal(occupied_bits) => {
+                    // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
                         self.node_children[current_node_key][child_octant_at_position as u32];
+
+                    // If the target child is valid, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
+                        #[cfg(debug_assertions)]
+                        {
+                            // calculate the corresponding position in the nodes occupied bits
+                            let pos_in_node =
+                                matrix_index_for(&current_bounds, &(position.into()), 4);
+
+                            // the corresponding bit should be set
+                            debug_assert!(
+                                0 != (occupied_bits
+                                    & 0x01
+                                        << position_in_bitmap_64bits(
+                                            &pos_in_node,
+                                            4
+                                        )),
+                                "Node[{current_node_key}] under {:?} has a child in octant[{child_octant_at_position}](global position: {:?}), which is not shown in the occupancy bitmap: {:#10X}",
+                                current_bounds,
+                                position, occupied_bits
+                            );
+                        }
                         current_node_key = child_at_position as usize;
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_octant_at_position);
                     } else {
                         return None;
                     }
+                }
+                NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                    debug_assert!(
+                        0 < self.nodes.get(current_node_key).count_non_empties(),
+                        "At least some children should be Some(x) in a Leaf!"
+                    );
+                    return self.get_mut_ref(&current_bounds, &position, current_node_key);
                 }
             }
         }

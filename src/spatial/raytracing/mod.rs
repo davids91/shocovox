@@ -1,6 +1,5 @@
-use crate::spatial::{math::vector::V3c, raytracing::lut::OCTANT_STEP_RESULT_LUT, Cube};
+use crate::spatial::{lut::OCTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
 
-pub mod lut;
 mod tests;
 
 pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
@@ -30,7 +29,6 @@ impl Cube {
     /// Tells the intersection with the cube of the given ray.
     /// returns the distance from the origin to the direction of the ray until the hit point and the normal of the hit
     /// https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
-    #[cfg(feature = "raytracing")]
     pub fn intersect_ray(&self, ray: &Ray) -> Option<CubeRayIntersection> {
         debug_assert!(ray.is_valid());
 
@@ -68,6 +66,12 @@ impl Cube {
 /// Important note: the specs of `signum` behvaes differently for f32 and i32
 /// So the conversion to i32 is absolutely required
 pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
+    // Each octant takes up 4 bits in one item inside the LUT
+    // The step is encoded in the index values, while the source octant
+    // is encoded in the bit position. e.g:
+    // source octant is 3, the step directions: x: negative, y: no delta, z: positive
+    // --> in OCTANT_STEP_RESULT_LUT[0][1][2]
+    // --> the data under position (3 * 4) is the result of the above step for octant 3
     let octant_pos_in_32bits = 4 * octant;
     ((OCTANT_STEP_RESULT_LUT[((step.x as i32).signum() + 1) as usize]
         [((step.y as i32).signum() + 1) as usize][((step.z as i32).signum() + 1) as usize]
@@ -77,7 +81,7 @@ pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
 
 /// calculates the distance between the line, and the plane both described by a ray
 /// plane: normal, and a point on plane, line: origin and direction
-/// return the distance from the line origin to the direction of it, if they have an intersection
+/// returns the distance from the line origin to the direction of it, if they have an intersection
 #[allow(dead_code)] // Could be useful either for debugging or new implementations
 pub fn plane_line_intersection(
     plane_point: &V3c<f32>,

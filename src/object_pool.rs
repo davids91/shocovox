@@ -210,6 +210,10 @@ where
         &mut self.buffer[key].item
     }
 
+    pub(crate) fn swap(&mut self, src: usize, dst: usize) {
+        self.buffer.swap(src, dst);
+    }
+
     pub(crate) fn key_is_valid(&self, key: usize) -> bool {
         key < self.buffer.len() && self.buffer[key].reserved
     }
