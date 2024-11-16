@@ -48,12 +48,12 @@ impl FromWorld for ShocoVoxRenderPipeline {
             victim_pointer: 0,
             render_queue: world.resource::<RenderQueue>().clone(),
             octree_meta_buffer: None,
-            nodes_buffer: None,
+            metadata_buffer: None,
             node_children_buffer: None,
             node_ocbits_buffer: None,
             voxels_buffer: None,
             color_palette_buffer: None,
-            readable_nodes_buffer: None,
+            readable_metadata_buffer: None,
             update_tree: true,
             viewing_glass_bind_group_layout,
             render_data_bind_group_layout,
@@ -114,9 +114,9 @@ impl render_graph::Node for ShocoVoxRenderNode {
             }
 
             command_encoder.copy_buffer_to_buffer(
-                svx_pipeline.nodes_buffer.as_ref().unwrap(),
+                svx_pipeline.metadata_buffer.as_ref().unwrap(),
                 0,
-                svx_pipeline.readable_nodes_buffer.as_ref().unwrap(),
+                svx_pipeline.readable_metadata_buffer.as_ref().unwrap(),
                 0,
                 std::mem::size_of::<u32>() as u64,
             )
@@ -165,8 +165,8 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.nodes).unwrap();
-        if let Some(nodes_buffer) = &pipeline.nodes_buffer {
+        buffer.write(&render_data.metadata).unwrap();
+        if let Some(nodes_buffer) = &pipeline.metadata_buffer {
             pipeline
                 .render_queue
                 .write_buffer(nodes_buffer, 0, &buffer.into_inner())
@@ -176,7 +176,7 @@ pub(crate) fn prepare_bind_groups(
                 contents: &buffer.into_inner(),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
-            pipeline.nodes_buffer = Some(nodes_buffer);
+            pipeline.metadata_buffer = Some(nodes_buffer);
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
@@ -255,7 +255,11 @@ pub(crate) fn prepare_bind_groups(
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 1,
-                    resource: pipeline.nodes_buffer.as_ref().unwrap().as_entire_binding(),
+                    resource: pipeline
+                        .metadata_buffer
+                        .as_ref()
+                        .unwrap()
+                        .as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 2,
@@ -323,8 +327,8 @@ pub(crate) fn prepare_bind_groups(
 
         // Create the staging buffer helping in reading data from the GPU
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.nodes).unwrap();
-        if let Some(readable_nodes_buffer) = &pipeline.readable_nodes_buffer {
+        buffer.write(&render_data.metadata).unwrap();
+        if let Some(readable_nodes_buffer) = &pipeline.readable_metadata_buffer {
             pipeline
                 .render_queue
                 .write_buffer(readable_nodes_buffer, 0, &buffer.into_inner())
@@ -335,7 +339,7 @@ pub(crate) fn prepare_bind_groups(
                     contents: &buffer.into_inner(),
                     usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
                 });
-            pipeline.readable_nodes_buffer = Some(readable_nodes_buffer);
+            pipeline.readable_metadata_buffer = Some(readable_nodes_buffer);
         }
 
         pipeline.update_tree = false;

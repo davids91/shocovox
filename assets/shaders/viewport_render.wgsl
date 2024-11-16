@@ -235,25 +235,49 @@ fn dda_step_to_next_sibling(
 }
 
 // Unique to this implementation, not adapted from rust code
-/// Sets the bit true for the current not under the corresponding bitmask
-/// bitmask for node: 0x00000001u
-/// bitmask for brick: 0x00000002u
-fn set_element_used(node_key: u32, mask: u32) {
+/// Sets the used bit true for the given node
+fn set_node_used(node_key: u32) {
     var current_value: u32;
     var target_value: u32;
 
-    if 0 < (nodes[node_key] & mask) // no need to set if already true
+    if 0 != (metadata[node_key] & 0x01u) // no need to set if already true
     {
         return;
     }
 
     loop{
-        current_value = nodes[node_key];
-        target_value = nodes[node_key] | mask;
+        current_value = metadata[node_key];
+        target_value = metadata[node_key] | 0x01u;
         let exchange_result = atomicCompareExchangeWeak(
-            &nodes[node_key], current_value, target_value
+            &metadata[node_key], current_value, target_value
         );
-        if(exchange_result.exchanged || 0 < (exchange_result.old_value & mask)){
+        if(exchange_result.exchanged || 0 < (exchange_result.old_value & 0x01u)){
+            break;
+        }
+    }
+}
+
+// Unique to this implementation, not adapted from rust code
+/// Sets the used bit true for the given brick
+fn set_brick_used(brick_index: u32) {
+    var current_value: u32;
+    var target_value: u32;
+
+    if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) // no need to set if already true
+    {
+        return;
+    }
+
+    loop{
+        current_value = metadata[brick_index / 8];
+        target_value = metadata[brick_index / 8] | (0x01u << (24u + (brick_index % 8u)));
+        let exchange_result = atomicCompareExchangeWeak(
+            &metadata[brick_index / 8], current_value, target_value
+        );
+        if(
+            exchange_result.exchanged
+            || 0 != ( exchange_result.old_value & (0x01u << (24u + (brick_index % 8u))) )
+        ){
             break;
         }
     }
@@ -377,18 +401,18 @@ fn probe_brick(
     ray_scale_factors: ptr<function, vec3f>,
     direction_lut_index: u32,
 ) -> OctreeRayIntersection {
-    let brick_start_index = node_children[((leaf_node_key * 8) + brick_octant)];
-    //set_element_used(brick_start_index, 0x00000002u);
+    let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
+    //set_brick_used(brick_index);
     // +++ DEBUG +++
-    if(0 == nodes[arrayLength(&nodes) - 1]){
-        set_element_used(brick_start_index, 0x00000002u);
+    if(0 == metadata[arrayLength(&metadata) - 1]){
+        set_brick_used(brick_index);
     }
-    if(0 != ((0x01u << (8 + brick_octant)) & nodes[leaf_node_key])) { // brick is not empty
-        if(0 == ((0x01u << (16 + brick_octant)) & nodes[leaf_node_key])) { // brick is solid
+    if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
+        if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
                 true,
-                color_palette[brick_start_index], // Albedo is in color_palette
+                color_palette[brick_index], // Albedo is in color_palette, data is not a brick index in this case
                 0, // user data lost for now as color palette doesn't have it.. sorry
                 point_in_ray_at_distance(ray, *ray_current_distance),
                 cube_impact_normal(*brick_bounds, point_in_ray_at_distance(ray, *ray_current_distance))
@@ -396,14 +420,15 @@ fn probe_brick(
         } else { // brick is parted
             let leaf_brick_hit = traverse_brick(
                 ray, ray_current_distance,
-                brick_start_index,
+                brick_index,
                 brick_bounds, ray_scale_factors, direction_lut_index
             );
             if leaf_brick_hit.hit == true {
 
                 /// +++ DEBUG +++
+                /*// Color in bricks displayed
                 var result_rgb = color_palette[voxels[leaf_brick_hit.flat_index].albedo_index];
-                if 0 < (nodes[brick_start_index] & 0x00000002u) {
+                if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) {
                     result_rgb.r += 0.2;
                 }
                 return OctreeRayIntersection(
@@ -421,7 +446,28 @@ fn probe_brick(
                         ),
                         point_in_ray_at_distance(ray, *ray_current_distance)
                     )
-                );
+                );*/
+
+                // Display marked bricks only
+                if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) {
+                    return OctreeRayIntersection(
+                        true,
+                        color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
+                        voxels[leaf_brick_hit.flat_index].content,
+                        point_in_ray_at_distance(ray, *ray_current_distance),
+                        cube_impact_normal(
+                            Cube(
+                                (*brick_bounds).min_position + (
+                                    vec3f(leaf_brick_hit.index)
+                                    * round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim))
+                                ),
+                                round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim)),
+                            ),
+                            point_in_ray_at_distance(ray, *ray_current_distance)
+                        )
+                    );
+                }
+
                 /*return OctreeRayIntersection(
                     true,
                     result_rgb, //color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
@@ -472,6 +518,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
     /*// +++ DEBUG +++
     var outer_safety = 0;
     */// --- DEBUG ---
+    set_node_used(OCTREE_ROOT_NODE_KEY);
     while target_octant != OOB_OCTANT {
         /*// +++ DEBUG +++
         outer_safety += 1;
@@ -482,14 +529,13 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
         }
        */ // --- DEBUG ---
         current_node_key = OCTREE_ROOT_NODE_KEY;
-        current_node_meta = nodes[OCTREE_ROOT_NODE_KEY];
+        current_node_meta = metadata[OCTREE_ROOT_NODE_KEY];
         current_bounds = Cube(vec3(0.), f32(octree_meta_data.octree_size));
         node_stack_push(&node_stack, &node_stack_meta, OCTREE_ROOT_NODE_KEY);
         /*// +++ DEBUG +++
         var safety = 0;
         */// --- DEBUG ---
         while(!node_stack_is_empty(node_stack_meta)) {
-            //set_element_used(current_node_key, 0x00000001u);
             /*// +++ DEBUG +++
             safety += 1;
             if(f32(safety) > f32(octree_meta_data.octree_size) * sqrt(30.)) {
@@ -567,7 +613,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                 );
                 if(EMPTY_MARKER != node_stack_last(node_stack_meta)){
                     current_node_key = node_stack[node_stack_last(node_stack_meta)];
-                    current_node_meta = nodes[current_node_key];
+                    current_node_meta = metadata[current_node_key];
                     target_octant = step_octant(
                         hash_region( // parent current target octant
                             // current bound center
@@ -591,7 +637,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
             if (
                 (
                     0 == (0x00000004 & current_node_meta) // node is not a leaf
-                    && target_child_key < arrayLength(&nodes) //!crate::object_pool::key_is_valid
+                    && target_child_key < arrayLength(&metadata) //!crate::object_pool::key_is_valid
                 )
                 && ( // There is overlap in node occupancy and potential ray hit area
                     0 != (
@@ -613,8 +659,9 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                 )
             ) {
                 // PUSH
+                set_node_used(target_child_key);
                 current_node_key = target_child_key;
-                current_node_meta = nodes[current_node_key];
+                current_node_meta = metadata[current_node_key];
                 current_bounds = target_bounds;
                 target_octant = hash_region( // child_target_octant
                     (point_in_ray_at_distance(ray, ray_current_distance) - target_bounds.min_position),
@@ -649,7 +696,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
                     if (
                         target_octant == OOB_OCTANT
                         || ( // In case the current internal node has a valid target child
-                            target_child_key < arrayLength(&nodes) //crate::object_pool::key_is_valid
+                            target_child_key < arrayLength(&metadata) //crate::object_pool::key_is_valid
                             && 0 == (0x00000004 & current_node_meta) // node is not a leaf
                             && ( // target child is in the area the ray can potentially hit
                                 0 != (
@@ -743,7 +790,7 @@ var<uniform> viewport: Viewport;
 var<uniform> octree_meta_data: OctreeMetaData;
 
 @group(1) @binding(1)
-var<storage, read_write> nodes: array<atomic<u32>>;
+var<storage, read_write> metadata: array<atomic<u32>>;
 
 @group(1) @binding(2)
 var<storage, read_write> node_children: array<u32>;

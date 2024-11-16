@@ -12,7 +12,7 @@ use crate::{
 use bevy::{
     ecs::system::{Res, ResMut},
     math::Vec4,
-    render::{renderer::RenderDevice, MainWorld},
+    render::renderer::RenderDevice,
 };
 use std::collections::HashMap;
 
@@ -20,8 +20,9 @@ impl<T, const DIM: usize> Octree<T, DIM>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData,
 {
+    /// Updates metadata to set every element it might contain unused
     fn meta_set_element_unused(sized_node_meta: &mut u32) {
-        *sized_node_meta = *sized_node_meta & 0xFFFFFFFC;
+        *sized_node_meta = *sized_node_meta & 0x00FFFFFC;
     }
 
     /// Updates the meta element value to store that the corresponding node is a leaf node
@@ -333,7 +334,7 @@ where
                     self.octree_size as f32,
                 ),
             },
-            nodes,
+            metadata: nodes,
             node_children,
             voxels,
             node_occupied_bits,
@@ -355,46 +356,46 @@ pub(crate) fn handle_gpu_readback(
     svx_data: Option<ResMut<ShocoVoxRenderData>>,
     svx_pipeline: Option<ResMut<ShocoVoxRenderPipeline>>,
 ) {
-    // Data updates triggered by debug interface
-    if let Some(mut svx_data) = svx_data {
-        let svx_pipeline = svx_pipeline.unwrap();
-        if svx_data.do_the_thing {
-            // GPU buffer read
-            // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
-            let buffer_slice = svx_pipeline
-                .readable_nodes_buffer
-                .as_ref()
-                .unwrap()
-                .slice(..);
-            let (s, r) = crossbeam::channel::unbounded::<()>();
-            buffer_slice.map_async(
-                bevy::render::render_resource::MapMode::Read,
-                move |d| match d {
-                    Ok(_) => s.send(()).expect("Failed to send map update"),
-                    Err(err) => println!("Something's wrong: {err}"),
-                },
-            );
+    // // Data updates triggered by debug interface
+    // if let Some(mut svx_data) = svx_data {
+    //     let svx_pipeline = svx_pipeline.unwrap();
+    //     if svx_data.do_the_thing {
+    //         // GPU buffer read
+    //         // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
+    //         let buffer_slice = svx_pipeline
+    //             .readable_nodes_buffer
+    //             .as_ref()
+    //             .unwrap()
+    //             .slice(..);
+    //         let (s, r) = crossbeam::channel::unbounded::<()>();
+    //         buffer_slice.map_async(
+    //             bevy::render::render_resource::MapMode::Read,
+    //             move |d| match d {
+    //                 Ok(_) => s.send(()).expect("Failed to send map update"),
+    //                 Err(err) => println!("Something's wrong: {err}"),
+    //             },
+    //         );
 
-            render_device
-                .poll(bevy::render::render_resource::Maintain::wait())
-                .panic_on_timeout();
+    //         render_device
+    //             .poll(bevy::render::render_resource::Maintain::wait())
+    //             .panic_on_timeout();
 
-            r.recv().expect("Failed to receive the map_async message");
-            {
-                let buffer_view = buffer_slice.get_mapped_range();
+    //         r.recv().expect("Failed to receive the map_async message");
+    //         {
+    //             let buffer_view = buffer_slice.get_mapped_range();
 
-                let data = buffer_view
-                    .chunks(std::mem::size_of::<u32>())
-                    .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
-                    .collect::<Vec<u32>>();
-                println!("data: {}", data[0]);
-            }
+    //             let data = buffer_view
+    //                 .chunks(std::mem::size_of::<u32>())
+    //                 .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+    //                 .collect::<Vec<u32>>();
+    //             println!("data: {}", data[0]);
+    //         }
 
-            svx_pipeline.readable_nodes_buffer.as_ref().unwrap().unmap();
+    //         svx_pipeline.readable_nodes_buffer.as_ref().unwrap().unmap();
 
-            svx_data.do_the_thing = false;
-        }
-    }
+    //         svx_data.do_the_thing = false;
+    //     }
+    // }
 }
 
 pub(crate) fn sync_with_main_world(// svx_data: Option<ResMut<ShocoVoxRenderData>>,
@@ -410,22 +411,22 @@ pub(crate) fn handle_cache(
 ) {
     //TODO: Document that all components are lost during extract transition
     // Data updates triggered by debug interface
-    // if let Some(mut svx_data) = svx_data {
-    //     let svx_pipeline = svx_pipeline.unwrap();
-    //     let render_queue = &svx_pipeline.render_queue.0;
-    //     if svx_data.do_the_thing {
-    //         // GPU buffer Write
-    //         let data: u32 = 1;
-    //         use bevy::render::render_resource::encase::StorageBuffer;
-    //         let mut data_buffer = StorageBuffer::new(Vec::<u8>::new());
-    //         data_buffer.write(&data).unwrap();
-    //         render_queue.write_buffer(
-    //             svx_pipeline.data_meta_bytes_buffer.as_ref().unwrap(),
-    //             ((svx_data.data_meta_bytes.len() - 1) * std::mem::size_of::<u32>()) as u64,
-    //             &data_buffer.into_inner(),
-    //         );
+    if let Some(mut svx_data) = svx_data {
+        let svx_pipeline = svx_pipeline.unwrap();
+        let render_queue = &svx_pipeline.render_queue.0;
+        if svx_data.do_the_thing {
+            // GPU buffer Write
+            let data: u32 = 1;
+            use bevy::render::render_resource::encase::StorageBuffer;
+            let mut data_buffer = StorageBuffer::new(Vec::<u8>::new());
+            data_buffer.write(&data).unwrap();
+            render_queue.write_buffer(
+                svx_pipeline.metadata_buffer.as_ref().unwrap(),
+                ((svx_data.metadata.len() - 1) * std::mem::size_of::<u32>()) as u64,
+                &data_buffer.into_inner(),
+            );
 
-    //         svx_data.do_the_thing = false;
-    //     }
-    // }
+            svx_data.do_the_thing = false;
+        }
+    }
 }
