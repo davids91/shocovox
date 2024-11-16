@@ -1,4 +1,4 @@
-use crate::octree::V3cf32;
+use crate::octree::{Albedo, V3cf32};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -13,6 +13,10 @@ use bevy::{
         },
         renderer::RenderQueue,
     },
+};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone, ShaderType)]
@@ -41,6 +45,38 @@ pub struct ShocoVoxRenderPlugin {
 }
 
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::OctreeGPUView"]
+pub struct OctreeGPUView {
+    // +++ DEBUG +++
+    pub do_the_thing: bool,
+    pub read_back: u32,
+    // --- DEBUG ---
+    pub viewing_glass: ShocoVoxViewingGlass,
+    pub(crate) data_handler: Arc<Mutex<OctreeGPUDataHandler>>,
+}
+
+#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
+pub struct OctreeGPUDataHandler {
+    pub(crate) render_data: ShocoVoxRenderData,
+    // pub(crate) victim_node_pointer: u32,
+    // pub(crate) victim_brick_pointer: u32,
+    pub(crate) map_to_node_index_in_nodes_buffer: HashMap<usize, usize>,
+    pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
+    pub(crate) debug_gpu_interface: Option<Buffer>,
+    pub(crate) readable_debug_gpu_interface: Option<Buffer>,
+    //TODO: Maybe this?
+    // Buffers for the RenderData
+    // pub(crate) octree_meta_buffer: Buffer,
+    // pub(crate) metadata_buffer: Buffer,
+    // pub(crate) node_children_buffer: Buffer,
+    // pub(crate) node_ocbits_buffer: Buffer,
+    // pub(crate) voxels_buffer: Buffer,
+    // pub(crate) color_palette_buffer: Buffer,
+    // pub(crate) readable_metadata_buffer: Buffer,
+}
+
+#[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
 pub struct ShocoVoxViewingGlass {
     #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
@@ -50,11 +86,13 @@ pub struct ShocoVoxViewingGlass {
     pub viewport: Viewport,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
 pub struct ShocoVoxRenderData {
-    pub do_the_thing: bool, //STRICTLY FOR DEBUG REASONS
-
+    // +++ DEBUG +++
+    #[storage(6, visibility(compute))]
+    pub(crate) debug_gpu_interface: u32,
+    // --- DEBUG ---
     /// Contains the properties of the Octree
     #[uniform(0, visibility(compute))]
     pub(crate) octree_meta: OctreeMetaData,
@@ -125,9 +163,6 @@ pub struct ShocoVoxRenderData {
 pub(crate) struct ShocoVoxRenderPipeline {
     pub update_tree: bool,
 
-    // The candidates for deletion inside nodes array on page deletion
-    pub(crate) victim_pointer: u32,
-
     pub(crate) render_queue: RenderQueue,
     pub(crate) update_pipeline: CachedComputePipelineId,
 
@@ -139,6 +174,7 @@ pub(crate) struct ShocoVoxRenderPipeline {
     pub(crate) node_ocbits_buffer: Option<Buffer>,
     pub(crate) voxels_buffer: Option<Buffer>,
     pub(crate) color_palette_buffer: Option<Buffer>,
+    pub(crate) tree_data_handler: Option<OctreeGPUDataHandler>,
 
     pub(crate) viewing_glass_bind_group_layout: BindGroupLayout,
     pub(crate) render_data_bind_group_layout: BindGroupLayout,

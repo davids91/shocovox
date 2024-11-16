@@ -3,13 +3,13 @@ mod pipeline;
 pub mod types;
 
 pub use crate::octree::raytracing::bevy::types::{
-    ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
+    OctreeGPUView, ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
 };
 
 use crate::octree::raytracing::bevy::{
-    data::{handle_cache, handle_gpu_readback, sync_with_main_world},
+    data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
     pipeline::prepare_bind_groups,
-    types::{ShocoVoxLabel, ShocoVoxRenderData, ShocoVoxRenderNode, ShocoVoxRenderPipeline},
+    types::{ShocoVoxLabel, ShocoVoxRenderNode, ShocoVoxRenderPipeline},
 };
 
 use bevy::{
@@ -27,18 +27,7 @@ use bevy::{
     },
 };
 
-pub fn create_viewing_glass(
-    viewport: &Viewport,
-    resolution: [u32; 2],
-    images: ResMut<Assets<Image>>,
-) -> ShocoVoxViewingGlass {
-    ShocoVoxViewingGlass {
-        output_texture: create_ouput_texture(resolution, images),
-        viewport: *viewport,
-    }
-}
-
-pub(crate) fn create_ouput_texture(
+pub(crate) fn create_output_texture(
     resolution: [u32; 2],
     mut images: ResMut<Assets<Image>>,
 ) -> Handle<Image> {
@@ -60,14 +49,13 @@ pub(crate) fn create_ouput_texture(
 
 impl Plugin for ShocoVoxRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractResourcePlugin::<ShocoVoxViewingGlass>::default());
-        app.add_plugins(ExtractResourcePlugin::<ShocoVoxRenderData>::default());
+        app.add_plugins(ExtractResourcePlugin::<OctreeGPUView>::default());
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(ExtractSchedule, sync_with_main_world);
         render_app.add_systems(
             Render,
             (
-                handle_cache.in_set(RenderSet::PrepareResources),
+                write_to_gpu.in_set(RenderSet::PrepareResources),
                 prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
                 handle_gpu_readback.in_set(RenderSet::Cleanup),
             ),

@@ -90,7 +90,7 @@ where
 ///####################################################################################
 impl<T, const DIM: usize> BrickData<T, DIM>
 where
-    T: VoxelData + PartialEq + Clone + Copy + Default,
+    T: VoxelData + PartialEq + Clone + Default,
 {
     /// Provides occupancy information for the part of the brick corresponmding
     /// to the given octant based on the contents of the brick
@@ -231,7 +231,7 @@ where
             if homogeneous_type.is_empty() {
                 *self = BrickData::Empty;
             } else {
-                *self = BrickData::Solid(*homogeneous_type);
+                *self = BrickData::Solid(homogeneous_type.clone());
             }
             true
         } else {

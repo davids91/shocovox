@@ -283,6 +283,10 @@ fn set_brick_used(brick_index: u32) {
     }
 }
 
+fn request_node(node: u32, child_octant: u32){
+
+}
+
 //crate::spatial::math::step_octant
 fn step_octant(octant: u32, step: ptr<function, vec3f>) -> u32 {
     return (
@@ -404,7 +408,7 @@ fn probe_brick(
     let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
     //set_brick_used(brick_index);
     // +++ DEBUG +++
-    if(0 == metadata[arrayLength(&metadata) - 1]){
+    if(0 == debug_interface){
         set_brick_used(brick_index);
     }
     if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
@@ -803,6 +807,12 @@ var<storage, read_write> voxels: array<Voxelement>;
 
 @group(1) @binding(5)
 var<storage, read_write> color_palette: array<vec4f>;
+
+// +++ DEBUG +++
+@group(1) @binding(6)
+var<storage, read_write> debug_interface: u32;
+// --- DEBUG ---
+
 
 @compute @workgroup_size(8, 8, 1)
 fn update(

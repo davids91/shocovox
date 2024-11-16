@@ -4,6 +4,9 @@ use std::error::Error;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "bevy_wgpu")]
+use {crate::octree::raytracing::bevy::types::OctreeGPUDataHandler, std::sync::Arc};
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) enum BrickData<T, const DIM: usize>
@@ -85,6 +88,9 @@ where
     pub(crate) octree_size: u32,
     pub(crate) nodes: ObjectPool<NodeContent<T, DIM>>,
     pub(crate) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
+
+    #[cfg(feature = "bevy_wgpu")]
+    pub(crate) views: Vec<Arc<OctreeGPUDataHandler>>,
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -1,5 +1,6 @@
 use crate::octree::raytracing::bevy::types::{
-    ShocoVoxRenderData, ShocoVoxRenderNode, ShocoVoxRenderPipeline, ShocoVoxViewingGlass,
+    OctreeGPUView, ShocoVoxRenderData, ShocoVoxRenderNode, ShocoVoxRenderPipeline,
+    ShocoVoxViewingGlass,
 };
 
 use bevy::{
@@ -13,7 +14,7 @@ use bevy::{
         render_graph::{self},
         render_resource::{
             encase::{StorageBuffer, UniformBuffer},
-            AsBindGroup, BufferInitDescriptor, BufferUsages, CachedPipelineState,
+            AsBindGroup, BufferDescriptor, BufferInitDescriptor, BufferUsages, CachedPipelineState,
             ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
@@ -21,6 +22,8 @@ use bevy::{
     },
 };
 use std::borrow::Cow;
+
+use super::types::OctreeGPUDataHandler;
 
 impl FromWorld for ShocoVoxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
@@ -45,7 +48,7 @@ impl FromWorld for ShocoVoxRenderPipeline {
         });
 
         ShocoVoxRenderPipeline {
-            victim_pointer: 0,
+            tree_data_handler: None,
             render_queue: world.resource::<RenderQueue>().clone(),
             octree_meta_buffer: None,
             metadata_buffer: None,
@@ -64,18 +67,28 @@ impl FromWorld for ShocoVoxRenderPipeline {
     }
 }
 
+//##############################################################################
+//  ███████████   █████  █████ ██████   █████
+// ░░███░░░░░███ ░░███  ░░███ ░░██████ ░░███
+//  ░███    ░███  ░███   ░███  ░███░███ ░███
+//  ░██████████   ░███   ░███  ░███░░███░███
+//  ░███░░░░░███  ░███   ░███  ░███ ░░██████
+//  ░███    ░███  ░███   ░███  ░███  ░░█████
+//  █████   █████ ░░████████   █████  ░░█████
+// ░░░░░   ░░░░░   ░░░░░░░░   ░░░░░    ░░░░░
+//##############################################################################
 const WORKGROUP_SIZE: u32 = 8;
 impl render_graph::Node for ShocoVoxRenderNode {
     fn update(&mut self, world: &mut World) {
         {
-            let render_data = world.get_resource::<ShocoVoxRenderData>();
             let svx_pipeline = world.resource::<ShocoVoxRenderPipeline>();
             let pipeline_cache = world.resource::<PipelineCache>();
+            let tree_gpu_view = world.get_resource::<OctreeGPUView>();
             if !self.ready {
                 if let CachedPipelineState::Ok(_) =
                     pipeline_cache.get_compute_pipeline_state(svx_pipeline.update_pipeline)
                 {
-                    self.ready = render_data.is_some();
+                    self.ready = tree_gpu_view.is_some();
                 }
             }
         }
@@ -119,38 +132,172 @@ impl render_graph::Node for ShocoVoxRenderNode {
                 svx_pipeline.readable_metadata_buffer.as_ref().unwrap(),
                 0,
                 std::mem::size_of::<u32>() as u64,
+            );
+            // +++ DEBUG +++
+            let tree_gpu_view = world.resource::<OctreeGPUView>();
+            let data_handler = tree_gpu_view.data_handler.lock().unwrap();
+            command_encoder.copy_buffer_to_buffer(
+                data_handler.debug_gpu_interface.as_ref().unwrap(),
+                0,
+                data_handler.readable_debug_gpu_interface.as_ref().unwrap(),
+                0,
+                std::mem::size_of::<u32>() as u64,
             )
+            // --- DEBUG ---
         }
         Ok(())
     }
 }
 
+//##############################################################################
+//    █████████  ███████████   ██████████   █████████   ███████████ ██████████
+//   ███░░░░░███░░███░░░░░███ ░░███░░░░░█  ███░░░░░███ ░█░░░███░░░█░░███░░░░░█
+//  ███     ░░░  ░███    ░███  ░███  █ ░  ░███    ░███ ░   ░███  ░  ░███  █ ░
+// ░███          ░██████████   ░██████    ░███████████     ░███     ░██████
+// ░███          ░███░░░░░███  ░███░░█    ░███░░░░░███     ░███     ░███░░█
+// ░░███     ███ ░███    ░███  ░███ ░   █ ░███    ░███     ░███     ░███ ░   █
+//  ░░█████████  █████   █████ ██████████ █████   █████    █████    ██████████
+//   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░    ░░░░░    ░░░░░░░░░░
+//  ███████████  █████ ██████   █████ ██████████
+// ░░███░░░░░███░░███ ░░██████ ░░███ ░░███░░░░███
+//  ░███    ░███ ░███  ░███░███ ░███  ░███   ░░███
+//  ░██████████  ░███  ░███░░███░███  ░███    ░███
+//  ░███░░░░░███ ░███  ░███ ░░██████  ░███    ░███
+//  ░███    ░███ ░███  ░███  ░░█████  ░███    ███
+//  ███████████  █████ █████  ░░█████ ██████████
+// ░░░░░░░░░░░  ░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░
+//    █████████  ███████████      ███████    █████  █████ ███████████   █████████
+//   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███ ███░░░░░███
+//  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███░███    ░░░
+// ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████ ░░█████████
+// ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░   ░░░░░░░░███
+// ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███         ███    ░███
+//  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████       ░░█████████
+//   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░         ░░░░░░░░░
+//##############################################################################
 pub(crate) fn prepare_bind_groups(
     gpu_images: Res<RenderAssets<GpuImage>>,
     fallback_image: Res<FallbackImage>,
     render_device: Res<RenderDevice>,
     mut pipeline: ResMut<ShocoVoxRenderPipeline>,
-    octree_viewing_glass: Res<ShocoVoxViewingGlass>,
-    render_data: Res<ShocoVoxRenderData>,
+    tree_gpu_view: ResMut<OctreeGPUView>,
 ) {
-    let bind_group = octree_viewing_glass
-        .as_bind_group(
-            &pipeline.viewing_glass_bind_group_layout,
-            &render_device,
-            &gpu_images,
-            &fallback_image,
-        )
-        .ok()
-        .unwrap();
-    pipeline.viewing_glass_bind_group = Some(bind_group.bind_group);
+    pipeline.viewing_glass_bind_group = Some(
+        tree_gpu_view
+            .viewing_glass
+            .as_bind_group(
+                &pipeline.viewing_glass_bind_group_layout,
+                &render_device,
+                &gpu_images,
+                &fallback_image,
+            )
+            .ok()
+            .unwrap()
+            .bind_group,
+    );
 
     if pipeline.update_tree {
+        let mut data_handler = tree_gpu_view.data_handler.lock().unwrap();
+
+        // Create the staging buffer helping in reading data from the GPU
+        //##############################################################################
+        //    █████████  ███████████  █████  █████
+        //   ███░░░░░███░░███░░░░░███░░███  ░░███
+        //  ███     ░░░  ░███    ░███ ░███   ░███
+        // ░███          ░██████████  ░███   ░███
+        // ░███    █████ ░███░░░░░░   ░███   ░███
+        // ░░███  ░░███  ░███         ░███   ░███
+        //  ░░█████████  █████        ░░████████
+        //   ░░░░░░░░░  ░░░░░          ░░░░░░░░
+        //  ███████████   ██████████   █████████   ██████████
+        // ░░███░░░░░███ ░░███░░░░░█  ███░░░░░███ ░░███░░░░███
+        //  ░███    ░███  ░███  █ ░  ░███    ░███  ░███   ░░███
+        //  ░██████████   ░██████    ░███████████  ░███    ░███
+        //  ░███░░░░░███  ░███░░█    ░███░░░░░███  ░███    ░███
+        //  ░███    ░███  ░███ ░   █ ░███    ░███  ░███    ███
+        //  █████   █████ ██████████ █████   █████ ██████████
+        // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░ ░░░░░░░░░░
+        //  ███████████  █████  █████ ███████████ ███████████ ██████████ ███████████
+        // ░░███░░░░░███░░███  ░░███ ░░███░░░░░░█░░███░░░░░░█░░███░░░░░█░░███░░░░░███
+        //  ░███    ░███ ░███   ░███  ░███   █ ░  ░███   █ ░  ░███  █ ░  ░███    ░███
+        //  ░██████████  ░███   ░███  ░███████    ░███████    ░██████    ░██████████
+        //  ░███░░░░░███ ░███   ░███  ░███░░░█    ░███░░░█    ░███░░█    ░███░░░░░███
+        //  ░███    ░███ ░███   ░███  ░███  ░     ░███  ░     ░███ ░   █ ░███    ░███
+        //  ███████████  ░░████████   █████       █████       ██████████ █████   █████
+        // ░░░░░░░░░░░    ░░░░░░░░   ░░░░░       ░░░░░       ░░░░░░░░░░ ░░░░░   ░░░░░
+        //##############################################################################
+
+        if pipeline.readable_metadata_buffer.is_none() {
+            pipeline.readable_metadata_buffer =
+                Some(render_device.create_buffer(&BufferDescriptor {
+                    mapped_at_creation: false,
+                    size: (data_handler.render_data.metadata.len() * 4) as u64,
+                    label: Some("Octree Node metadata Buffer"),
+                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+                }));
+        }
+
+        // +++ DEBUG +++
+        if data_handler.readable_debug_gpu_interface.is_none() {
+            data_handler.readable_debug_gpu_interface =
+                Some(render_device.create_buffer(&BufferDescriptor {
+                    mapped_at_creation: false,
+                    size: 4,
+                    label: Some("Octree Debug interface Buffer"),
+                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+                }));
+        }
+        // --- DEBUG ---
+
+        //##############################################################################
+        //  ███████████   ██████████ ██████   █████ ██████████   ██████████ ███████████
+        // ░░███░░░░░███ ░░███░░░░░█░░██████ ░░███ ░░███░░░░███ ░░███░░░░░█░░███░░░░░███
+        //  ░███    ░███  ░███  █ ░  ░███░███ ░███  ░███   ░░███ ░███  █ ░  ░███    ░███
+        //  ░██████████   ░██████    ░███░░███░███  ░███    ░███ ░██████    ░██████████
+        //  ░███░░░░░███  ░███░░█    ░███ ░░██████  ░███    ░███ ░███░░█    ░███░░░░░███
+        //  ░███    ░███  ░███ ░   █ ░███  ░░█████  ░███    ███  ░███ ░   █ ░███    ░███
+        //  █████   █████ ██████████ █████  ░░█████ ██████████   ██████████ █████   █████
+        // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░   ░░░░░░░░░░ ░░░░░   ░░░░░
+        //  ██████████     █████████   ███████████   █████████
+        // ░░███░░░░███   ███░░░░░███ ░█░░░███░░░█  ███░░░░░███
+        //  ░███   ░░███ ░███    ░███ ░   ░███  ░  ░███    ░███
+        //  ░███    ░███ ░███████████     ░███     ░███████████
+        //  ░███    ░███ ░███░░░░░███     ░███     ░███░░░░░███
+        //  ░███    ███  ░███    ░███     ░███     ░███    ░███
+        //  ██████████   █████   █████    █████    █████   █████
+        // ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░
+        //  ███████████  █████  █████ ███████████ ███████████ ██████████ ███████████
+        // ░░███░░░░░███░░███  ░░███ ░░███░░░░░░█░░███░░░░░░█░░███░░░░░█░░███░░░░░███
+        //  ░███    ░███ ░███   ░███  ░███   █ ░  ░███   █ ░  ░███  █ ░  ░███    ░███
+        //  ░██████████  ░███   ░███  ░███████    ░███████    ░██████    ░██████████
+        //  ░███░░░░░███ ░███   ░███  ░███░░░█    ░███░░░█    ░███░░█    ░███░░░░░███
+        //  ░███    ░███ ░███   ░███  ░███  ░     ░███  ░     ░███ ░   █ ░███    ░███
+        //  ███████████  ░░████████   █████       █████       ██████████ █████   █████
+        // ░░░░░░░░░░░    ░░░░░░░░   ░░░░░       ░░░░░       ░░░░░░░░░░ ░░░░░   ░░░░░
+        //##############################################################################
+
         //=================================================================
         // Implementation with WGPU
         //=================================================================
         // Upload data to buffers
+        // +++ DEBUG +++
+        let buffer = UniformBuffer::new(vec![0, 0, 0, 0]);
+        if let Some(debug_buffer) = &data_handler.debug_gpu_interface {
+            pipeline
+                .render_queue
+                .write_buffer(debug_buffer, 0, &buffer.into_inner())
+        } else {
+            let debug_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+                label: Some("Octree Debug Buffer"),
+                contents: &buffer.into_inner(),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+            data_handler.debug_gpu_interface = Some(debug_buffer);
+        }
+        // --- DEBUG ---
+
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.octree_meta).unwrap();
+        buffer.write(&data_handler.render_data.octree_meta).unwrap();
         if let Some(metadata_buffer) = &pipeline.octree_meta_buffer {
             pipeline
                 .render_queue
@@ -165,7 +312,7 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.metadata).unwrap();
+        buffer.write(&data_handler.render_data.metadata).unwrap();
         if let Some(nodes_buffer) = &pipeline.metadata_buffer {
             pipeline
                 .render_queue
@@ -180,7 +327,9 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.node_children).unwrap();
+        buffer
+            .write(&data_handler.render_data.node_children)
+            .unwrap();
         if let Some(children_buffer) = &pipeline.node_children_buffer {
             pipeline
                 .render_queue
@@ -195,7 +344,9 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.node_occupied_bits).unwrap();
+        buffer
+            .write(&data_handler.render_data.node_occupied_bits)
+            .unwrap();
         if let Some(ocbits_buffer) = &pipeline.node_ocbits_buffer {
             pipeline
                 .render_queue
@@ -210,7 +361,7 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.voxels).unwrap();
+        buffer.write(&data_handler.render_data.voxels).unwrap();
         if let Some(voxels_buffer) = &pipeline.voxels_buffer {
             pipeline
                 .render_queue
@@ -225,7 +376,9 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.color_palette).unwrap();
+        buffer
+            .write(&data_handler.render_data.color_palette)
+            .unwrap();
         if let Some(color_palette_buffer) = &pipeline.color_palette_buffer {
             pipeline
                 .render_queue
@@ -240,6 +393,24 @@ pub(crate) fn prepare_bind_groups(
             pipeline.color_palette_buffer = Some(color_palette_buffer);
         }
 
+        //##############################################################################
+        //  ███████████  █████ ██████   █████ ██████████
+        // ░░███░░░░░███░░███ ░░██████ ░░███ ░░███░░░░███
+        //  ░███    ░███ ░███  ░███░███ ░███  ░███   ░░███
+        //  ░██████████  ░███  ░███░░███░███  ░███    ░███
+        //  ░███░░░░░███ ░███  ░███ ░░██████  ░███    ░███
+        //  ░███    ░███ ░███  ░███  ░░█████  ░███    ███
+        //  ███████████  █████ █████  ░░█████ ██████████
+        // ░░░░░░░░░░░  ░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░
+        //    █████████  ███████████      ███████    █████  █████ ███████████
+        //   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███
+        //  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███
+        // ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████
+        // ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░
+        // ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███
+        //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
+        //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░
+        //##############################################################################
         // Create bind group
         let tree_bind_group = render_device.create_bind_group(
             ShocoVoxRenderData::label(),
@@ -289,6 +460,16 @@ pub(crate) fn prepare_bind_groups(
                         .unwrap()
                         .as_entire_binding(),
                 },
+                // +++ DEBUG +++
+                bevy::render::render_resource::BindGroupEntry {
+                    binding: 6,
+                    resource: data_handler
+                        .debug_gpu_interface
+                        .as_ref()
+                        .unwrap()
+                        .as_entire_binding(),
+                },
+                // --- DEBUG ---
             ],
         );
         pipeline.tree_bind_group = Some(tree_bind_group);
@@ -324,24 +505,6 @@ pub(crate) fn prepare_bind_groups(
         // }
 
         // pipeline.tree_bind_group = Some(tree_bind_group.bind_group);
-
-        // Create the staging buffer helping in reading data from the GPU
-        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.metadata).unwrap();
-        if let Some(readable_nodes_buffer) = &pipeline.readable_metadata_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(readable_nodes_buffer, 0, &buffer.into_inner())
-        } else {
-            let readable_nodes_buffer =
-                render_device.create_buffer_with_data(&BufferInitDescriptor {
-                    label: Some("Octree Cache Bytes Buffer"),
-                    contents: &buffer.into_inner(),
-                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-                });
-            pipeline.readable_metadata_buffer = Some(readable_nodes_buffer);
-        }
-
         pipeline.update_tree = false;
     }
 }
