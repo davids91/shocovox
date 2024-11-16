@@ -59,9 +59,9 @@ pub struct OctreeGPUView {
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
     pub(crate) render_data: ShocoVoxRenderData,
-    // pub(crate) victim_node_pointer: u32,
-    // pub(crate) victim_brick_pointer: u32,
-    pub(crate) map_to_node_index_in_nodes_buffer: HashMap<usize, usize>,
+    pub(crate) victim_node_pointer: usize,
+    pub(crate) victim_brick_pointer: usize,
+    pub(crate) map_to_node_index_in_metadata: HashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) debug_gpu_interface: Option<Buffer>,
     pub(crate) readable_debug_gpu_interface: Option<Buffer>,

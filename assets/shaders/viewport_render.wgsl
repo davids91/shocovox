@@ -406,11 +406,12 @@ fn probe_brick(
     direction_lut_index: u32,
 ) -> OctreeRayIntersection {
     let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
-    //set_brick_used(brick_index);
     // +++ DEBUG +++
+    //set_brick_used(brick_index);
     if(0 == debug_interface){
         set_brick_used(brick_index);
     }
+    // --- DEBUG ---
     if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
@@ -474,7 +475,7 @@ fn probe_brick(
 
                 /*return OctreeRayIntersection(
                     true,
-                    result_rgb, //color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
+                    color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
                     voxels[leaf_brick_hit.flat_index].content,
                     point_in_ray_at_distance(ray, *ray_current_distance),
                     cube_impact_normal(
@@ -496,7 +497,7 @@ fn probe_brick(
     return OctreeRayIntersection(false, vec4f(0.), 0, vec3f(0.), vec3f(0., 0., 1.));
 }
 
-fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection{
+fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var ray_scale_factors = get_dda_scale_factors(ray); // Should be const, but then it can't be passed as ptr
     let direction_lut_index = hash_direction((*ray).direction);
 

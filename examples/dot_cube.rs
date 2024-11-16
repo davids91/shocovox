@@ -117,6 +117,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     }
 
     let output_texture = tree.create_new_gpu_view(
+        42, //TODO: decide actual number
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),
