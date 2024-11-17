@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::WindowPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUView, Ray, ShocoVoxRenderPlugin, Viewport},
+    raytracing::{OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
     Albedo, Octree, V3c, VoxelData,
 };
 
@@ -42,7 +42,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            ShocoVoxRenderPlugin {
+            SvxRenderPlugin {
                 resolution: DISPLAY_RESOLUTION,
             },
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,

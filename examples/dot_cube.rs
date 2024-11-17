@@ -9,7 +9,7 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUView, Ray, ShocoVoxRenderPlugin, Viewport},
+    raytracing::{OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
     Albedo, Octree, V3c, VoxelData,
 };
 
@@ -37,7 +37,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            ShocoVoxRenderPlugin {
+            SvxRenderPlugin {
                 resolution: DISPLAY_RESOLUTION,
             },
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,

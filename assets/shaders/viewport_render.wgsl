@@ -237,19 +237,14 @@ fn dda_step_to_next_sibling(
 // Unique to this implementation, not adapted from rust code
 /// Sets the used bit true for the given node
 fn set_node_used(node_key: u32) {
-    var current_value: u32;
-    var target_value: u32;
-
-    if 0 != (metadata[node_key] & 0x01u) // no need to set if already true
-    {
+    if 0 != (metadata[node_key] & 0x01u) {
+        // no need to set if already true
         return;
     }
 
     loop{
-        current_value = metadata[node_key];
-        target_value = metadata[node_key] | 0x01u;
         let exchange_result = atomicCompareExchangeWeak(
-            &metadata[node_key], current_value, target_value
+            &metadata[node_key], metadata[node_key], metadata[node_key] | 0x01u
         );
         if(exchange_result.exchanged || 0 < (exchange_result.old_value & 0x01u)){
             break;
@@ -260,19 +255,16 @@ fn set_node_used(node_key: u32) {
 // Unique to this implementation, not adapted from rust code
 /// Sets the used bit true for the given brick
 fn set_brick_used(brick_index: u32) {
-    var current_value: u32;
-    var target_value: u32;
-
-    if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) // no need to set if already true
-    {
+    if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) {
+        // no need to set if already true
         return;
     }
 
     loop{
-        current_value = metadata[brick_index / 8];
-        target_value = metadata[brick_index / 8] | (0x01u << (24u + (brick_index % 8u)));
         let exchange_result = atomicCompareExchangeWeak(
-            &metadata[brick_index / 8], current_value, target_value
+            &metadata[brick_index / 8],
+            metadata[brick_index / 8],
+            metadata[brick_index / 8] | (0x01u << (24u + (brick_index % 8u)))
         );
         if(
             exchange_result.exchanged

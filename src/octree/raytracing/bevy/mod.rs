@@ -1,15 +1,16 @@
+mod cache;
 mod data;
 mod pipeline;
 pub mod types;
 
 pub use crate::octree::raytracing::bevy::types::{
-    OctreeGPUView, ShocoVoxRenderPlugin, ShocoVoxViewingGlass, Viewport,
+    OctreeGPUView, SvxRenderPlugin, SvxViewingGlass, Viewport,
 };
 
 use crate::octree::raytracing::bevy::{
     data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
     pipeline::prepare_bind_groups,
-    types::{ShocoVoxLabel, ShocoVoxRenderNode, ShocoVoxRenderPipeline},
+    types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
 };
 
 use bevy::{
@@ -47,7 +48,7 @@ pub(crate) fn create_output_texture(
     images.add(output_texture)
 }
 
-impl Plugin for ShocoVoxRenderPlugin {
+impl Plugin for SvxRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractResourcePlugin::<OctreeGPUView>::default());
         let render_app = app.sub_app_mut(RenderApp);
@@ -62,17 +63,17 @@ impl Plugin for ShocoVoxRenderPlugin {
         );
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(
-            ShocoVoxLabel,
-            ShocoVoxRenderNode {
+            SvxLabel,
+            SvxRenderNode {
                 ready: false,
                 resolution: self.resolution,
             },
         );
-        render_graph.add_node_edge(ShocoVoxLabel, bevy::render::graph::CameraDriverLabel);
+        render_graph.add_node_edge(SvxLabel, bevy::render::graph::CameraDriverLabel);
     }
 
     fn finish(&self, app: &mut App) {
         let render_app = app.sub_app_mut(RenderApp);
-        render_app.init_resource::<ShocoVoxRenderPipeline>();
+        render_app.init_resource::<SvxRenderPipeline>();
     }
 }

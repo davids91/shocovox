@@ -40,7 +40,7 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct ShocoVoxRenderPlugin {
+pub struct SvxRenderPlugin {
     pub resolution: [u32; 2],
 }
 
@@ -51,7 +51,7 @@ pub struct OctreeGPUView {
     pub do_the_thing: bool,
     pub read_back: u32,
     // --- DEBUG ---
-    pub viewing_glass: ShocoVoxViewingGlass,
+    pub viewing_glass: SvxViewingGlass,
     pub(crate) data_handler: Arc<Mutex<OctreeGPUDataHandler>>,
 }
 
@@ -66,7 +66,7 @@ pub(crate) struct VictimPointer {
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
-    pub(crate) render_data: ShocoVoxRenderData,
+    pub(crate) render_data: SvxRenderData,
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: VictimPointer,
     pub(crate) map_to_node_index_in_metadata: HashMap<usize, usize>,
@@ -86,7 +86,7 @@ pub struct OctreeGPUDataHandler {
 
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
-pub struct ShocoVoxViewingGlass {
+pub struct SvxViewingGlass {
     #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
 
@@ -96,7 +96,7 @@ pub struct ShocoVoxViewingGlass {
 
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
-pub struct ShocoVoxRenderData {
+pub struct SvxRenderData {
     // +++ DEBUG +++
     #[storage(6, visibility(compute))]
     pub(crate) debug_gpu_interface: u32,
@@ -109,7 +109,7 @@ pub struct ShocoVoxRenderData {
     ///  _===================================================================_
     /// | Byte 0  | Node properties                                           |
     /// |---------------------------------------------------------------------|
-    /// |  bit 0  | 1 in case node is used by the raytracing algorithm *(2)   |
+    /// |  bit 0  | 1 if node is used by the raytracing algorithm *(2) *(4)   |
     /// |  bit 1  | unused                                                    |
     /// |  bit 2  | 1 in case node is a leaf                                  |
     /// |  bit 3  | 1 in case node is uniform                                 |
@@ -137,6 +137,8 @@ pub struct ShocoVoxRenderData {
     /// *(3) One index in the array covers 8 bricks, which is the theoretical maximum
     ///      number of bricks for one node. In practice however the number of bricks
     ///      are only 4-5 times more, than the number of nodes, because of the internal nodes.
+    /// *(4) Root node does not have this bit used, because it will never be overwritten
+    ///      due to the victim pointer logic
     #[storage(1, visibility(compute))]
     pub(crate) metadata: Vec<u32>,
 
@@ -168,7 +170,7 @@ pub struct ShocoVoxRenderData {
 }
 
 #[derive(Resource)]
-pub(crate) struct ShocoVoxRenderPipeline {
+pub(crate) struct SvxRenderPipeline {
     pub update_tree: bool,
 
     pub(crate) render_queue: RenderQueue,
@@ -191,9 +193,9 @@ pub(crate) struct ShocoVoxRenderPipeline {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub(crate) struct ShocoVoxLabel;
+pub(crate) struct SvxLabel;
 
-pub(crate) struct ShocoVoxRenderNode {
+pub(crate) struct SvxRenderNode {
     pub(crate) ready: bool,
     pub(crate) resolution: [u32; 2],
 }

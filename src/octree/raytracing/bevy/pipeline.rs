@@ -1,6 +1,5 @@
 use crate::octree::raytracing::bevy::types::{
-    OctreeGPUView, ShocoVoxRenderData, ShocoVoxRenderNode, ShocoVoxRenderPipeline,
-    ShocoVoxViewingGlass,
+    OctreeGPUView, SvxRenderData, SvxRenderNode, SvxRenderPipeline, SvxViewingGlass,
 };
 
 use bevy::{
@@ -25,12 +24,11 @@ use std::borrow::Cow;
 
 use super::types::OctreeGPUDataHandler;
 
-impl FromWorld for ShocoVoxRenderPipeline {
+impl FromWorld for SvxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
-        let viewing_glass_bind_group_layout =
-            ShocoVoxViewingGlass::bind_group_layout(render_device);
-        let render_data_bind_group_layout = ShocoVoxRenderData::bind_group_layout(render_device);
+        let viewing_glass_bind_group_layout = SvxViewingGlass::bind_group_layout(render_device);
+        let render_data_bind_group_layout = SvxRenderData::bind_group_layout(render_device);
         let shader = world
             .resource::<AssetServer>()
             .load("shaders/viewport_render.wgsl");
@@ -47,7 +45,7 @@ impl FromWorld for ShocoVoxRenderPipeline {
             entry_point: Cow::from("update"),
         });
 
-        ShocoVoxRenderPipeline {
+        SvxRenderPipeline {
             tree_data_handler: None,
             render_queue: world.resource::<RenderQueue>().clone(),
             octree_meta_buffer: None,
@@ -78,10 +76,10 @@ impl FromWorld for ShocoVoxRenderPipeline {
 // ░░░░░   ░░░░░   ░░░░░░░░   ░░░░░    ░░░░░
 //##############################################################################
 const WORKGROUP_SIZE: u32 = 8;
-impl render_graph::Node for ShocoVoxRenderNode {
+impl render_graph::Node for SvxRenderNode {
     fn update(&mut self, world: &mut World) {
         {
-            let svx_pipeline = world.resource::<ShocoVoxRenderPipeline>();
+            let svx_pipeline = world.resource::<SvxRenderPipeline>();
             let pipeline_cache = world.resource::<PipelineCache>();
             let tree_gpu_view = world.get_resource::<OctreeGPUView>();
             if !self.ready {
@@ -101,7 +99,7 @@ impl render_graph::Node for ShocoVoxRenderNode {
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
-        let svx_pipeline = world.resource::<ShocoVoxRenderPipeline>();
+        let svx_pipeline = world.resource::<SvxRenderPipeline>();
 
         let command_encoder = render_context.command_encoder();
         if self.ready {
@@ -179,7 +177,7 @@ pub(crate) fn prepare_bind_groups(
     gpu_images: Res<RenderAssets<GpuImage>>,
     fallback_image: Res<FallbackImage>,
     render_device: Res<RenderDevice>,
-    mut pipeline: ResMut<ShocoVoxRenderPipeline>,
+    mut pipeline: ResMut<SvxRenderPipeline>,
     tree_gpu_view: ResMut<OctreeGPUView>,
 ) {
     pipeline.viewing_glass_bind_group = Some(
@@ -411,7 +409,7 @@ pub(crate) fn prepare_bind_groups(
         //##############################################################################
         // Create bind group
         let tree_bind_group = render_device.create_bind_group(
-            ShocoVoxRenderData::label(),
+            SvxRenderData::label(),
             &pipeline.render_data_bind_group_layout,
             &[
                 bevy::render::render_resource::BindGroupEntry {
