@@ -55,12 +55,20 @@ pub struct OctreeGPUView {
     pub(crate) data_handler: Arc<Mutex<OctreeGPUDataHandler>>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct VictimPointer {
+    pub(crate) max_meta_len: usize, //TODO: should be private to type
+    pub(crate) stored_items: usize,
+    pub(crate) meta_index: usize,
+    pub(crate) child: usize,
+}
+
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
     pub(crate) render_data: ShocoVoxRenderData,
-    pub(crate) victim_node_pointer: usize,
-    pub(crate) victim_brick_pointer: usize,
+    pub(crate) victim_node: VictimPointer,
+    pub(crate) victim_brick: VictimPointer,
     pub(crate) map_to_node_index_in_metadata: HashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) debug_gpu_interface: Option<Buffer>,
@@ -124,7 +132,7 @@ pub struct ShocoVoxRenderData {
     /// |---------------------------------------------------------------------|
     /// | each bit is 1 if voxel brick is used by the raytracing algorithm    |
     /// `=====================================================================`
-    /// *(1) Only first bit is used in case leaf is uniform
+    /// *(1) Only first bit is used in case uniform leaf nodes
     /// *(2) The same bit is used for node_children and node_occupied_bits
     /// *(3) One index in the array covers 8 bricks, which is the theoretical maximum
     ///      number of bricks for one node. In practice however the number of bricks
@@ -146,7 +154,7 @@ pub struct ShocoVoxRenderData {
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
     #[storage(3, visibility(compute))]
-    pub(crate) node_occupied_bits: Vec<u32>,
+    pub(crate) node_ocbits: Vec<u32>,
 
     /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
     /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.

@@ -25,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::types::OctreeGPUDataHandler;
+use super::types::{OctreeGPUDataHandler, VictimPointer};
 
 impl<T, const DIM: usize> Octree<T, DIM>
 where
@@ -82,9 +82,9 @@ where
                     ),
                 },
                 metadata: vec![0; size],
-                node_occupied_bits: vec![0; size * 2],
-                node_children: vec![0; size * 8],
-                color_palette: vec![Vec4::ZERO; size * 8 * (DIM * DIM * DIM)],
+                node_ocbits: vec![0; size * 2],
+                node_children: vec![empty_marker(); size * 8],
+                color_palette: vec![Vec4::ZERO; u16::MAX as usize],
                 voxels: vec![
                     Voxelement {
                         albedo_index: 0,
@@ -93,31 +93,33 @@ where
                     size * 8 * (DIM * DIM * DIM)
                 ],
             },
-            victim_node_pointer: 0,
-            victim_brick_pointer: 0,
+            victim_node: VictimPointer::new(size),
+            victim_brick: VictimPointer::new(size),
             map_to_color_index_in_palette: HashMap::new(),
             map_to_node_index_in_metadata: HashMap::new(),
         };
 
-        // Build up Nodes
-        gpu_data_handler.add_root_node_properties(&self);
-        for node_key in 0..self.nodes.len() {
-            if self.nodes.key_is_valid(node_key) && node_key != Self::ROOT_NODE_KEY as usize {
-                gpu_data_handler.add_node_properties(&self, node_key);
+        // Push root node and its contents
+        gpu_data_handler.add_node(&self, Self::ROOT_NODE_KEY as usize, true);
+        // +++ DEBUG +++
+
+        //Push additional nodes to try to overwrite existing ones
+        /*for node_key in 10..15 {
+            gpu_data_handler.add_node(&self, node_key, false);
+        }*/
+
+        //delete some random bricks from leaf nodes
+        for i in 15..20 {
+            if 0 != (gpu_data_handler.render_data.metadata[i] & 0x00000004) {
+                gpu_data_handler.render_data.node_children[i * 8 + 3] = empty_marker();
             }
         }
 
-        // Build up node content
-        for node_key in 0..self.nodes.len() {
-            if self.nodes.key_is_valid(node_key) {
-                gpu_data_handler.add_node_content(&self, node_key);
-            }
+        // reset used bits
+        for meta in gpu_data_handler.render_data.metadata.iter_mut() {
+            *meta &= 0x00FFFFFE;
         }
-
-        println!(
-            "Color palette size: {:?}",
-            gpu_data_handler.map_to_color_index_in_palette.keys().len()
-        );
+        // --- DEBUG ---
 
         let output_texture = create_output_texture(resolution, images);
         commands.insert_resource(OctreeGPUView {
@@ -133,45 +135,188 @@ where
     }
 }
 
-impl OctreeGPUDataHandler {
-    /// Provides with the first available index in the metadata buffer which can be overwritten
+//##############################################################################
+//  █████   █████ █████   █████████  ███████████ █████ ██████   ██████
+// ░░███   ░░███ ░░███   ███░░░░░███░█░░░███░░░█░░███ ░░██████ ██████
+//  ░███    ░███  ░███  ███     ░░░ ░   ░███  ░  ░███  ░███░█████░███
+//  ░███    ░███  ░███ ░███             ░███     ░███  ░███░░███ ░███
+//  ░░███   ███   ░███ ░███             ░███     ░███  ░███ ░░░  ░███
+//   ░░░█████░    ░███ ░░███     ███    ░███     ░███  ░███      ░███
+//     ░░███      █████ ░░█████████     █████    █████ █████     █████
+//      ░░░      ░░░░░   ░░░░░░░░░     ░░░░░    ░░░░░ ░░░░░     ░░░░░
+//  ███████████  ███████████ ███████████
+// ░░███░░░░░███░█░░░███░░░█░░███░░░░░███
+//  ░███    ░███░   ░███  ░  ░███    ░███
+//  ░██████████     ░███     ░██████████
+//  ░███░░░░░░      ░███     ░███░░░░░███
+//  ░███            ░███     ░███    ░███
+//  █████           █████    █████   █████
+// ░░░░░           ░░░░░    ░░░░░   ░░░░░
+//##############################################################################
+impl VictimPointer {
+    pub(crate) fn is_full(&self) -> bool {
+        self.stored_items >= (self.max_meta_len - 1)
+    }
+
+    pub(crate) fn new(max_meta_len: usize) -> Self {
+        Self {
+            max_meta_len,
+            stored_items: 0,
+            meta_index: 0,
+            child: 0,
+        }
+    }
+
+    pub(crate) fn step(&mut self) {
+        if self.child >= 7 {
+            self.skip_node();
+        } else {
+            self.child += 1;
+        }
+    }
+
+    pub(crate) fn skip_node(&mut self) {
+        if self.meta_index == 0 {
+            self.meta_index = self.max_meta_len - 1;
+        } else {
+            self.meta_index -= 1;
+        }
+        self.child = 0;
+    }
+
+    /// Provides the first available index in the metadata buffer which can be overwritten
     /// with node related information. It never returns with 0, because that is reserved for the root node,
     /// which should not be overwritten.
-    fn first_available_node(&mut self) -> usize {
-        let data_length = self.render_data.metadata.len();
-        for index in self.victim_node_pointer..data_length {
-            debug_assert_eq!(self.victim_node_pointer, index);
-            self.victim_node_pointer = (self.victim_node_pointer + 1) % data_length;
-            if 0 == (self.render_data.metadata[index] & 0x01) && 0 != self.victim_node_pointer {
-                // set the used bit of the element to 1, found a node to overwrite
-                self.render_data.metadata[index] |= 0x01;
-                return index;
-            } else {
-                // set the used bit of the element to zero, and continue the search
-                self.render_data.metadata[index] &= 0xFFFFFFFE;
-            }
+    fn first_available_node(&mut self, render_data: &mut ShocoVoxRenderData) -> usize {
+        // If there is space left in the cache, use it all up
+        if !self.is_full() {
+            render_data.metadata[self.stored_items] |= 0x01;
+            self.stored_items += 1;
+            return self.stored_items - 1;
         }
-        self.first_available_node()
+
+        //look for the next internal node ( with node children )
+        loop {
+            let child_node_index =
+                render_data.node_children[self.meta_index * 8 + self.child] as usize;
+
+            // child at target is not empty in a non-leaf node, which means
+            // the target child might point to an internal node if it's valid
+            if
+            // parent node has a child at target octant, which isn't invalidated
+            child_node_index != empty_marker() as usize
+                // parent node is not a leaf
+                && (0 == (render_data.metadata[self.meta_index] & 0x00000004))
+            {
+                let child_meta_index =
+                    render_data.node_children[self.meta_index * 8 + self.child] as usize;
+                if 0 == (render_data.metadata[child_meta_index] & 0x01) {
+                    //mark child as used
+                    render_data.metadata[child_meta_index] |= 0x01;
+
+                    //erase connection to parent node
+                    render_data.node_children[self.meta_index * 8 + self.child] = empty_marker();
+
+                    if
+                    // erased node is a leaf and it has children
+                    0 != (render_data.metadata[child_meta_index] & 0x00000004)
+                        && 0 != (render_data.metadata[child_meta_index] & 0x00FF0000)
+                    {
+                        // Since the node is deleted, if it has any stored bricks, those are freed up
+                        for octant in 0..8 {
+                            let brick_index =
+                                render_data.node_children[child_meta_index * 8 + octant] as usize;
+                            if
+                            // child is valid
+                            brick_index != empty_marker() as usize
+                            // child is not empty and not solid
+                            && 0 != (render_data.metadata[child_meta_index]
+                                & (0x01 << (8 + octant)))
+                                && 0 != (render_data.metadata[child_meta_index]
+                                    & (0x01 << (16 + octant)))
+                            {
+                                // mark brick unused
+                                render_data.metadata[brick_index / 8] &=
+                                    !(0x01 << (24 + (brick_index % 8)));
+                            }
+                        }
+                    }
+
+                    self.step();
+                    return child_meta_index;
+                } else {
+                    // mark child as unused
+                    render_data.metadata[child_meta_index] &= 0xFFFFFFFE;
+                }
+            }
+            self.step();
+        }
     }
 
-    fn first_available_brick(&mut self) -> usize {
-        let data_length = self.render_data.metadata.len() * 8;
-        for brick_index in self.victim_brick_pointer..data_length {
-            debug_assert_eq!(self.victim_brick_pointer, brick_index);
-            self.victim_brick_pointer = (self.victim_brick_pointer + 1) % data_length;
-            let brick_index_used_mask = 0x01 << (24 + (brick_index % 8));
-            if 0 == (self.render_data.metadata[brick_index / 8] & brick_index_used_mask) {
-                // set the used bit of the element to 1, found a node to overwrite
-                self.render_data.metadata[brick_index / 8] |= brick_index_used_mask;
-                return brick_index;
+    /// Finds the first available brick, and marks it as used
+    fn first_available_brick(&mut self, render_data: &mut ShocoVoxRenderData) -> usize {
+        let max_brick_count = render_data.metadata.len() * 8;
+
+        // If there is space left in the cache, use it all up
+        if self.stored_items < max_brick_count - 1 {
+            render_data.metadata[self.stored_items / 8] |= 0x01 << (24 + (self.stored_items % 8));
+            self.stored_items += 1;
+            return self.stored_items - 1;
+        }
+
+        // look for the next victim leaf node with bricks
+        loop {
+            let brick_index = render_data.node_children[self.meta_index * 8 + self.child] as usize;
+            if
+            // child at target is not empty
+            brick_index != empty_marker() as usize
+            //node is leaf
+            &&(0 != (render_data.metadata[self.meta_index] & 0x00000004))
+                && (
+                    // In case of uniform leaf nodes, only the first child might have a brick
+                    // So the node is either not uniform, or the target child points to 0
+                    (0 == render_data.metadata[self.meta_index] & 0x00000008)
+                    || (0 == self.child)
+                )
+                && (
+                    // node child is not empty, and parted at octant
+                    0 != (render_data.metadata[self.meta_index]
+                        & (0x01 << (8 + self.child)))
+                        && 0 != (render_data.metadata[self.meta_index]
+                            & (0x01 << (16 + self.child)))
+                )
+            {
+                let brick_used_mask = 0x01 << (24 + (brick_index % 8));
+                // if used bit for the brick is 0, it can be safely overwritten
+                if 0 == (render_data.metadata[brick_index / 8] & brick_used_mask) {
+                    // mark brick as used
+                    render_data.metadata[brick_index / 8] |= brick_used_mask;
+
+                    // erase connection of child brick to parent node
+                    render_data.node_children[self.meta_index * 8 + self.child] = empty_marker();
+
+                    // step victim pointer forward
+                    self.step();
+                    return brick_index;
+                }
+
+                // set the bricks used bit to 0 for the currently used brick
+                render_data.metadata[brick_index / 8] &= !brick_used_mask;
+            }
+            if
+            // node is not leaf
+            (0 == (render_data.metadata[self.meta_index] & 0x00000004))
+            // in case node is uniform, octant 0 should have been checked for vacancy already, so it is safe to skip to next leaf node
+            || (0 != (render_data.metadata[self.meta_index] & 0x00000008))
+            {
+                self.skip_node();
             } else {
-                // set the used bit of the element to zero, and continue the search
-                self.render_data.metadata[brick_index / 8] &= !brick_index_used_mask;
+                self.step();
             }
         }
-        self.first_available_brick()
     }
-
+}
+impl OctreeGPUDataHandler {
     //##############################################################################
     //  ██████████     █████████   ███████████   █████████
     // ░░███░░░░███   ███░░░░░███ ░█░░░███░░░█  ███░░░░░███
@@ -266,58 +411,36 @@ impl OctreeGPUDataHandler {
     //  █████  ░░█████ ░░░███████░   ██████████   ██████████
     // ░░░░░    ░░░░░    ░░░░░░░    ░░░░░░░░░░   ░░░░░░░░░░
     //##############################################################################
-
-    fn add_root_node_properties<T, const DIM: usize>(&mut self, tree: &Octree<T, DIM>)
-    where
-        T: Default + Copy + Clone + PartialEq + VoxelData,
-    {
-        let node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
-        self.map_to_node_index_in_metadata.insert(node_key, 0);
-        self.render_data.metadata[0] = Self::create_node_properties(tree.nodes.get(node_key));
-
-        // Update occupied bits
-        let occupied_bits = tree.stored_occupied_bits(node_key);
-        self.render_data.node_occupied_bits[0] = (occupied_bits & 0x00000000FFFFFFFF) as u32;
-        self.render_data.node_occupied_bits[1] =
-            ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32;
-    }
-
-    fn add_node_properties<T, const DIM: usize>(
+    fn add_node<T, const DIM: usize>(
         &mut self,
         tree: &Octree<T, DIM>,
         node_key: usize,
-    ) -> usize
-    where
+        try_add_children: bool,
+    ) where
         T: Default + Copy + Clone + PartialEq + VoxelData,
     {
-        debug_assert!(
-            tree.nodes.key_is_valid(node_key),
-            "Expected key({node_key}) to be valid inside tree!"
-        );
-        let element_index = self.first_available_node();
+        if try_add_children && self.victim_node.is_full() {
+            // Do not add additional nodes at initial upload if the cache is already full
+            return;
+        }
+
+        // Determine the index in meta
+        let node_element_index = self.victim_node.first_available_node(&mut self.render_data);
         self.map_to_node_index_in_metadata
-            .insert(node_key, element_index);
-        self.render_data.metadata[element_index] =
+            .insert(node_key, node_element_index);
+
+        // Add node properties to metadata
+        self.render_data.metadata[node_element_index] =
             Self::create_node_properties(tree.nodes.get(node_key));
 
-        // Update occupied bits
+        // Update occupancy in ocbits
         let occupied_bits = tree.stored_occupied_bits(node_key);
-        self.render_data.node_occupied_bits[element_index * 2] =
+        self.render_data.node_ocbits[node_element_index * 2] =
             (occupied_bits & 0x00000000FFFFFFFF) as u32;
-        self.render_data.node_occupied_bits[element_index * 2 + 1] =
+        self.render_data.node_ocbits[node_element_index * 2 + 1] =
             ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32;
-        element_index
-    }
 
-    fn add_node_content<T, const DIM: usize>(&mut self, tree: &Octree<T, DIM>, node_key: usize)
-    where
-        T: Default + Copy + Clone + PartialEq + VoxelData,
-    {
-        debug_assert!(
-            self.map_to_node_index_in_metadata.contains_key(&node_key),
-            "Trying to add content of node not in context of data handler"
-        );
-        let node_element_index = self.map_to_node_index_in_metadata[&node_key];
+        // Add node content
         match tree.nodes.get(node_key) {
             NodeContent::UniformLeaf(brick) => {
                 debug_assert!(
@@ -381,15 +504,20 @@ impl OctreeGPUDataHandler {
             }
             NodeContent::Internal(_) => {
                 for octant in 0..8 {
-                    let child_index = &tree.node_children[node_key][octant];
-                    if *child_index != empty_marker() {
-                        debug_assert!(self
-                            .map_to_node_index_in_metadata
-                            .contains_key(&(*child_index as usize)));
-                        let child_index_in_metadata =
-                            self.map_to_node_index_in_metadata[&(*child_index as usize)];
+                    let child_key = tree.node_children[node_key][octant] as usize;
+                    if child_key != empty_marker() as usize {
+                        if try_add_children
+                            && !self.map_to_node_index_in_metadata.contains_key(&child_key)
+                        {
+                            self.add_node(tree, child_key, try_add_children);
+                        }
+
                         self.render_data.node_children[node_element_index * 8 + octant as usize] =
-                            child_index_in_metadata as u32;
+                            *self
+                                .map_to_node_index_in_metadata
+                                .get(&child_key)
+                                .unwrap_or(&(empty_marker() as usize))
+                                as u32;
                     } else {
                         self.render_data.node_children[node_element_index * 8 + octant as usize] =
                             empty_marker();
@@ -458,8 +586,9 @@ impl OctreeGPUDataHandler {
                 (self.map_to_color_index_in_palette[&albedo] as u32, false)
             }
             BrickData::Parted(brick) => {
-                let brick_index = self.first_available_brick();
-                println!("first first_available_brick: {:?}", brick_index);
+                let brick_index = self
+                    .victim_brick
+                    .first_available_brick(&mut self.render_data);
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
@@ -551,7 +680,7 @@ pub(crate) fn handle_gpu_readback(
                 buffer_slice.map_async(bevy::render::render_resource::MapMode::Read, move |d| {
                     match d {
                         Ok(_) => s.send(()).expect("Failed to send map update"),
-                        Err(err) => println!("Something's wrong: {err}"),
+                        Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
                     }
                 });
 

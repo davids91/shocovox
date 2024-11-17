@@ -344,9 +344,7 @@ pub(crate) fn prepare_bind_groups(
         }
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer
-            .write(&data_handler.render_data.node_occupied_bits)
-            .unwrap();
+        buffer.write(&data_handler.render_data.node_ocbits).unwrap();
         if let Some(ocbits_buffer) = &pipeline.node_ocbits_buffer {
             pipeline
                 .render_queue

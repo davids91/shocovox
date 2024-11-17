@@ -405,14 +405,20 @@ fn probe_brick(
     ray_scale_factors: ptr<function, vec3f>,
     direction_lut_index: u32,
 ) -> OctreeRayIntersection {
-    let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
-    // +++ DEBUG +++
-    //set_brick_used(brick_index);
-    if(0 == debug_interface){
-        set_brick_used(brick_index);
-    }
-    // --- DEBUG ---
     if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
+        let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
+
+        // Brick not available in memory
+        if EMPTY_MARKER == brick_index {
+            return OctreeRayIntersection(true, vec4f(0.5,0.6,0.2,1.), 0, vec3f(0.), vec3f(0., 0., 1.));
+        }
+
+        // +++ DEBUG +++
+        //set_brick_used(brick_index);
+        if(0 == debug_interface){
+            set_brick_used(brick_index);
+        }
+        // --- DEBUG ---
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
@@ -509,6 +515,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var current_node_meta = 0u;
     var target_octant = OOB_OCTANT;
     var step_vec = vec3f(0.);
+    var missing_data_color = vec3f(0.);
 
     let root_intersect = cube_intersect_ray(current_bounds, ray);
     if(root_intersect.hit){
@@ -523,7 +530,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     /*// +++ DEBUG +++
     var outer_safety = 0;
     */// --- DEBUG ---
-    set_node_used(OCTREE_ROOT_NODE_KEY);
     while target_octant != OOB_OCTANT {
         /*// +++ DEBUG +++
         outer_safety += 1;
@@ -549,8 +555,18 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 );
             }
             */// --- DEBUG ---
-            var target_bounds: Cube;
             var do_backtrack_after_leaf_miss = false;
+            var target_child_key = node_children[(current_node_key * 8) + target_octant];
+            var target_bounds = child_bounds_for(&current_bounds, target_octant);
+            var bitmap_pos_in_node = clamp(
+                (
+                    point_in_ray_at_distance(ray, ray_current_distance)
+                    - current_bounds.min_position
+                ) * 4. / current_bounds.size,
+                vec3f(FLOAT_ERROR_TOLERANCE),
+                vec3f(4. - FLOAT_ERROR_TOLERANCE)
+            );
+
             if (target_octant != OOB_OCTANT) {
                 if(0 != (0x00000004 & current_node_meta)) { // node is leaf
                     var hit: OctreeRayIntersection;
@@ -560,9 +576,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                             current_node_key, 0u, &current_bounds,
                             &ray_scale_factors, direction_lut_index
                         );
-                        if hit.hit == true {
-                            return hit;
-                        }
                         do_backtrack_after_leaf_miss = true;
                     } else { // node is a non-uniform leaf
                         target_bounds = child_bounds_for(&current_bounds, target_octant);
@@ -572,21 +585,32 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                             &target_bounds,
                             &ray_scale_factors, direction_lut_index
                         );
-                        if hit.hit == true {
-                            return hit;
-                        }
+                    }
+                    if hit.hit == true {
+                        hit.albedo += vec4f(missing_data_color, 0.);
+                        return hit;
                     }
                 }
             }
 
-            var bitmap_pos_in_node = clamp(
-                (
-                    point_in_ray_at_distance(ray, ray_current_distance)
-                    - current_bounds.min_position
-                ) * 4. / current_bounds.size,
-                vec3f(FLOAT_ERROR_TOLERANCE),
-                vec3f(4. - FLOAT_ERROR_TOLERANCE)
-            );
+            if( // In case node doesn't yet have the relevant child node uploaded to GPU
+                (0 == (0x00000004 & current_node_meta)) // node is not a leaf
+                && target_octant != OOB_OCTANT
+                && target_child_key >= arrayLength(&metadata) // target child key is invalid
+                && ( // node is occupied at target octant
+                    0 != (
+                        BITMAP_MASK_FOR_OCTANT_LUT[target_octant][0]
+                        & node_occupied_bits[current_node_key * 2]
+                    )
+                    || 0 != (
+                        BITMAP_MASK_FOR_OCTANT_LUT[target_octant][1]
+                        & node_occupied_bits[current_node_key * 2 + 1]
+                    )
+                )
+            ){
+                missing_data_color += vec3f(0.3,0.2,0.0);
+            }
+
             if( do_backtrack_after_leaf_miss
                 || target_octant == OOB_OCTANT
                 || EMPTY_MARKER == current_node_key // Guards statements in other conditions, but should never happen
@@ -636,9 +660,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 }
                 continue;
             }
-
-            target_bounds = child_bounds_for(&current_bounds, target_octant);
-            var target_child_key = node_children[(current_node_key * 8) + target_octant];
             if (
                 (
                     0 == (0x00000004 & current_node_meta) // node is not a leaf
@@ -753,7 +774,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             target_octant = OOB_OCTANT;
         }
     } // while (ray inside root bounds)
-    return OctreeRayIntersection(false, vec4f(0.), 0, vec3f(0.), vec3f(0., 0., 1.));
+    return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), 0, vec3f(0.), vec3f(0., 0., 1.));
 }
 
 struct Voxelement {
@@ -849,6 +870,8 @@ fn update(
                 dot(ray_result.impact_normal, vec3f(-0.5,0.5,-0.5)) / 2. + 0.5
             )
         ).rgb;
+    } else {
+        rgb_result = (rgb_result + ray_result.albedo.rgb) / 2.;
     }
 
     /*// +++ DEBUG +++
@@ -870,7 +893,7 @@ fn update(
                 rgb_result.b = 1.;
             }
         }
-        //rgb_result.b += 0.1; // Also color in the area of the octree
+        rgb_result.b += 0.1; // Also color in the area of the octree
     }
     */// --- DEBUG ---
     textureStore(output_texture, vec2u(invocation_id.xy), vec4f(rgb_result, 1.));
@@ -926,6 +949,18 @@ var<private> BITMAP_INDEX_LUT: array<array<array<u32, 4>, 4>, 4> = array<array<a
         array<u32, 4>(11,27,43,59,),
         array<u32, 4>(15,31,47,63,),
     ),
+);
+
+//crate::spatial::math::mask_for_octant_64_bits
+var<private> BITMAP_MASK_FOR_OCTANT_LUT: array<array<u32, 2>, 8> = array<array<u32, 2>, 8>(
+    array<u32, 2>(0x00330033u,0x00000000u),
+    array<u32, 2>(0x00CC00CCu,0x00000000u),
+    array<u32, 2>(0x00000000u,0x00330033u),
+    array<u32, 2>(0x00000000u,0x00CC00CCu),
+    array<u32, 2>(0x33003300u,0x00000000u),
+    array<u32, 2>(0xCC00CC00u,0x00000000u),
+    array<u32, 2>(0x00000000u,0x33003300u),
+    array<u32, 2>(0x00000000u,0xCC00CC00u),
 );
 
 // Note: should be const
