@@ -98,11 +98,6 @@ where
         gpu_data_handler.add_node(&self, Self::ROOT_NODE_KEY as usize, true);
         // +++ DEBUG +++
 
-        //Push additional nodes to try to overwrite existing ones
-        /*for node_key in 10..15 {
-            gpu_data_handler.add_node(&self, node_key, false);
-        }*/
-
         //delete some random bricks from leaf nodes
         for i in 15..20 {
             if 0 != (gpu_data_handler.render_data.metadata[i] & 0x00000004) {
@@ -114,6 +109,7 @@ where
         for meta in gpu_data_handler.render_data.metadata.iter_mut() {
             *meta &= 0x00FFFFFE;
         }
+
         // --- DEBUG ---
 
         let output_texture = create_output_texture(resolution, images);
