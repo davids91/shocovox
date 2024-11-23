@@ -275,8 +275,27 @@ fn set_brick_used(brick_index: u32) {
     }
 }
 
-fn request_node(node: u32, child_octant: u32){
-
+// Unique to this implementation, not adapted from rust code
+/// Requests the child of the given node to be uploaded
+fn request_node(node_meta_index: u32, child_octant: u32) -> bool {
+    let request_data = (
+        (node_meta_index & 0x00FFFFFFu)
+        | ((child_octant & 0x000000FF) << 24)
+    );
+    var request_index = 0u;
+    loop{
+        let exchange_result = atomicCompareExchangeWeak(
+            &node_requests[request_index], 0u, request_data
+        );
+        if(exchange_result.exchanged || exchange_result.old_value == request_data) {
+            break;
+        }
+        request_index += 1u;
+        if(request_index >= arrayLength(&node_requests)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 //crate::spatial::math::step_octant
@@ -399,18 +418,7 @@ fn probe_brick(
 ) -> OctreeRayIntersection {
     if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
         let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
-
-        // Brick not available in memory
-        if EMPTY_MARKER == brick_index {
-            return OctreeRayIntersection(true, vec4f(0.5,0.6,0.2,1.), 0, vec3f(0.), vec3f(0., 0., 1.));
-        }
-
-        // +++ DEBUG +++
-        //set_brick_used(brick_index);
-        if(0 == debug_interface){
-            set_brick_used(brick_index);
-        }
-        // --- DEBUG ---
+        set_brick_used(brick_index);
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
@@ -427,51 +435,7 @@ fn probe_brick(
                 brick_bounds, ray_scale_factors, direction_lut_index
             );
             if leaf_brick_hit.hit == true {
-
-                /// +++ DEBUG +++
-                /*// Color in bricks displayed
-                var result_rgb = color_palette[voxels[leaf_brick_hit.flat_index].albedo_index];
-                if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) {
-                    result_rgb.r += 0.2;
-                }
                 return OctreeRayIntersection(
-                    true,
-                    result_rgb,
-                    voxels[leaf_brick_hit.flat_index].content,
-                    point_in_ray_at_distance(ray, *ray_current_distance),
-                    cube_impact_normal(
-                        Cube(
-                            (*brick_bounds).min_position + (
-                                vec3f(leaf_brick_hit.index)
-                                * round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim))
-                            ),
-                            round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim)),
-                        ),
-                        point_in_ray_at_distance(ray, *ray_current_distance)
-                    )
-                );*/
-
-                // Display marked bricks only
-                if 0 != ( metadata[brick_index / 8] & (0x01u << (24u + (brick_index % 8u))) ) {
-                    return OctreeRayIntersection(
-                        true,
-                        color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
-                        voxels[leaf_brick_hit.flat_index].content,
-                        point_in_ray_at_distance(ray, *ray_current_distance),
-                        cube_impact_normal(
-                            Cube(
-                                (*brick_bounds).min_position + (
-                                    vec3f(leaf_brick_hit.index)
-                                    * round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim))
-                                ),
-                                round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim)),
-                            ),
-                            point_in_ray_at_distance(ray, *ray_current_distance)
-                        )
-                    );
-                }
-
-                /*return OctreeRayIntersection(
                     true,
                     color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
                     voxels[leaf_brick_hit.flat_index].content,
@@ -487,7 +451,6 @@ fn probe_brick(
                         point_in_ray_at_distance(ray, *ray_current_distance)
                     )
                 );
-                *//// --- DEBUG ---
             }
         }
     }
@@ -495,13 +458,16 @@ fn probe_brick(
     return OctreeRayIntersection(false, vec4f(0.), 0, vec3f(0.), vec3f(0., 0., 1.));
 }
 
+// Unique to this implementation, not adapted from rust code
+/// Traverses the node to provide information about how the occupied bits of the node
+/// and the given ray collides. The higher the number, the closer the hit is.
 fn traverse_node_for_ocbits(
     ray: ptr<function, Line>,
     ray_current_distance: ptr<function,f32>,
     node_key: u32,
     node_bounds: ptr<function, Cube>,
     ray_scale_factors: ptr<function, vec3f>,
-) -> vec3f {
+) -> f32 {
     let original_distance = *ray_current_distance;
 
     var position = vec3f(
@@ -524,7 +490,7 @@ fn traverse_node_for_ocbits(
     );
 
     var safety = 0u;
-    var rgb_result = vec3f(0.);
+    var result = 0.;
     loop {
         if safety > 10 || current_index.x < 0 || current_index.x >= 4
             || current_index.y < 0 || current_index.y >= 4
@@ -539,22 +505,15 @@ fn traverse_node_for_ocbits(
         if (
             (
                 (bitmap_index < 32)
-                && (
-                    0u != (node_occupied_bits[node_key * 2]
+                && (0u != (node_occupied_bits[node_key * 2]
                             & (0x01u << bitmap_index) ))
             )||(
                 (bitmap_index >= 32)
-                && (
-                    0u != (node_occupied_bits[node_key * 2 + 1]
-                            & (0x01u << (bitmap_index - 32))
-                        ))
+                && (0u != (node_occupied_bits[node_key * 2 + 1]
+                            & (0x01u << (bitmap_index - 32)) ))
             )
         ){
-            rgb_result = vec3f(
-                1. - (f32(safety) * 0.25),
-                1. - (f32(safety) * 0.25),
-                1. - (f32(safety) * 0.25)
-            );
+            result = 1. - (f32(safety) * 0.25);
             break;
         }
 
@@ -570,7 +529,7 @@ fn traverse_node_for_ocbits(
     }
 
     *ray_current_distance = original_distance;
-    return rgb_result;
+    return result;
 }
 
 fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
@@ -638,7 +597,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             );
 
             if(
-                // In case node doesn't yet have the relevant child node uploaded to GPU
+                // In case node doesn't yet have the target child node uploaded to GPU
                 (0 == (0x00000004 & current_node_meta)) // node is not a leaf
                 && target_octant != OOB_OCTANT
                 && target_child_key == EMPTY_MARKER // target child key is invalid
@@ -653,16 +612,29 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     )
                 )
             ){
-                missing_data_color += (
-                    vec3f(0.5,0.3,0.0) *
-                    traverse_node_for_ocbits(
-                        ray,
-                        &ray_current_distance,
-                        current_node_key,
-                        &current_bounds,
-                        &ray_scale_factors
-                    )
-                );
+                if request_node(current_node_key, target_octant) {
+                    missing_data_color += (
+                        vec3f(0.5,0.3,0.0) *
+                        vec3f(traverse_node_for_ocbits(
+                            ray,
+                            &ray_current_distance,
+                            current_node_key,
+                            &current_bounds,
+                            &ray_scale_factors
+                        ))
+                    );
+                } else {
+                    missing_data_color += (
+                        vec3f(0.7,0.2,0.0) *
+                        vec3f(traverse_node_for_ocbits(
+                            ray,
+                            &ray_current_distance,
+                            current_node_key,
+                            &current_bounds,
+                            &ray_scale_factors
+                        ))
+                    );
+                }
             }
 
             if (target_octant != OOB_OCTANT) {
@@ -676,13 +648,25 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         );
                         do_backtrack_after_leaf_miss = true;
                     } else { // node is a non-uniform leaf
-                        target_bounds = child_bounds_for(&current_bounds, target_octant);
-                        hit = probe_brick(
-                            ray, &ray_current_distance,
-                            current_node_key, target_octant,
-                            &target_bounds,
-                            &ray_scale_factors, direction_lut_index
-                        );
+                        if // node not empty at target octant, while the brick is marked unavailable
+                            (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
+                            && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
+                        {
+                            // child brick is not yet uploaded to GPU
+                            if request_node(current_node_key, target_octant) {
+                                missing_data_color += vec3f(0.3,0.1,0.0);
+                            } else {
+                                missing_data_color += vec3f(0.7,0.0,0.0);
+                            }
+                        } else {
+                            target_bounds = child_bounds_for(&current_bounds, target_octant);
+                            hit = probe_brick(
+                                ray, &ray_current_distance,
+                                current_node_key, target_octant,
+                                &target_bounds,
+                                &ray_scale_factors, direction_lut_index
+                            );
+                        }
                     }
                     if hit.hit == true {
                         hit.albedo += vec4f(missing_data_color, 0.);
@@ -892,6 +876,9 @@ var output_texture: texture_storage_2d<rgba8unorm, read_write>;
 
 @group(0) @binding(1)
 var<uniform> viewport: Viewport;
+
+@group(0) @binding(2)
+var<storage, read_write> node_requests: array<atomic<u32>>;
 
 @group(1) @binding(0)
 var<uniform> octree_meta_data: OctreeMetaData;

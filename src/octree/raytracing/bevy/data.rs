@@ -133,6 +133,7 @@ where
             do_the_thing: false,
             data_handler: Arc::new(Mutex::new(gpu_data_handler)),
             spyglass: OctreeSpyGlass {
+                node_requests: vec![0; 4],
                 output_texture: output_texture.clone(),
                 viewport: viewport,
             },
@@ -175,23 +176,49 @@ pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
 //  █████   █████ ██████████ █████   █████ ██████████
 // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░ ░░░░░░░░░░
 //##############################################################################
+/// Handles data reads from GPU every loop.
+/// Based on https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
 pub(crate) fn handle_gpu_readback(
     render_device: Res<RenderDevice>,
     tree_gpu_view: Option<ResMut<OctreeGPUView>>,
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
-    // Data updates triggered by debug interface
     if let (Some(ref mut tree_gpu_view), Some(ref mut pipeline)) = (tree_gpu_view, svx_pipeline) {
+        let resources = pipeline.resources.as_ref().unwrap();
+        let mut data_handler = tree_gpu_view.data_handler.lock().unwrap();
+
+        // Read node requests from GPU
+        let buffer_slice = resources.readable_node_requests_buffer.slice(..);
+        let (s, r) = crossbeam::channel::unbounded::<()>();
+        buffer_slice.map_async(
+            bevy::render::render_resource::MapMode::Read,
+            move |d| match d {
+                Ok(_) => s.send(()).expect("Failed to send map update"),
+                Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
+            },
+        );
+
+        render_device
+            .poll(bevy::render::render_resource::Maintain::wait())
+            .panic_on_timeout();
+
+        r.recv().expect("Failed to receive the map_async message");
+        {
+            let buffer_view = buffer_slice.get_mapped_range();
+
+            let data = buffer_view
+                .chunks(std::mem::size_of::<u32>())
+                .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+                .collect::<Vec<u32>>();
+            // println!("node_requests: {:?}", data);
+        }
+        resources.readable_node_requests_buffer.unmap();
+
+        // +++ DEBUG +++
+        // Data updates triggered by debug interface
         if tree_gpu_view.do_the_thing {
-            let mut data_handler = tree_gpu_view.data_handler.lock().unwrap();
-            // GPU buffer read
             // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
-            let buffer_slice = pipeline
-                .resources
-                .as_ref()
-                .unwrap()
-                .readable_debug_gpu_interface
-                .slice(..);
+            let buffer_slice = resources.readable_debug_gpu_interface.slice(..);
             let (s, r) = crossbeam::channel::unbounded::<()>();
             buffer_slice.map_async(
                 bevy::render::render_resource::MapMode::Read,
@@ -216,15 +243,11 @@ pub(crate) fn handle_gpu_readback(
                 data_handler.read_back = data[0];
                 // println!("received_data: {:?}", data);
             }
-            pipeline
-                .resources
-                .as_ref()
-                .unwrap()
-                .readable_debug_gpu_interface
-                .unmap();
+            resources.readable_debug_gpu_interface.unmap();
             std::mem::drop(data_handler);
             tree_gpu_view.do_the_thing = false;
         }
+        // --- DEBUG ---
     }
 }
 

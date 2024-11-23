@@ -84,6 +84,29 @@ pub struct OctreeGPUDataHandler {
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
 }
 
+#[derive(Clone)]
+pub(crate) struct OctreeRenderDataResources {
+    // Spyglass group
+    pub(crate) spyglass_bind_group: BindGroup,
+    pub(crate) viewport_buffer: Buffer,
+    pub(crate) node_requests_buffer: Buffer,
+
+    // Octree render data group
+    pub(crate) tree_bind_group: BindGroup,
+    pub(crate) octree_meta_buffer: Buffer,
+    pub(crate) metadata_buffer: Buffer,
+    pub(crate) node_children_buffer: Buffer,
+    pub(crate) node_ocbits_buffer: Buffer,
+    pub(crate) voxels_buffer: Buffer,
+    pub(crate) color_palette_buffer: Buffer,
+    pub(crate) debug_gpu_interface: Buffer,
+
+    // Staging buffers for data reads
+    pub(crate) readable_node_requests_buffer: Buffer,
+    pub(crate) readable_metadata_buffer: Buffer,
+    pub(crate) readable_debug_gpu_interface: Buffer,
+}
+
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
 pub struct OctreeSpyGlass {
@@ -92,23 +115,9 @@ pub struct OctreeSpyGlass {
 
     #[uniform(1, visibility(compute))]
     pub viewport: Viewport,
-}
 
-#[derive(Clone)]
-pub(crate) struct OctreeRenderDataResources {
-    pub(crate) spyglass_bind_group: BindGroup,
-    pub(crate) tree_bind_group: BindGroup,
-
-    pub(crate) viewport_buffer: Buffer,
-    pub(crate) octree_meta_buffer: Buffer,
-    pub(crate) metadata_buffer: Buffer,
-    pub(crate) readable_metadata_buffer: Buffer,
-    pub(crate) node_children_buffer: Buffer,
-    pub(crate) node_ocbits_buffer: Buffer,
-    pub(crate) voxels_buffer: Buffer,
-    pub(crate) color_palette_buffer: Buffer,
-    pub(crate) debug_gpu_interface: Buffer,
-    pub(crate) readable_debug_gpu_interface: Buffer,
+    #[storage(2, visibility(compute))]
+    pub(crate) node_requests: Vec<u32>,
 }
 
 #[derive(Clone, AsBindGroup, TypePath)]
