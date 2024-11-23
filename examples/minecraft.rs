@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::WindowPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
+    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
     Albedo, Octree, V3c, VoxelData,
 };
 
@@ -19,15 +19,6 @@ const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
 const BRICK_DIMENSION: usize = 32;
-
-#[cfg(feature = "bevy_wgpu")]
-#[derive(Resource)]
-struct TreeResource<T, const DIM: usize>
-where
-    T: Default + Clone + PartialEq + VoxelData,
-{
-    tree: Octree<T, DIM>,
-}
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -79,7 +70,8 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         radius: tree.get_size() as f32 * 2.2,
     });
 
-    let output_texture = tree.create_new_gpu_view(
+    let host = OctreeGPUHost::new(tree);
+    let output_texture = host.create_new_view(
         20,
         Viewport {
             origin: V3c {
@@ -98,7 +90,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         &mut commands,
         images,
     );
-
+    commands.insert_resource(host);
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),
@@ -108,8 +100,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         ..default()
     });
     commands.spawn(Camera2dBundle::default());
-    commands.insert_resource(TreeResource { tree });
-
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -142,13 +132,13 @@ fn rotate_camera(angles_query: Query<&mut DomePosition>, mut tree_view: ResMut<O
     let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
     let radius = angles_query.single().radius;
 
-    tree_view.viewing_glass.viewport.origin = V3c::new(
+    tree_view.spyglass.viewport.origin = V3c::new(
         radius / 2. + yaw.sin() * radius,
         radius + roll.sin() * radius * 2.,
         radius / 2. + yaw.cos() * radius,
     );
-    tree_view.viewing_glass.viewport.direction =
-        (V3c::unit(radius / 2.) - tree_view.viewing_glass.viewport.origin).normalized();
+    tree_view.spyglass.viewport.direction =
+        (V3c::unit(radius / 2.) - tree_view.spyglass.viewport.origin).normalized();
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -156,7 +146,7 @@ fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
     mut tree_view: ResMut<OctreeGPUView>,
     mut angles_query: Query<&mut DomePosition>,
-    tree: Res<TreeResource<Albedo, BRICK_DIMENSION>>,
+    tree: Res<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
 ) {
     if keys.pressed(KeyCode::Delete) {
         tree_view.do_the_thing = true;
@@ -177,17 +167,16 @@ fn handle_zoom(
         // Render the current view with CPU
         let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction
-            .cross(tree_view.viewing_glass.viewport.direction)
+            .cross(tree_view.spyglass.viewport.direction)
             .normalized();
         let pixel_width =
-            tree_view.viewing_glass.viewport.w_h_fov.x as f32 / DISPLAY_RESOLUTION[0] as f32;
+            tree_view.spyglass.viewport.w_h_fov.x as f32 / DISPLAY_RESOLUTION[0] as f32;
         let pixel_height =
-            tree_view.viewing_glass.viewport.w_h_fov.y as f32 / DISPLAY_RESOLUTION[1] as f32;
-        let viewport_bottom_left = tree_view.viewing_glass.viewport.origin
-            + (tree_view.viewing_glass.viewport.direction
-                * tree_view.viewing_glass.viewport.w_h_fov.z)
-            - (viewport_up_direction * (tree_view.viewing_glass.viewport.w_h_fov.y / 2.))
-            - (viewport_right_direction * (tree_view.viewing_glass.viewport.w_h_fov.x / 2.));
+            tree_view.spyglass.viewport.w_h_fov.y as f32 / DISPLAY_RESOLUTION[1] as f32;
+        let viewport_bottom_left = tree_view.spyglass.viewport.origin
+            + (tree_view.spyglass.viewport.direction * tree_view.spyglass.viewport.w_h_fov.z)
+            - (viewport_up_direction * (tree_view.spyglass.viewport.w_h_fov.y / 2.))
+            - (viewport_right_direction * (tree_view.spyglass.viewport.w_h_fov.x / 2.));
 
         // define light
         let diffuse_light_normal = V3c::new(0., -1., 1.).normalized();
@@ -205,8 +194,8 @@ fn handle_zoom(
                     + viewport_right_direction * x as f32 * pixel_width
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
-                    origin: tree_view.viewing_glass.viewport.origin,
-                    direction: (glass_point - tree_view.viewing_glass.viewport.origin).normalized(),
+                    origin: tree_view.spyglass.viewport.origin,
+                    direction: (glass_point - tree_view.spyglass.viewport.origin).normalized(),
                 };
 
                 use std::io::Write;
@@ -250,11 +239,9 @@ fn handle_zoom(
     }
     if keys.pressed(KeyCode::ArrowLeft) {
         angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, ADDITION);
-        // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::ArrowRight) {
         angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, -ADDITION);
-        // println!("viewport: {:?}", viewing_glass.viewport);
     }
     if keys.pressed(KeyCode::PageUp) {
         angles_query.single_mut().radius *= 1. - 0.02 * multiplier;
@@ -263,12 +250,12 @@ fn handle_zoom(
         angles_query.single_mut().radius *= 1. + 0.02 * multiplier;
     }
     if keys.pressed(KeyCode::Home) {
-        tree_view.viewing_glass.viewport.w_h_fov.x *= 1. + 0.09 * multiplier;
-        tree_view.viewing_glass.viewport.w_h_fov.y *= 1. + 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.x *= 1. + 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.y *= 1. + 0.09 * multiplier;
     }
     if keys.pressed(KeyCode::End) {
-        tree_view.viewing_glass.viewport.w_h_fov.x *= 1. - 0.09 * multiplier;
-        tree_view.viewing_glass.viewport.w_h_fov.y *= 1. - 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.x *= 1. - 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.y *= 1. - 0.09 * multiplier;
     }
 }
 

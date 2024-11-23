@@ -409,8 +409,6 @@ where
                 )?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
                 Ok(Self {
-                    #[cfg(feature = "bevy_wgpu")]
-                    views: Vec::new(),
                     auto_simplify,
                     octree_size: root_size,
                     nodes,

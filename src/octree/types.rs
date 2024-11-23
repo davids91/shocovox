@@ -88,9 +88,6 @@ where
     pub(crate) octree_size: u32,
     pub(crate) nodes: ObjectPool<NodeContent<T, DIM>>,
     pub(crate) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
-
-    #[cfg(feature = "bevy_wgpu")]
-    pub(crate) views: Vec<Arc<OctreeGPUDataHandler>>,
 }
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]

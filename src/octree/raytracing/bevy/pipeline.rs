@@ -1,5 +1,5 @@
 use crate::octree::raytracing::bevy::types::{
-    OctreeGPUView, SvxRenderData, SvxRenderNode, SvxRenderPipeline, SvxViewingGlass,
+    OctreeGPUView, OctreeRenderData, OctreeSpyGlass, SvxRenderNode, SvxRenderPipeline,
 };
 
 use bevy::{
@@ -14,7 +14,7 @@ use bevy::{
         render_resource::{
             encase::{StorageBuffer, UniformBuffer},
             AsBindGroup, BufferDescriptor, BufferInitDescriptor, BufferUsages, CachedPipelineState,
-            ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
+            ComputePassDescriptor, ComputePipelineDescriptor, OwnedBindingResource, PipelineCache,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{FallbackImage, GpuImage},
@@ -22,13 +22,13 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use super::types::OctreeGPUDataHandler;
+use super::types::OctreeRenderDataResources;
 
 impl FromWorld for SvxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
-        let viewing_glass_bind_group_layout = SvxViewingGlass::bind_group_layout(render_device);
-        let render_data_bind_group_layout = SvxRenderData::bind_group_layout(render_device);
+        let spyglass_bind_group_layout = OctreeSpyGlass::bind_group_layout(render_device);
+        let render_data_bind_group_layout = OctreeRenderData::bind_group_layout(render_device);
         let shader = world
             .resource::<AssetServer>()
             .load("shaders/viewport_render.wgsl");
@@ -36,7 +36,7 @@ impl FromWorld for SvxRenderPipeline {
         let update_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: None,
             layout: vec![
-                viewing_glass_bind_group_layout.clone(),
+                spyglass_bind_group_layout.clone(),
                 render_data_bind_group_layout.clone(),
             ],
             push_constant_ranges: Vec::new(),
@@ -46,21 +46,12 @@ impl FromWorld for SvxRenderPipeline {
         });
 
         SvxRenderPipeline {
-            tree_data_handler: None,
             render_queue: world.resource::<RenderQueue>().clone(),
-            octree_meta_buffer: None,
-            metadata_buffer: None,
-            node_children_buffer: None,
-            node_ocbits_buffer: None,
-            voxels_buffer: None,
-            color_palette_buffer: None,
-            readable_metadata_buffer: None,
             update_tree: true,
-            viewing_glass_bind_group_layout,
+            spyglass_bind_group_layout,
             render_data_bind_group_layout,
             update_pipeline,
-            viewing_glass_bind_group: None,
-            tree_bind_group: None,
+            resources: None,
         }
     }
 }
@@ -109,10 +100,14 @@ impl render_graph::Node for SvxRenderNode {
 
                 pass.set_bind_group(
                     0,
-                    svx_pipeline.viewing_glass_bind_group.as_ref().unwrap(),
+                    &svx_pipeline.resources.as_ref().unwrap().spyglass_bind_group,
                     &[],
                 );
-                pass.set_bind_group(1, svx_pipeline.tree_bind_group.as_ref().unwrap(), &[]);
+                pass.set_bind_group(
+                    1,
+                    &svx_pipeline.resources.as_ref().unwrap().tree_bind_group,
+                    &[],
+                );
                 let pipeline = pipeline_cache
                     .get_compute_pipeline(svx_pipeline.update_pipeline)
                     .unwrap();
@@ -125,19 +120,25 @@ impl render_graph::Node for SvxRenderNode {
             }
 
             command_encoder.copy_buffer_to_buffer(
-                svx_pipeline.metadata_buffer.as_ref().unwrap(),
+                &svx_pipeline.resources.as_ref().unwrap().metadata_buffer,
                 0,
-                svx_pipeline.readable_metadata_buffer.as_ref().unwrap(),
+                &svx_pipeline
+                    .resources
+                    .as_ref()
+                    .unwrap()
+                    .readable_metadata_buffer,
                 0,
                 std::mem::size_of::<u32>() as u64,
             );
             // +++ DEBUG +++
-            let tree_gpu_view = world.resource::<OctreeGPUView>();
-            let data_handler = tree_gpu_view.data_handler.lock().unwrap();
             command_encoder.copy_buffer_to_buffer(
-                data_handler.debug_gpu_interface.as_ref().unwrap(),
+                &svx_pipeline.resources.as_ref().unwrap().debug_gpu_interface,
                 0,
-                data_handler.readable_debug_gpu_interface.as_ref().unwrap(),
+                &svx_pipeline
+                    .resources
+                    .as_ref()
+                    .unwrap()
+                    .readable_debug_gpu_interface,
                 0,
                 std::mem::size_of::<u32>() as u64,
             )
@@ -180,327 +181,209 @@ pub(crate) fn prepare_bind_groups(
     mut pipeline: ResMut<SvxRenderPipeline>,
     tree_gpu_view: ResMut<OctreeGPUView>,
 ) {
-    pipeline.viewing_glass_bind_group = Some(
-        tree_gpu_view
-            .viewing_glass
-            .as_bind_group(
-                &pipeline.viewing_glass_bind_group_layout,
-                &render_device,
-                &gpu_images,
-                &fallback_image,
-            )
-            .ok()
-            .unwrap()
-            .bind_group,
-    );
+    if pipeline.resources.is_some() && !pipeline.update_tree {
+        return;
+    }
 
-    if pipeline.update_tree {
-        let mut data_handler = tree_gpu_view.data_handler.lock().unwrap();
-
-        // Create the staging buffer helping in reading data from the GPU
-        //##############################################################################
-        //    █████████  ███████████  █████  █████
-        //   ███░░░░░███░░███░░░░░███░░███  ░░███
-        //  ███     ░░░  ░███    ░███ ░███   ░███
-        // ░███          ░██████████  ░███   ░███
-        // ░███    █████ ░███░░░░░░   ░███   ░███
-        // ░░███  ░░███  ░███         ░███   ░███
-        //  ░░█████████  █████        ░░████████
-        //   ░░░░░░░░░  ░░░░░          ░░░░░░░░
-        //  ███████████   ██████████   █████████   ██████████
-        // ░░███░░░░░███ ░░███░░░░░█  ███░░░░░███ ░░███░░░░███
-        //  ░███    ░███  ░███  █ ░  ░███    ░███  ░███   ░░███
-        //  ░██████████   ░██████    ░███████████  ░███    ░███
-        //  ░███░░░░░███  ░███░░█    ░███░░░░░███  ░███    ░███
-        //  ░███    ░███  ░███ ░   █ ░███    ░███  ░███    ███
-        //  █████   █████ ██████████ █████   █████ ██████████
-        // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░ ░░░░░░░░░░
-        //  ███████████  █████  █████ ███████████ ███████████ ██████████ ███████████
-        // ░░███░░░░░███░░███  ░░███ ░░███░░░░░░█░░███░░░░░░█░░███░░░░░█░░███░░░░░███
-        //  ░███    ░███ ░███   ░███  ░███   █ ░  ░███   █ ░  ░███  █ ░  ░███    ░███
-        //  ░██████████  ░███   ░███  ░███████    ░███████    ░██████    ░██████████
-        //  ░███░░░░░███ ░███   ░███  ░███░░░█    ░███░░░█    ░███░░█    ░███░░░░░███
-        //  ░███    ░███ ░███   ░███  ░███  ░     ░███  ░     ░███ ░   █ ░███    ░███
-        //  ███████████  ░░████████   █████       █████       ██████████ █████   █████
-        // ░░░░░░░░░░░    ░░░░░░░░   ░░░░░       ░░░░░       ░░░░░░░░░░ ░░░░░   ░░░░░
-        //##############################################################################
-
-        if pipeline.readable_metadata_buffer.is_none() {
-            pipeline.readable_metadata_buffer =
-                Some(render_device.create_buffer(&BufferDescriptor {
-                    mapped_at_creation: false,
-                    size: (data_handler.render_data.metadata.len() * 4) as u64,
-                    label: Some("Octree Node metadata Buffer"),
-                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-                }));
-        }
-
-        // +++ DEBUG +++
-        if data_handler.readable_debug_gpu_interface.is_none() {
-            data_handler.readable_debug_gpu_interface =
-                Some(render_device.create_buffer(&BufferDescriptor {
-                    mapped_at_creation: false,
-                    size: 4,
-                    label: Some("Octree Debug interface Buffer"),
-                    usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-                }));
-        }
-        // --- DEBUG ---
-
-        //##############################################################################
-        //  ███████████   ██████████ ██████   █████ ██████████   ██████████ ███████████
-        // ░░███░░░░░███ ░░███░░░░░█░░██████ ░░███ ░░███░░░░███ ░░███░░░░░█░░███░░░░░███
-        //  ░███    ░███  ░███  █ ░  ░███░███ ░███  ░███   ░░███ ░███  █ ░  ░███    ░███
-        //  ░██████████   ░██████    ░███░░███░███  ░███    ░███ ░██████    ░██████████
-        //  ░███░░░░░███  ░███░░█    ░███ ░░██████  ░███    ░███ ░███░░█    ░███░░░░░███
-        //  ░███    ░███  ░███ ░   █ ░███  ░░█████  ░███    ███  ░███ ░   █ ░███    ░███
-        //  █████   █████ ██████████ █████  ░░█████ ██████████   ██████████ █████   █████
-        // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░   ░░░░░░░░░░ ░░░░░   ░░░░░
-        //  ██████████     █████████   ███████████   █████████
-        // ░░███░░░░███   ███░░░░░███ ░█░░░███░░░█  ███░░░░░███
-        //  ░███   ░░███ ░███    ░███ ░   ░███  ░  ░███    ░███
-        //  ░███    ░███ ░███████████     ░███     ░███████████
-        //  ░███    ░███ ░███░░░░░███     ░███     ░███░░░░░███
-        //  ░███    ███  ░███    ░███     ░███     ░███    ░███
-        //  ██████████   █████   █████    █████    █████   █████
-        // ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░
-        //  ███████████  █████  █████ ███████████ ███████████ ██████████ ███████████
-        // ░░███░░░░░███░░███  ░░███ ░░███░░░░░░█░░███░░░░░░█░░███░░░░░█░░███░░░░░███
-        //  ░███    ░███ ░███   ░███  ░███   █ ░  ░███   █ ░  ░███  █ ░  ░███    ░███
-        //  ░██████████  ░███   ░███  ░███████    ░███████    ░██████    ░██████████
-        //  ░███░░░░░███ ░███   ░███  ░███░░░█    ░███░░░█    ░███░░█    ░███░░░░░███
-        //  ░███    ░███ ░███   ░███  ░███  ░     ░███  ░     ░███ ░   █ ░███    ░███
-        //  ███████████  ░░████████   █████       █████       ██████████ █████   █████
-        // ░░░░░░░░░░░    ░░░░░░░░   ░░░░░       ░░░░░       ░░░░░░░░░░ ░░░░░   ░░░░░
-        //##############################################################################
-
-        //=================================================================
-        // Implementation with WGPU
-        //=================================================================
-        // Upload data to buffers
-        // +++ DEBUG +++
-        let buffer = UniformBuffer::new(vec![0, 0, 0, 0]);
-        if let Some(debug_buffer) = &data_handler.debug_gpu_interface {
-            pipeline
-                .render_queue
-                .write_buffer(debug_buffer, 0, &buffer.into_inner())
-        } else {
-            let debug_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Debug Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-            data_handler.debug_gpu_interface = Some(debug_buffer);
-        }
-        // --- DEBUG ---
-
+    let data_handler = tree_gpu_view.data_handler.lock().unwrap();
+    if let Some(resources) = &pipeline.resources {
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&data_handler.render_data.octree_meta).unwrap();
-        if let Some(metadata_buffer) = &pipeline.octree_meta_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(metadata_buffer, 0, &buffer.into_inner())
-        } else {
-            let metadata_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Metadata Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            });
-            pipeline.octree_meta_buffer = Some(metadata_buffer);
-        }
+        pipeline
+            .render_queue
+            .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&data_handler.render_data.metadata).unwrap();
-        if let Some(nodes_buffer) = &pipeline.metadata_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(nodes_buffer, 0, &buffer.into_inner())
-        } else {
-            let nodes_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Nodes Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-            pipeline.metadata_buffer = Some(nodes_buffer);
-        }
+        pipeline
+            .render_queue
+            .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer
             .write(&data_handler.render_data.node_children)
             .unwrap();
-        if let Some(children_buffer) = &pipeline.node_children_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(children_buffer, 0, &buffer.into_inner())
-        } else {
-            let children_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Node Children Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            });
-            pipeline.node_children_buffer = Some(children_buffer);
-        }
+        pipeline.render_queue.write_buffer(
+            &resources.node_children_buffer,
+            0,
+            &buffer.into_inner(),
+        );
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&data_handler.render_data.node_ocbits).unwrap();
-        if let Some(ocbits_buffer) = &pipeline.node_ocbits_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(ocbits_buffer, 0, &buffer.into_inner())
-        } else {
-            let ocbits_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Node Occupied bits Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            });
-            pipeline.node_ocbits_buffer = Some(ocbits_buffer);
-        }
+        pipeline
+            .render_queue
+            .write_buffer(&resources.node_ocbits_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&data_handler.render_data.voxels).unwrap();
-        if let Some(voxels_buffer) = &pipeline.voxels_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(voxels_buffer, 0, &buffer.into_inner())
-        } else {
-            let voxels_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("Octree Voxels Buffer"),
-                contents: &buffer.into_inner(),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            });
-            pipeline.voxels_buffer = Some(voxels_buffer);
-        }
+        pipeline
+            .render_queue
+            .write_buffer(&resources.voxels_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer
             .write(&data_handler.render_data.color_palette)
             .unwrap();
-        if let Some(color_palette_buffer) = &pipeline.color_palette_buffer {
-            pipeline
-                .render_queue
-                .write_buffer(color_palette_buffer, 0, &buffer.into_inner())
-        } else {
-            let color_palette_buffer =
-                render_device.create_buffer_with_data(&BufferInitDescriptor {
-                    label: Some("Octree Color Palette Buffer"),
-                    contents: &buffer.into_inner(),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                });
-            pipeline.color_palette_buffer = Some(color_palette_buffer);
-        }
+        pipeline
+            .render_queue
+            .write_buffer(&resources.color_palette_buffer, 0, &buffer.into_inner())
+    } else {
+        // Create the staging buffer helping in reading data from the GPU
+        let readable_metadata_buffer = render_device.create_buffer(&BufferDescriptor {
+            mapped_at_creation: false,
+            size: (data_handler.render_data.metadata.len() * 4) as u64,
+            label: Some("Octree Node metadata Buffer"),
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        });
 
-        //##############################################################################
-        //  ███████████  █████ ██████   █████ ██████████
-        // ░░███░░░░░███░░███ ░░██████ ░░███ ░░███░░░░███
-        //  ░███    ░███ ░███  ░███░███ ░███  ░███   ░░███
-        //  ░██████████  ░███  ░███░░███░███  ░███    ░███
-        //  ░███░░░░░███ ░███  ░███ ░░██████  ░███    ░███
-        //  ░███    ░███ ░███  ░███  ░░█████  ░███    ███
-        //  ███████████  █████ █████  ░░█████ ██████████
-        // ░░░░░░░░░░░  ░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░
-        //    █████████  ███████████      ███████    █████  █████ ███████████
-        //   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███
-        //  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███
-        // ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████
-        // ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░
-        // ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███
-        //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
-        //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░
-        //##############################################################################
+        // +++ DEBUG +++
+        let buffer = UniformBuffer::new(vec![0, 0, 0, 0]);
+        let debug_gpu_interface = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Debug Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+        let readable_debug_gpu_interface = render_device.create_buffer(&BufferDescriptor {
+            mapped_at_creation: false,
+            size: 4,
+            label: Some("Octree Debug interface Buffer"),
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        });
+        // --- DEBUG ---
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&data_handler.render_data.octree_meta).unwrap();
+        let octree_meta_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Metadata Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&data_handler.render_data.metadata).unwrap();
+        let metadata_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Nodes Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer
+            .write(&data_handler.render_data.node_children)
+            .unwrap();
+        let node_children_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Node Children Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&data_handler.render_data.node_ocbits).unwrap();
+        let node_ocbits_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Node Occupied bits Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&data_handler.render_data.voxels).unwrap();
+        let voxels_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Voxels Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer
+            .write(&data_handler.render_data.color_palette)
+            .unwrap();
+        let color_palette_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Color Palette Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
         // Create bind group
         let tree_bind_group = render_device.create_bind_group(
-            SvxRenderData::label(),
+            OctreeRenderData::label(),
             &pipeline.render_data_bind_group_layout,
             &[
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 0,
-                    resource: pipeline
-                        .octree_meta_buffer
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: octree_meta_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 1,
-                    resource: pipeline
-                        .metadata_buffer
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: metadata_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 2,
-                    resource: pipeline
-                        .node_children_buffer
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: node_children_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 3,
-                    resource: pipeline
-                        .node_ocbits_buffer
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: node_ocbits_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 4,
-                    resource: pipeline.voxels_buffer.as_ref().unwrap().as_entire_binding(),
+                    resource: voxels_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 5,
-                    resource: pipeline
-                        .color_palette_buffer
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: color_palette_buffer.as_entire_binding(),
                 },
                 // +++ DEBUG +++
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 6,
-                    resource: data_handler
-                        .debug_gpu_interface
-                        .as_ref()
-                        .unwrap()
-                        .as_entire_binding(),
+                    resource: debug_gpu_interface.as_entire_binding(),
                 },
                 // --- DEBUG ---
             ],
         );
-        pipeline.tree_bind_group = Some(tree_bind_group);
 
-        //=================================================================
-        // Implementation with AsBindGroup
-        //=================================================================
-        // let tree_bind_group = render_data
-        //     .as_bind_group(
-        //         &pipeline.render_data_bind_group_layout,
-        //         &render_device,
-        //         &gpu_images,
-        //         &fallback_image,
-        //     )
-        //     .ok()
-        //     .unwrap();
+        let spyglass_prepared_bind_group = tree_gpu_view
+            .spyglass
+            .as_bind_group(
+                &pipeline.spyglass_bind_group_layout,
+                &render_device,
+                &gpu_images,
+                &fallback_image,
+            )
+            .ok()
+            .unwrap();
+        let spyglass_bind_group = spyglass_prepared_bind_group.bind_group;
 
-        // // println!("bindings: {:?}", tree_bind_group.bindings);
-        // // let bindings = ;
-        // //TODO: set buffers by binding index(bindings[x].0), instead of array index
-        // // if let bevy::render::render_resource::OwnedBindingResource::Buffer(buf) =
-        // //     &tree_bind_group.bindings[2].1
-        // // {
-        // //     debug_assert_eq!(tree_bind_group.bindings[2].0, 2);
-        // //     pipeline.nodes_children_buffer = Some(buf.clone());
-        // // }
-        // if let bevy::render::render_resource::OwnedBindingResource::Buffer(buf) =
-        //     &tree_bind_group.bindings[0].1
-        // {
-        //     // compare binding to ShocoVoxRenderData field
-        //     debug_assert_eq!(tree_bind_group.bindings[0].0, 5);
-        //     pipeline.cache_bytes_buffer = Some(buf.clone());
-        // }
+        debug_assert_eq!(
+            1, spyglass_prepared_bind_group.bindings[1].0,
+            "Expected Spyglass binding to be 1, instead of {:?}",
+            spyglass_prepared_bind_group.bindings[1].0
+        );
+        let viewport_buffer = if let OwnedBindingResource::Buffer(buffer) =
+            &spyglass_prepared_bind_group.bindings[1].1
+        {
+            buffer.clone()
+        } else {
+            panic!(
+                "Unexpected binding for spyglass bind group; Expected buffer instead of : {:?}",
+                spyglass_prepared_bind_group.bindings[1].1
+            );
+        };
 
-        // pipeline.tree_bind_group = Some(tree_bind_group.bind_group);
-        pipeline.update_tree = false;
+        pipeline.resources = Some(OctreeRenderDataResources {
+            spyglass_bind_group,
+            tree_bind_group,
+            viewport_buffer,
+            octree_meta_buffer,
+            metadata_buffer,
+            readable_metadata_buffer,
+            node_children_buffer,
+            node_ocbits_buffer,
+            voxels_buffer,
+            color_palette_buffer,
+            debug_gpu_interface,
+            readable_debug_gpu_interface,
+        });
     }
+
+    pipeline.update_tree = false;
 }

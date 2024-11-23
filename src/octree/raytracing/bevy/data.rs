@@ -1,11 +1,8 @@
 use crate::object_pool::empty_marker;
 use crate::octree::{
-    raytracing::bevy::{
-        create_output_texture,
-        types::{
-            OctreeGPUView, OctreeMetaData, SvxRenderData, SvxRenderPipeline, SvxViewingGlass,
-            Viewport, Voxelement,
-        },
+    raytracing::bevy::types::{
+        OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView, OctreeMetaData, OctreeRenderData,
+        OctreeSpyGlass, SvxRenderPipeline, VictimPointer, Viewport, Voxelement,
     },
     Octree, V3c, VoxelData,
 };
@@ -13,16 +10,21 @@ use bevy::{
     ecs::system::{Res, ResMut},
     math::Vec4,
     prelude::{Assets, Commands, Handle, Image},
-    render::renderer::RenderDevice,
+    render::{
+        render_asset::RenderAssetUsages,
+        render_resource::{
+            encase::{StorageBuffer, UniformBuffer},
+            Extent3d, TextureDimension, TextureFormat, TextureUsages,
+        },
+        renderer::RenderDevice,
+    },
 };
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 
-use super::types::{OctreeGPUDataHandler, VictimPointer};
-
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T, const DIM: usize> OctreeGPUHost<T, DIM>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData,
 {
@@ -53,27 +55,26 @@ where
     //##############################################################################
 
     /// Creates GPU compatible data renderable on the GPU from an octree
-    pub fn create_new_gpu_view(
+    pub fn create_new_view(
         &self,
         size: usize,
         viewport: Viewport,
         resolution: [u32; 2],
         commands: &mut Commands,
-        images: ResMut<Assets<Image>>,
+        mut images: ResMut<Assets<Image>>,
     ) -> Handle<Image> {
         let mut gpu_data_handler = OctreeGPUDataHandler {
-            debug_gpu_interface: None,
-            readable_debug_gpu_interface: None,
-            render_data: SvxRenderData {
+            read_back: 0,
+            render_data: OctreeRenderData {
                 debug_gpu_interface: 0,
                 octree_meta: OctreeMetaData {
-                    octree_size: self.octree_size,
+                    octree_size: self.tree.octree_size,
                     voxel_brick_dim: DIM as u32,
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
-                        self.octree_size as f32,
-                        self.octree_size as f32,
-                        self.octree_size as f32,
+                        self.tree.octree_size as f32,
+                        self.tree.octree_size as f32,
+                        self.tree.octree_size as f32,
                     ),
                 },
                 metadata: vec![0; size],
@@ -95,7 +96,7 @@ where
         };
 
         // Push root node and its contents
-        gpu_data_handler.add_node(&self, Self::ROOT_NODE_KEY as usize, true);
+        gpu_data_handler.add_node(&self.tree, Octree::<T, DIM>::ROOT_NODE_KEY as usize, true);
         // +++ DEBUG +++
 
         //delete some random bricks from leaf nodes
@@ -112,12 +113,26 @@ where
 
         // --- DEBUG ---
 
-        let output_texture = create_output_texture(resolution, images);
+        let mut output_texture = Image::new_fill(
+            Extent3d {
+                width: resolution[0],
+                height: resolution[1],
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[0, 0, 0, 255],
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        output_texture.texture_descriptor.usage = TextureUsages::COPY_DST
+            | TextureUsages::STORAGE_BINDING
+            | TextureUsages::TEXTURE_BINDING;
+        let output_texture = images.add(output_texture);
+
         commands.insert_resource(OctreeGPUView {
             do_the_thing: false,
-            read_back: 0,
             data_handler: Arc::new(Mutex::new(gpu_data_handler)),
-            viewing_glass: SvxViewingGlass {
+            spyglass: OctreeSpyGlass {
                 output_texture: output_texture.clone(),
                 viewport: viewport,
             },
@@ -162,51 +177,52 @@ pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
 //##############################################################################
 pub(crate) fn handle_gpu_readback(
     render_device: Res<RenderDevice>,
-    mut tree_gpu_view: Option<ResMut<OctreeGPUView>>,
+    tree_gpu_view: Option<ResMut<OctreeGPUView>>,
+    svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
     // Data updates triggered by debug interface
-    if let Some(ref mut tree_gpu_view) = tree_gpu_view {
+    if let (Some(ref mut tree_gpu_view), Some(ref mut pipeline)) = (tree_gpu_view, svx_pipeline) {
         if tree_gpu_view.do_the_thing {
-            let received_data;
+            let mut data_handler = tree_gpu_view.data_handler.lock().unwrap();
+            // GPU buffer read
+            // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
+            let buffer_slice = pipeline
+                .resources
+                .as_ref()
+                .unwrap()
+                .readable_debug_gpu_interface
+                .slice(..);
+            let (s, r) = crossbeam::channel::unbounded::<()>();
+            buffer_slice.map_async(
+                bevy::render::render_resource::MapMode::Read,
+                move |d| match d {
+                    Ok(_) => s.send(()).expect("Failed to send map update"),
+                    Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
+                },
+            );
+
+            render_device
+                .poll(bevy::render::render_resource::Maintain::wait())
+                .panic_on_timeout();
+
+            r.recv().expect("Failed to receive the map_async message");
             {
-                let data_handler = tree_gpu_view.data_handler.lock().unwrap();
-                // GPU buffer read
-                // https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
-                let buffer_slice = data_handler
-                    .readable_debug_gpu_interface
-                    .as_ref()
-                    .unwrap()
-                    .slice(..);
-                let (s, r) = crossbeam::channel::unbounded::<()>();
-                buffer_slice.map_async(bevy::render::render_resource::MapMode::Read, move |d| {
-                    match d {
-                        Ok(_) => s.send(()).expect("Failed to send map update"),
-                        Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
-                    }
-                });
+                let buffer_view = buffer_slice.get_mapped_range();
 
-                render_device
-                    .poll(bevy::render::render_resource::Maintain::wait())
-                    .panic_on_timeout();
-
-                r.recv().expect("Failed to receive the map_async message");
-                {
-                    let buffer_view = buffer_slice.get_mapped_range();
-
-                    let data = buffer_view
-                        .chunks(std::mem::size_of::<u32>())
-                        .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
-                        .collect::<Vec<u32>>();
-                    received_data = data[0];
-                    // println!("received_data: {:?}", data);
-                }
-                data_handler
-                    .readable_debug_gpu_interface
-                    .as_ref()
-                    .unwrap()
-                    .unmap();
+                let data = buffer_view
+                    .chunks(std::mem::size_of::<u32>())
+                    .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+                    .collect::<Vec<u32>>();
+                data_handler.read_back = data[0];
+                // println!("received_data: {:?}", data);
             }
-            tree_gpu_view.read_back = received_data;
+            pipeline
+                .resources
+                .as_ref()
+                .unwrap()
+                .readable_debug_gpu_interface
+                .unmap();
+            std::mem::drop(data_handler);
             tree_gpu_view.do_the_thing = false;
         }
     }
@@ -235,23 +251,24 @@ pub(crate) fn write_to_gpu(
     tree_gpu_view: Option<ResMut<OctreeGPUView>>,
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
-    //TODO: Document that all components are lost during extract transition
-    // Data updates triggered by debug interface
-    if let Some(tree_gpu_view) = tree_gpu_view {
-        let svx_pipeline = svx_pipeline.unwrap();
-        let render_queue = &svx_pipeline.render_queue.0;
+    if let (Some(tree_gpu_view), Some(pipeline)) = (tree_gpu_view, svx_pipeline) {
+        let render_queue = &pipeline.render_queue.0;
+
+        // Data updates for spyglass viewport
+        if let Some(resources) = &pipeline.resources {
+            let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+            buffer.write(&tree_gpu_view.spyglass.viewport).unwrap();
+            pipeline
+                .render_queue
+                .write_buffer(&resources.viewport_buffer, 0, &buffer.into_inner());
+        }
+
+        // Data updates triggered by debug interface
         if tree_gpu_view.do_the_thing {
             // GPU buffer Write
-            use bevy::render::render_resource::encase::StorageBuffer;
             let data_buffer = StorageBuffer::new(vec![0, 0, 0, 1]);
             render_queue.write_buffer(
-                tree_gpu_view
-                    .data_handler
-                    .lock()
-                    .unwrap()
-                    .debug_gpu_interface
-                    .as_ref()
-                    .unwrap(),
+                &pipeline.resources.as_ref().unwrap().debug_gpu_interface,
                 0,
                 &data_buffer.into_inner(),
             );

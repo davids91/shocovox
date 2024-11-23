@@ -82,8 +82,6 @@ where
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
-            #[cfg(feature = "bevy_wgpu")]
-            views: Vec::new(),
             auto_simplify: true,
             octree_size: size,
             nodes,

@@ -2,7 +2,7 @@ use crate::object_pool::empty_marker;
 use crate::spatial::math::flat_projection;
 use crate::{
     octree::{
-        raytracing::bevy::types::{SvxRenderData, Voxelement},
+        raytracing::bevy::types::{OctreeRenderData, Voxelement},
         types::{NodeChildrenArray, NodeContent},
         BrickData, Octree, VoxelData,
     },
@@ -64,7 +64,7 @@ impl VictimPointer {
     /// Provides the first available index in the metadata buffer which can be overwritten
     /// with node related information. It never returns with 0, because that is reserved for the root node,
     /// which should not be overwritten.
-    fn first_available_node(&mut self, render_data: &mut SvxRenderData) -> usize {
+    fn first_available_node(&mut self, render_data: &mut OctreeRenderData) -> usize {
         // If there is space left in the cache, use it all up
         if !self.is_full() {
             render_data.metadata[self.stored_items] |= 0x01;
@@ -131,7 +131,7 @@ impl VictimPointer {
     }
 
     /// Finds the first available brick, and marks it as used
-    fn first_available_brick(&mut self, render_data: &mut SvxRenderData) -> usize {
+    fn first_available_brick(&mut self, render_data: &mut OctreeRenderData) -> usize {
         let max_brick_count = render_data.metadata.len() * 8;
 
         // If there is space left in the cache, use it all up

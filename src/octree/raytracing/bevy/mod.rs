@@ -4,48 +4,37 @@ mod pipeline;
 pub mod types;
 
 pub use crate::octree::raytracing::bevy::types::{
-    OctreeGPUView, SvxRenderPlugin, SvxViewingGlass, Viewport,
+    OctreeGPUHost, OctreeGPUView, OctreeSpyGlass, SvxRenderPlugin, Viewport,
 };
 
-use crate::octree::raytracing::bevy::{
-    data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
-    pipeline::prepare_bind_groups,
-    types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
+use crate::octree::{
+    raytracing::bevy::{
+        data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
+        pipeline::prepare_bind_groups,
+        types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
+    },
+    Octree, VoxelData,
 };
 
 use bevy::{
     app::{App, Plugin},
-    asset::{Assets, Handle},
-    ecs::system::ResMut,
     prelude::{ExtractSchedule, IntoSystemConfigs},
     render::{
-        extract_resource::ExtractResourcePlugin,
-        prelude::Image,
-        render_asset::RenderAssetUsages,
-        render_graph::RenderGraph,
-        render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
-        Render, RenderApp, RenderSet,
+        extract_resource::ExtractResourcePlugin, render_graph::RenderGraph, Render, RenderApp,
+        RenderSet,
     },
 };
 
-pub(crate) fn create_output_texture(
-    resolution: [u32; 2],
-    mut images: ResMut<Assets<Image>>,
-) -> Handle<Image> {
-    let mut output_texture = Image::new_fill(
-        Extent3d {
-            width: resolution[0],
-            height: resolution[1],
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    output_texture.texture_descriptor.usage =
-        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    images.add(output_texture)
+impl<T, const DIM: usize> OctreeGPUHost<T, DIM>
+where
+    T: Default + Clone + Copy + PartialEq + VoxelData,
+{
+    pub fn new(tree: Octree<T, DIM>) -> Self {
+        OctreeGPUHost {
+            tree,
+            views: Vec::new(),
+        }
+    }
 }
 
 impl Plugin for SvxRenderPlugin {

@@ -1,4 +1,4 @@
-use crate::octree::{Albedo, V3cf32};
+use crate::octree::{Albedo, Octree, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -44,14 +44,22 @@ pub struct SvxRenderPlugin {
     pub resolution: [u32; 2],
 }
 
+#[derive(Resource)]
+pub struct OctreeGPUHost<T, const DIM: usize>
+where
+    T: Default + Clone + PartialEq + VoxelData,
+{
+    pub tree: Octree<T, DIM>,
+    pub views: Vec<Arc<OctreeGPUDataHandler>>,
+}
+
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUView"]
 pub struct OctreeGPUView {
     // +++ DEBUG +++
     pub do_the_thing: bool,
-    pub read_back: u32,
     // --- DEBUG ---
-    pub viewing_glass: SvxViewingGlass,
+    pub spyglass: OctreeSpyGlass,
     pub(crate) data_handler: Arc<Mutex<OctreeGPUDataHandler>>,
 }
 
@@ -66,27 +74,19 @@ pub(crate) struct VictimPointer {
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
-    pub(crate) render_data: SvxRenderData,
+    // +++ DEBUG +++
+    pub read_back: u32,
+    // --- DEBUG ---
+    pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: VictimPointer,
     pub(crate) map_to_node_index_in_metadata: HashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
-    pub(crate) debug_gpu_interface: Option<Buffer>,
-    pub(crate) readable_debug_gpu_interface: Option<Buffer>,
-    //TODO: Maybe this?
-    // Buffers for the RenderData
-    // pub(crate) octree_meta_buffer: Buffer,
-    // pub(crate) metadata_buffer: Buffer,
-    // pub(crate) node_children_buffer: Buffer,
-    // pub(crate) node_ocbits_buffer: Buffer,
-    // pub(crate) voxels_buffer: Buffer,
-    // pub(crate) color_palette_buffer: Buffer,
-    // pub(crate) readable_metadata_buffer: Buffer,
 }
 
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
-pub struct SvxViewingGlass {
+pub struct OctreeSpyGlass {
     #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
 
@@ -94,9 +94,26 @@ pub struct SvxViewingGlass {
     pub viewport: Viewport,
 }
 
+#[derive(Clone)]
+pub(crate) struct OctreeRenderDataResources {
+    pub(crate) spyglass_bind_group: BindGroup,
+    pub(crate) tree_bind_group: BindGroup,
+
+    pub(crate) viewport_buffer: Buffer,
+    pub(crate) octree_meta_buffer: Buffer,
+    pub(crate) metadata_buffer: Buffer,
+    pub(crate) readable_metadata_buffer: Buffer,
+    pub(crate) node_children_buffer: Buffer,
+    pub(crate) node_ocbits_buffer: Buffer,
+    pub(crate) voxels_buffer: Buffer,
+    pub(crate) color_palette_buffer: Buffer,
+    pub(crate) debug_gpu_interface: Buffer,
+    pub(crate) readable_debug_gpu_interface: Buffer,
+}
+
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
-pub struct SvxRenderData {
+pub struct OctreeRenderData {
     // +++ DEBUG +++
     #[storage(6, visibility(compute))]
     pub(crate) debug_gpu_interface: u32,
@@ -176,20 +193,10 @@ pub(crate) struct SvxRenderPipeline {
     pub(crate) render_queue: RenderQueue,
     pub(crate) update_pipeline: CachedComputePipelineId,
 
-    // Render data buffers
-    pub(crate) octree_meta_buffer: Option<Buffer>,
-    pub(crate) metadata_buffer: Option<Buffer>,
-    pub(crate) readable_metadata_buffer: Option<Buffer>,
-    pub(crate) node_children_buffer: Option<Buffer>,
-    pub(crate) node_ocbits_buffer: Option<Buffer>,
-    pub(crate) voxels_buffer: Option<Buffer>,
-    pub(crate) color_palette_buffer: Option<Buffer>,
-    pub(crate) tree_data_handler: Option<OctreeGPUDataHandler>,
-
-    pub(crate) viewing_glass_bind_group_layout: BindGroupLayout,
+    // Data layout and data
+    pub(crate) spyglass_bind_group_layout: BindGroupLayout,
     pub(crate) render_data_bind_group_layout: BindGroupLayout,
-    pub(crate) viewing_glass_bind_group: Option<BindGroup>,
-    pub(crate) tree_bind_group: Option<BindGroup>,
+    pub(crate) resources: Option<OctreeRenderDataResources>,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
