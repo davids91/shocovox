@@ -9,7 +9,7 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
+    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, Viewport},
     Albedo, Octree, V3c, VoxelData,
 };
 
@@ -28,9 +28,9 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            SvxRenderPlugin {
-                resolution: DISPLAY_RESOLUTION,
-            },
+            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo, BRICK_DIMENSION>::new(
+                DISPLAY_RESOLUTION,
+            ),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PerfUiPlugin,
         ))
@@ -98,19 +98,21 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         radius: tree.get_size() as f32 * 2.2,
     });
 
-    let host = OctreeGPUHost::new(tree);
+    let mut host = OctreeGPUHost { tree };
+    let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
-        40, //TODO: decide actual number
+        &mut views,
+        40,
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),
             w_h_fov: V3c::new(10., 10., 3.),
         },
         DISPLAY_RESOLUTION,
-        &mut commands,
         images,
     );
     commands.insert_resource(host);
+    commands.insert_resource(views);
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),

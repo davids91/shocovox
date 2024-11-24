@@ -1,5 +1,8 @@
-use crate::octree::raytracing::bevy::types::{
-    OctreeGPUView, OctreeRenderData, OctreeSpyGlass, SvxRenderNode, SvxRenderPipeline, Viewport,
+use crate::octree::{
+    raytracing::bevy::types::{
+        OctreeRenderData, OctreeSpyGlass, SvxRenderNode, SvxRenderPipeline, Viewport,
+    },
+    VoxelData,
 };
 
 use bevy::{
@@ -23,7 +26,7 @@ use bevy::{
 };
 use std::borrow::Cow;
 
-use super::types::OctreeRenderDataResources;
+use super::types::{OctreeRenderDataResources, SvxViewSet};
 
 impl FromWorld for SvxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
@@ -73,12 +76,11 @@ impl render_graph::Node for SvxRenderNode {
         {
             let svx_pipeline = world.resource::<SvxRenderPipeline>();
             let pipeline_cache = world.resource::<PipelineCache>();
-            let tree_gpu_view = world.get_resource::<OctreeGPUView>();
             if !self.ready {
                 if let CachedPipelineState::Ok(_) =
                     pipeline_cache.get_compute_pipeline_state(svx_pipeline.update_pipeline)
                 {
-                    self.ready = tree_gpu_view.is_some();
+                    self.ready = !world.resource::<SvxViewSet>().views.is_empty();
                 }
             }
         }
@@ -90,17 +92,13 @@ impl render_graph::Node for SvxRenderNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), render_graph::NodeRunError> {
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let svx_pipeline = world.resource::<SvxRenderPipeline>();
-        let tree_gpu_view = world.resource::<OctreeGPUView>();
-
-        let command_encoder = render_context.command_encoder();
         if self.ready {
-            let data_handler = world
-                .resource::<OctreeGPUView>()
-                .data_handler
-                .lock()
-                .unwrap();
+            let pipeline_cache = world.resource::<PipelineCache>();
+            let svx_pipeline = world.resource::<SvxRenderPipeline>();
+            let svx_viewset = world.resource::<SvxViewSet>();
+            let current_view = svx_viewset.views[0].lock().unwrap();
+            let command_encoder = render_context.command_encoder();
+            let data_handler = &current_view.data_handler;
             let resources = svx_pipeline.resources.as_ref().unwrap();
             {
                 let mut pass =
@@ -129,7 +127,7 @@ impl render_graph::Node for SvxRenderNode {
             );
 
             debug_assert!(
-                !tree_gpu_view.spyglass.node_requests.is_empty(),
+                !current_view.spyglass.node_requests.is_empty(),
                 "Expected node requests array to not be empty"
             );
             command_encoder.copy_buffer_to_buffer(
@@ -137,8 +135,8 @@ impl render_graph::Node for SvxRenderNode {
                 0,
                 &resources.readable_node_requests_buffer,
                 0,
-                (std::mem::size_of_val(&tree_gpu_view.spyglass.node_requests[0])
-                    * tree_gpu_view.spyglass.node_requests.len()) as u64,
+                (std::mem::size_of_val(&current_view.spyglass.node_requests[0])
+                    * current_view.spyglass.node_requests.len()) as u64,
             );
 
             // +++ DEBUG +++
@@ -181,34 +179,35 @@ impl render_graph::Node for SvxRenderNode {
 //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████       ░░█████████
 //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░         ░░░░░░░░░
 //##############################################################################
-pub(crate) fn prepare_bind_groups(
+pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
     mut pipeline: ResMut<SvxRenderPipeline>,
-    tree_gpu_view: ResMut<OctreeGPUView>,
-) {
+    svx_viewset: ResMut<SvxViewSet>,
+) where
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+{
     if pipeline.resources.is_some() && !pipeline.update_tree {
         return;
     }
 
-    let data_handler = tree_gpu_view.data_handler.lock().unwrap();
+    let tree_view = &svx_viewset.views[0].lock().unwrap();
+    let render_data = &tree_view.data_handler.render_data;
     if let Some(resources) = &pipeline.resources {
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.octree_meta).unwrap();
+        buffer.write(&render_data.octree_meta).unwrap();
         pipeline
             .render_queue
             .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.metadata).unwrap();
+        buffer.write(&render_data.metadata).unwrap();
         pipeline
             .render_queue
             .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer
-            .write(&data_handler.render_data.node_children)
-            .unwrap();
+        buffer.write(&render_data.node_children).unwrap();
         pipeline.render_queue.write_buffer(
             &resources.node_children_buffer,
             0,
@@ -216,21 +215,19 @@ pub(crate) fn prepare_bind_groups(
         );
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.node_ocbits).unwrap();
+        buffer.write(&render_data.node_ocbits).unwrap();
         pipeline
             .render_queue
             .write_buffer(&resources.node_ocbits_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.voxels).unwrap();
+        buffer.write(&render_data.voxels).unwrap();
         pipeline
             .render_queue
             .write_buffer(&resources.voxels_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer
-            .write(&data_handler.render_data.color_palette)
-            .unwrap();
+        buffer.write(&render_data.color_palette).unwrap();
         pipeline
             .render_queue
             .write_buffer(&resources.color_palette_buffer, 0, &buffer.into_inner())
@@ -256,7 +253,7 @@ pub(crate) fn prepare_bind_groups(
         // Create the staging buffer helping in reading data from the GPU
         let readable_metadata_buffer = render_device.create_buffer(&BufferDescriptor {
             mapped_at_creation: false,
-            size: (data_handler.render_data.metadata.len() * 4) as u64,
+            size: (render_data.metadata.len() * 4) as u64,
             label: Some("Octree Node metadata staging Buffer"),
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
         });
@@ -276,7 +273,7 @@ pub(crate) fn prepare_bind_groups(
         });
         // --- DEBUG ---
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.octree_meta).unwrap();
+        buffer.write(&render_data.octree_meta).unwrap();
         let octree_meta_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Tree Metadata Buffer"),
             contents: &buffer.into_inner(),
@@ -284,7 +281,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.metadata).unwrap();
+        buffer.write(&render_data.metadata).unwrap();
         let metadata_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Metadata Buffer"),
             contents: &buffer.into_inner(),
@@ -292,9 +289,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer
-            .write(&data_handler.render_data.node_children)
-            .unwrap();
+        buffer.write(&render_data.node_children).unwrap();
         let node_children_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Node Children Buffer"),
             contents: &buffer.into_inner(),
@@ -302,7 +297,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.node_ocbits).unwrap();
+        buffer.write(&render_data.node_ocbits).unwrap();
         let node_ocbits_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Node Occupied Bits Buffer"),
             contents: &buffer.into_inner(),
@@ -310,7 +305,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&data_handler.render_data.voxels).unwrap();
+        buffer.write(&render_data.voxels).unwrap();
         let voxels_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Voxels Buffer"),
             contents: &buffer.into_inner(),
@@ -318,9 +313,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer
-            .write(&data_handler.render_data.color_palette)
-            .unwrap();
+        buffer.write(&render_data.color_palette).unwrap();
         let color_palette_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Color Palette Buffer"),
             contents: &buffer.into_inner(),
@@ -391,7 +384,7 @@ pub(crate) fn prepare_bind_groups(
         //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
         //##############################################################################
         let mut buffer = UniformBuffer::new([0u8; Viewport::SHADER_SIZE.get() as usize]);
-        buffer.write(&tree_gpu_view.spyglass.viewport).unwrap();
+        buffer.write(&tree_view.spyglass.viewport).unwrap();
         let viewport_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Viewport Buffer"),
             contents: &buffer.into_inner(),
@@ -399,11 +392,11 @@ pub(crate) fn prepare_bind_groups(
         });
 
         debug_assert!(
-            !tree_gpu_view.spyglass.node_requests.is_empty(),
+            !tree_view.spyglass.node_requests.is_empty(),
             "Expected node requests array to not be empty"
         );
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&tree_gpu_view.spyglass.node_requests).unwrap();
+        buffer.write(&tree_view.spyglass.node_requests).unwrap();
         let node_requests_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Node requests Buffer"),
             contents: &buffer.into_inner(),
@@ -412,15 +405,15 @@ pub(crate) fn prepare_bind_groups(
 
         let readable_node_requests_buffer = render_device.create_buffer(&BufferDescriptor {
             mapped_at_creation: false,
-            size: (tree_gpu_view.spyglass.node_requests.len()
-                * std::mem::size_of_val(&tree_gpu_view.spyglass.node_requests[0]))
+            size: (tree_view.spyglass.node_requests.len()
+                * std::mem::size_of_val(&tree_view.spyglass.node_requests[0]))
                 as u64,
             label: Some("Octree Node requests staging Buffer"),
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
         });
 
         let output_texture_view = gpu_images
-            .get(&tree_gpu_view.spyglass.output_texture)
+            .get(&tree_view.spyglass.output_texture)
             .unwrap()
             .texture_view
             .clone();

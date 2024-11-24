@@ -40,17 +40,27 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct SvxRenderPlugin {
+pub struct RenderBevyPlugin<T, const DIM: usize>
+where
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+{
+    pub(crate) dummy: std::marker::PhantomData<T>,
     pub resolution: [u32; 2],
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::OctreeGPUHost"]
 pub struct OctreeGPUHost<T, const DIM: usize>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
     pub tree: Octree<T, DIM>,
-    pub views: Vec<Arc<OctreeGPUDataHandler>>,
+}
+
+#[derive(Default, Resource, Clone, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::SvxViewSet"]
+pub struct SvxViewSet {
+    pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
 }
 
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
@@ -60,7 +70,7 @@ pub struct OctreeGPUView {
     pub do_the_thing: bool,
     // --- DEBUG ---
     pub spyglass: OctreeSpyGlass,
-    pub(crate) data_handler: Arc<Mutex<OctreeGPUDataHandler>>,
+    pub(crate) data_handler: OctreeGPUDataHandler,
 }
 
 #[derive(Debug, Clone)]
@@ -74,9 +84,6 @@ pub(crate) struct VictimPointer {
 #[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
-    // +++ DEBUG +++
-    pub read_back: u32,
-    // --- DEBUG ---
     pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: VictimPointer,

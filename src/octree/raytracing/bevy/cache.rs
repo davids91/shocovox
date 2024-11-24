@@ -288,17 +288,20 @@ impl OctreeGPUDataHandler {
     //  █████  ░░█████ ░░░███████░   ██████████   ██████████
     // ░░░░░    ░░░░░    ░░░░░░░    ░░░░░░░░░░   ░░░░░░░░░░
     //##############################################################################
+    /// Writes the data of the node to the first available index, and returns the index of the overwritten data
+    /// It may fail to add the node, when @try_add_children is set to true
     pub(crate) fn add_node<T, const DIM: usize>(
         &mut self,
         tree: &Octree<T, DIM>,
         node_key: usize,
         try_add_children: bool,
-    ) where
+    ) -> Option<usize>
+    where
         T: Default + Copy + Clone + PartialEq + VoxelData,
     {
         if try_add_children && self.victim_node.is_full() {
             // Do not add additional nodes at initial upload if the cache is already full
-            return;
+            return None;
         }
 
         // Determine the index in meta
@@ -408,6 +411,7 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
+        Some(node_element_index)
     }
 
     //##############################################################################

@@ -3,8 +3,8 @@ use bevy::{prelude::*, window::WindowPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxRenderPlugin, Viewport},
-    Albedo, Octree, V3c, VoxelData,
+    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxViewSet, Viewport},
+    Albedo, Octree, V3c,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -33,9 +33,9 @@ fn main() {
                 }),
                 ..default()
             }),
-            SvxRenderPlugin {
-                resolution: DISPLAY_RESOLUTION,
-            },
+            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo, BRICK_DIMENSION>::new(
+                DISPLAY_RESOLUTION,
+            ),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PerfUiPlugin,
         ))
@@ -70,8 +70,10 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         radius: tree.get_size() as f32 * 2.2,
     });
 
-    let host = OctreeGPUHost::new(tree);
+    let mut host = OctreeGPUHost { tree };
+    let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
+        &mut views,
         20,
         Viewport {
             origin: V3c {
@@ -87,10 +89,10 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             w_h_fov: V3c::new(10., 10., 3.),
         },
         DISPLAY_RESOLUTION,
-        &mut commands,
         images,
     );
     commands.insert_resource(host);
+    commands.insert_resource(views);
     commands.spawn(SpriteBundle {
         sprite: Sprite {
             custom_size: Some(Vec2::new(1024., 768.)),
@@ -128,10 +130,10 @@ struct DomePosition {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn rotate_camera(angles_query: Query<&mut DomePosition>, mut tree_view: ResMut<OctreeGPUView>) {
+fn rotate_camera(angles_query: Query<&mut DomePosition>, view_set: ResMut<SvxViewSet>) {
     let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
     let radius = angles_query.single().radius;
-
+    let mut tree_view = view_set.views[0].lock().unwrap();
     tree_view.spyglass.viewport.origin = V3c::new(
         radius / 2. + yaw.sin() * radius,
         radius + roll.sin() * radius * 2.,
@@ -144,10 +146,11 @@ fn rotate_camera(angles_query: Query<&mut DomePosition>, mut tree_view: ResMut<O
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    mut tree_view: ResMut<OctreeGPUView>,
+    tree: ResMut<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
+    view_set: ResMut<SvxViewSet>,
     mut angles_query: Query<&mut DomePosition>,
-    tree: Res<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
 ) {
+    let mut tree_view = view_set.views[0].lock().unwrap();
     if keys.pressed(KeyCode::Delete) {
         tree_view.do_the_thing = true;
     }

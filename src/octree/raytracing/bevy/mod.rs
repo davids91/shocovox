@@ -4,7 +4,7 @@ mod pipeline;
 pub mod types;
 
 pub use crate::octree::raytracing::bevy::types::{
-    OctreeGPUHost, OctreeGPUView, OctreeSpyGlass, SvxRenderPlugin, Viewport,
+    OctreeGPUHost, OctreeGPUView, OctreeSpyGlass, RenderBevyPlugin, SvxViewSet, Viewport,
 };
 
 use crate::octree::{
@@ -13,7 +13,7 @@ use crate::octree::{
         pipeline::prepare_bind_groups,
         types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
     },
-    Octree, VoxelData,
+    VoxelData,
 };
 
 use bevy::{
@@ -25,29 +25,35 @@ use bevy::{
     },
 };
 
-impl<T, const DIM: usize> OctreeGPUHost<T, DIM>
+impl<T, const DIM: usize> RenderBevyPlugin<T, DIM>
 where
-    T: Default + Clone + Copy + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
-    pub fn new(tree: Octree<T, DIM>) -> Self {
-        OctreeGPUHost {
-            tree,
-            views: Vec::new(),
+    pub fn new(resolution: [u32; 2]) -> Self {
+        RenderBevyPlugin {
+            dummy: std::marker::PhantomData,
+            resolution,
         }
     }
 }
 
-impl Plugin for SvxRenderPlugin {
+impl<T, const DIM: usize> Plugin for RenderBevyPlugin<T, DIM>
+where
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+{
     fn build(&self, app: &mut App) {
-        app.add_plugins(ExtractResourcePlugin::<OctreeGPUView>::default());
+        app.add_plugins((
+            ExtractResourcePlugin::<OctreeGPUHost<T, DIM>>::default(),
+            ExtractResourcePlugin::<SvxViewSet>::default(),
+        ));
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(ExtractSchedule, sync_with_main_world);
         render_app.add_systems(
             Render,
             (
-                write_to_gpu.in_set(RenderSet::PrepareResources),
-                prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
-                handle_gpu_readback.in_set(RenderSet::Cleanup),
+                write_to_gpu::<T, DIM>.in_set(RenderSet::PrepareResources),
+                prepare_bind_groups::<T, DIM>.in_set(RenderSet::PrepareBindGroups),
+                handle_gpu_readback::<T, DIM>.in_set(RenderSet::Cleanup),
             ),
         );
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();

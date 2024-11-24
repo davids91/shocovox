@@ -80,6 +80,7 @@ pub trait VoxelData {
 /// A Brick can be indexed directly, as opposed to the octree which is essentially a
 /// tree-graph where each node has 8 children.
 #[cfg_attr(feature = "serialization", derive(Serialize))]
+#[derive(Clone)]
 pub struct Octree<T, const DIM: usize = 1>
 where
     T: Default + Clone + PartialEq + VoxelData,
