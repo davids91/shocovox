@@ -10,7 +10,7 @@ default = ["bevy_wgpu","dot_vox_support"]
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
 dot_vox_support = ["dep:dot_vox", "dep:nalgebra"]
-bevy_wgpu = ["raytracing", "dep:bevy", "dep:iyes_perf_ui", "dep:crossbeam"]
+bevy_wgpu = ["raytracing", "dep:bevy", "dep:iyes_perf_ui", "dep:crossbeam", "dep:bimap"]
 
 [dependencies]
 num-traits = "0.2.19"
@@ -19,6 +19,7 @@ bendy = { git = "https://github.com/davids91/bendy.git" , features = ["std", "se
 dot_vox = { version = "5.1.1", optional = true }
 nalgebra = { version = "0.33.0", optional = true }
 crossbeam = { version = "0.8.4", optional = true }
+bimap = { version = "0.6.3", optional = true }
 
 # for example cpu_render
 image = { version = "0.25.1", optional = true }

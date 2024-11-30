@@ -74,7 +74,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        20,
+        39,
         Viewport {
             origin: V3c {
                 x: 0.,

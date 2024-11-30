@@ -32,14 +32,14 @@ use super::types::{OctreeGPUDataHandler, VictimPointer};
 //##############################################################################
 impl VictimPointer {
     pub(crate) fn is_full(&self) -> bool {
-        self.stored_items >= (self.max_meta_len - 1)
+        self.max_meta_len <= self.stored_items
     }
 
     pub(crate) fn new(max_meta_len: usize) -> Self {
         Self {
             max_meta_len,
             stored_items: 0,
-            meta_index: 0,
+            meta_index: max_meta_len - 1,
             child: 0,
         }
     }
@@ -61,15 +61,22 @@ impl VictimPointer {
         self.child = 0;
     }
 
+    pub(crate) fn went_around(&self) -> bool {
+        self.meta_index == 0 && self.child == 0
+    }
+
     /// Provides the first available index in the metadata buffer which can be overwritten
-    /// with node related information. It never returns with 0, because that is reserved for the root node,
-    /// which should not be overwritten.
-    fn first_available_node(&mut self, render_data: &mut OctreeRenderData) -> usize {
+    /// with node related meta information and the index of the meta from where the child was taken.
+    /// The available index is never 0, because that is reserved for the root node, which should not be overwritten.
+    fn first_available_node(
+        &mut self,
+        render_data: &mut OctreeRenderData,
+    ) -> (usize, Option<usize>) {
         // If there is space left in the cache, use it all up
         if !self.is_full() {
             render_data.metadata[self.stored_items] |= 0x01;
             self.stored_items += 1;
-            return self.stored_items - 1;
+            return (self.stored_items - 1, None);
         }
 
         //look for the next internal node ( with node children )
@@ -88,11 +95,13 @@ impl VictimPointer {
                 let child_meta_index =
                     render_data.node_children[self.meta_index * 8 + self.child] as usize;
                 if 0 == (render_data.metadata[child_meta_index] & 0x01) {
+                    let severed_parent_index = self.meta_index;
                     //mark child as used
                     render_data.metadata[child_meta_index] |= 0x01;
 
                     //erase connection to parent node
-                    render_data.node_children[self.meta_index * 8 + self.child] = empty_marker();
+                    render_data.node_children[severed_parent_index * 8 + self.child] =
+                        empty_marker();
 
                     if
                     // erased node is a leaf and it has children
@@ -119,8 +128,9 @@ impl VictimPointer {
                         }
                     }
 
+                    // step victim pointer forward and return with the requested data
                     self.step();
-                    return child_meta_index;
+                    return (child_meta_index, Some(severed_parent_index));
                 } else {
                     // mark child as unused
                     render_data.metadata[child_meta_index] &= 0xFFFFFFFE;
@@ -131,14 +141,19 @@ impl VictimPointer {
     }
 
     /// Finds the first available brick, and marks it as used
-    fn first_available_brick(&mut self, render_data: &mut OctreeRenderData) -> usize {
+    /// Returns with the resulting brick index, and optionally
+    /// the index in the meta, where the brick was taken from
+    fn first_available_brick(
+        &mut self,
+        render_data: &mut OctreeRenderData,
+    ) -> (usize, Option<usize>) {
         let max_brick_count = render_data.metadata.len() * 8;
 
         // If there is space left in the cache, use it all up
         if self.stored_items < max_brick_count - 1 {
             render_data.metadata[self.stored_items / 8] |= 0x01 << (24 + (self.stored_items % 8));
             self.stored_items += 1;
-            return self.stored_items - 1;
+            return (self.stored_items - 1, None);
         }
 
         // look for the next victim leaf node with bricks
@@ -170,11 +185,12 @@ impl VictimPointer {
                     render_data.metadata[brick_index / 8] |= brick_used_mask;
 
                     // erase connection of child brick to parent node
+                    let severed_parent_node = self.meta_index;
                     render_data.node_children[self.meta_index * 8 + self.child] = empty_marker();
 
-                    // step victim pointer forward
+                    // step victim pointer forward and return with the requested data
                     self.step();
-                    return brick_index;
+                    return (brick_index, Some(severed_parent_node));
                 }
 
                 // set the bricks used bit to 0 for the currently used brick
@@ -288,25 +304,29 @@ impl OctreeGPUDataHandler {
     //  █████  ░░█████ ░░░███████░   ██████████   ██████████
     // ░░░░░    ░░░░░    ░░░░░░░    ░░░░░░░░░░   ░░░░░░░░░░
     //##############################################################################
-    /// Writes the data of the node to the first available index, and returns the index of the overwritten data
+    /// Writes the data of the node to the first available index
+    /// returns the index of the overwritten metadata entry and a vector
+    /// of index values where metadata entries were taken from, taking a child of another node.
+    /// May take children from 0-2 nodes!
     /// It may fail to add the node, when @try_add_children is set to true
     pub(crate) fn add_node<T, const DIM: usize>(
         &mut self,
         tree: &Octree<T, DIM>,
         node_key: usize,
         try_add_children: bool,
-    ) -> Option<usize>
+    ) -> (Option<usize>, Vec<usize>)
     where
         T: Default + Copy + Clone + PartialEq + VoxelData,
     {
         if try_add_children && self.victim_node.is_full() {
             // Do not add additional nodes at initial upload if the cache is already full
-            return None;
+            return (None, Vec::new());
         }
 
         // Determine the index in meta
-        let node_element_index = self.victim_node.first_available_node(&mut self.render_data);
-        self.map_to_node_index_in_metadata
+        let (node_element_index, severed_parent_index) =
+            self.victim_node.first_available_node(&mut self.render_data);
+        self.node_key_vs_meta_index
             .insert(node_key, node_element_index);
 
         // Add node properties to metadata
@@ -321,6 +341,11 @@ impl OctreeGPUDataHandler {
             ((occupied_bits & 0xFFFFFFFF00000000) >> 32) as u32;
 
         // Add node content
+        let mut severed_parents = if let Some(severed_parent_index) = severed_parent_index {
+            vec![severed_parent_index]
+        } else {
+            Vec::new()
+        };
         match tree.nodes.get(node_key) {
             NodeContent::UniformLeaf(brick) => {
                 debug_assert!(
@@ -332,8 +357,16 @@ impl OctreeGPUDataHandler {
                     tree.node_children[node_key].content
                 );
 
-                let (brick_index, brick_added) = self.add_brick(brick);
-                self.render_data.node_children[node_element_index * 8 + 0] = brick_index;
+                if try_add_children {
+                    let (brick_index, severed_parent_data) = self.add_brick(brick);
+                    self.render_data.node_children[node_element_index * 8 + 0] = brick_index;
+                    if let Some(severed_parent_index) = severed_parent_data {
+                        severed_parents.push(severed_parent_index);
+                    }
+                } else {
+                    self.render_data.node_children[node_element_index * 8 + 0] = empty_marker();
+                }
+
                 self.render_data.node_children[node_element_index * 8 + 1] = empty_marker();
                 self.render_data.node_children[node_element_index * 8 + 2] = empty_marker();
                 self.render_data.node_children[node_element_index * 8 + 3] = empty_marker();
@@ -343,7 +376,7 @@ impl OctreeGPUDataHandler {
                 self.render_data.node_children[node_element_index * 8 + 7] = empty_marker();
                 #[cfg(debug_assertions)]
                 {
-                    if !brick_added {
+                    if let BrickData::Solid(_) | BrickData::Empty = brick {
                         // If no brick was added, the occupied bits should either be empty or full
                         if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
                             tree.node_children[node_key].content
@@ -362,23 +395,35 @@ impl OctreeGPUDataHandler {
                     "Expected Leaf to have OccupancyBitmaps(_) instead of {:?}",
                     tree.node_children[node_key].content
                 );
-                for octant in 0..8 {
-                    let (brick_index, brick_added) = self.add_brick(&bricks[octant]);
-                    self.render_data.node_children[node_element_index * 8 + octant] = brick_index;
-                    #[cfg(debug_assertions)]
-                    {
-                        if !brick_added {
-                            // If no brick was added, the relevant occupied bits should either be empty or full
-                            if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
-                                tree.node_children[node_key].content
-                            {
-                                debug_assert!(
-                                    0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
-                                        || BITMAP_MASK_FOR_OCTANT_LUT[octant]
-                                            == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
-                                );
+                if try_add_children {
+                    for octant in 0..8 {
+                        let (brick_index, severed_parent_data) = self.add_brick(&bricks[octant]);
+                        self.render_data.node_children[node_element_index * 8 + octant] =
+                            brick_index;
+                        if let Some(severed_parent_index) = severed_parent_data {
+                            severed_parents.push(severed_parent_index);
+                        }
+                        #[cfg(debug_assertions)]
+                        {
+                            if let BrickData::Solid(_) | BrickData::Empty = bricks[octant] {
+                                // If no brick was added, the relevant occupied bits should either be empty or full
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    tree.node_children[node_key].content
+                                {
+                                    debug_assert!(
+                                        0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                            || BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                                == occupied_bits
+                                                    & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                    );
+                                }
                             }
                         }
+                    }
+                } else {
+                    for octant in 0..8 {
+                        self.render_data.node_children[node_element_index * 8 + octant] =
+                            empty_marker();
                     }
                 }
             }
@@ -387,15 +432,17 @@ impl OctreeGPUDataHandler {
                     let child_key = tree.node_children[node_key][octant] as usize;
                     if child_key != empty_marker() as usize {
                         if try_add_children
-                            && !self.map_to_node_index_in_metadata.contains_key(&child_key)
+                            && !self.node_key_vs_meta_index.contains_left(&child_key)
                         {
+                            // In case @try_add_children is true, no new node is added in case the cache is full,
+                            // so there will be no severed parents in this case
                             self.add_node(tree, child_key, try_add_children);
                         }
 
                         self.render_data.node_children[node_element_index * 8 + octant as usize] =
                             *self
-                                .map_to_node_index_in_metadata
-                                .get(&child_key)
+                                .node_key_vs_meta_index
+                                .get_by_left(&child_key)
                                 .unwrap_or(&(empty_marker() as usize))
                                 as u32;
                     } else {
@@ -411,7 +458,7 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
-        Some(node_element_index)
+        (Some(node_element_index), severed_parents)
     }
 
     //##############################################################################
@@ -434,8 +481,14 @@ impl OctreeGPUDataHandler {
     //##############################################################################
     /// Loads a brick into the provided voxels vector and color palette
     /// * `brick` - The brick to upload
-    /// * `returns` - the identifier to set in @SizedNode and true if a new brick was aded to the voxels vector
-    fn add_brick<T, const DIM: usize>(&mut self, brick: &BrickData<T, DIM>) -> (u32, bool)
+    /// * `returns` - (index in @render_data.metadata, None) if a brick was uploaded and no other node had its child taken away
+    ///             - (index in @render_data.metadata, Some(severed_parent_index))
+    ///             --> if a new brick was added to the voxels vector, taking away a brick child from a leaf node
+    ///             - (index in @render_data.color_palette, None) if brick is solid, and no node were stripped of its brick
+    pub(crate) fn add_brick<T, const DIM: usize>(
+        &mut self,
+        brick: &BrickData<T, DIM>,
+    ) -> (u32, Option<usize>)
     where
         T: Default + Clone + PartialEq + VoxelData,
     {
@@ -448,7 +501,7 @@ impl OctreeGPUDataHandler {
         );
 
         match brick {
-            BrickData::Empty => (empty_marker(), false),
+            BrickData::Empty => (empty_marker(), None),
             BrickData::Solid(voxel) => {
                 let albedo = voxel.albedo();
                 // The number of colors inserted into the palette is the size of the color palette map
@@ -464,12 +517,13 @@ impl OctreeGPUDataHandler {
                         albedo.a as f32 / 255.,
                     );
                 }
-                (self.map_to_color_index_in_palette[&albedo] as u32, false)
+                (self.map_to_color_index_in_palette[&albedo] as u32, None)
             }
             BrickData::Parted(brick) => {
-                let brick_index = self
+                let (brick_index, severed_parent_data) = self
                     .victim_brick
                     .first_available_brick(&mut self.render_data);
+                let severed_parent_index = severed_parent_data;
                 for z in 0..DIM {
                     for y in 0..DIM {
                         for x in 0..DIM {
@@ -500,7 +554,7 @@ impl OctreeGPUDataHandler {
                         }
                     }
                 }
-                (brick_index as u32, true)
+                (brick_index as u32, severed_parent_index)
             }
         }
     }

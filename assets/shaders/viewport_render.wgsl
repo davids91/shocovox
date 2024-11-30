@@ -285,7 +285,7 @@ fn request_node(node_meta_index: u32, child_octant: u32) -> bool {
     var request_index = 0u;
     loop{
         let exchange_result = atomicCompareExchangeWeak(
-            &node_requests[request_index], 0u, request_data
+            &node_requests[request_index], EMPTY_MARKER, request_data
         );
         if(exchange_result.exchanged || exchange_result.old_value == request_data) {
             break;
@@ -611,6 +611,8 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         & node_occupied_bits[current_node_key * 2 + 1]
                     )
                 )
+                // Request node only once per ray iteration to prioritize nodes in sight for cache
+                && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
             ){
                 if request_node(current_node_key, target_octant) {
                     missing_data_color += (
@@ -640,25 +642,27 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             if (target_octant != OOB_OCTANT) {
                 if(0 != (0x00000004 & current_node_meta)) { // node is leaf
                     var hit: OctreeRayIntersection;
-                    if(0 != (0x00000008 & current_node_meta)) { // node is a uniform leaf
-                        hit = probe_brick(
-                            ray, &ray_current_distance,
-                            current_node_key, 0u, &current_bounds,
-                            &ray_scale_factors, direction_lut_index
-                        );
-                        do_backtrack_after_leaf_miss = true;
-                    } else { // node is a non-uniform leaf
-                        if // node not empty at target octant, while the brick is marked unavailable
-                            (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
-                            && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
-                        {
-                            // child brick is not yet uploaded to GPU
-                            if request_node(current_node_key, target_octant) {
-                                missing_data_color += vec3f(0.3,0.1,0.0);
-                            } else {
-                                missing_data_color += vec3f(0.7,0.0,0.0);
-                            }
+
+                    if // node not empty at target octant, while the brick is marked unavailable
+                        (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
+                        && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
+                    {
+                        // child brick is not yet uploaded to GPU
+                        if request_node(current_node_key, target_octant) {
+                            missing_data_color += vec3f(0.3,0.1,0.0);
                         } else {
+                            missing_data_color += vec3f(0.7,0.0,0.0);
+                        }
+                        do_backtrack_after_leaf_miss = true;
+                    } else {
+                        if(0 != (0x00000008 & current_node_meta)) { // node is a uniform leaf
+                            hit = probe_brick(
+                                ray, &ray_current_distance,
+                                current_node_key, 0u, &current_bounds,
+                                &ray_scale_factors, direction_lut_index
+                            );
+                            do_backtrack_after_leaf_miss = true;
+                        } else { // node is a non-uniform leaf
                             target_bounds = child_bounds_for(&current_bounds, target_octant);
                             hit = probe_brick(
                                 ray, &ray_current_distance,
@@ -667,10 +671,10 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                                 &ray_scale_factors, direction_lut_index
                             );
                         }
-                    }
-                    if hit.hit == true {
-                        hit.albedo += vec4f(missing_data_color, 0.);
-                        return hit;
+                        if hit.hit == true {
+                            hit.albedo += vec4f(missing_data_color, 0.);
+                            return hit;
+                        }
                     }
                 }
             }

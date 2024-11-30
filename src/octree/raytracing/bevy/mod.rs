@@ -39,7 +39,7 @@ where
 
 impl<T, const DIM: usize> Plugin for RenderBevyPlugin<T, DIM>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + Copy + PartialEq + VoxelData + Send + Sync + 'static,
 {
     fn build(&self, app: &mut App) {
         app.add_plugins((

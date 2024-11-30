@@ -14,6 +14,7 @@ use bevy::{
         renderer::RenderQueue,
     },
 };
+use bimap::BiHashMap;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -87,8 +88,9 @@ pub struct OctreeGPUDataHandler {
     pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: VictimPointer,
-    pub(crate) map_to_node_index_in_metadata: HashMap<usize, usize>,
+    pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
+    pub(crate) uploaded_color_palette_size: usize,
 }
 
 #[derive(Clone)]
