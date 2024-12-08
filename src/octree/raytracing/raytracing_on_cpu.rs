@@ -8,7 +8,7 @@ use crate::{
             BITMAP_INDEX_LUT, BITMAP_MASK_FOR_OCTANT_LUT, OOB_OCTANT,
             RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
         },
-        math::{hash_direction, hash_region, position_in_bitmap_64bits, BITMAP_DIMENSION},
+        math::{hash_direction, hash_region, BITMAP_DIMENSION},
         raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
     },
 };
@@ -294,9 +294,9 @@ where
         let mut step_vec = V3c::unit(0.);
 
         while target_octant != OOB_OCTANT {
-            current_node_key = Octree::<T, DIM>::ROOT_NODE_KEY as usize;
+            current_node_key = Self::ROOT_NODE_KEY as usize;
             current_bounds = Cube::root_bounds(self.octree_size as f32);
-            node_stack.push(Octree::<T, DIM>::ROOT_NODE_KEY);
+            node_stack.push(Self::ROOT_NODE_KEY);
             while !node_stack.is_empty() {
                 let current_node_occupied_bits =
                     self.stored_occupied_bits(*node_stack.last().unwrap() as usize);

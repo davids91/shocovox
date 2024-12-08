@@ -332,7 +332,7 @@ where
         }
 
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
@@ -472,8 +472,8 @@ where
             if let NodeContent::Internal(ref mut occupied_bits) =
                 self.nodes.get_mut(node_key as usize)
             {
-                let corrected_update_size = ((node_bounds.size * actual_update_size as f32)
-                    / BITMAP_DIMENSION as f32)
+                let corrected_update_size = ((actual_update_size as f32 * BITMAP_DIMENSION as f32)
+                    / node_bounds.size)
                     .ceil() as usize;
                 set_occupancy_in_bitmap_64bits(
                     &matrix_index_for(&node_bounds, &(position.into()), BITMAP_DIMENSION),
@@ -541,7 +541,7 @@ where
         }
 
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
-        let mut node_stack = vec![(Octree::<T, DIM>::ROOT_NODE_KEY, root_bounds)];
+        let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();

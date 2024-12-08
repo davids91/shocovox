@@ -1,4 +1,4 @@
-use crate::octree::V3cf32;
+use crate::octree::{Albedo, Octree, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -9,9 +9,15 @@ use bevy::{
         prelude::Image,
         render_graph::RenderLabel,
         render_resource::{
-            AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, ShaderType,
+            AsBindGroup, BindGroup, BindGroupLayout, Buffer, CachedComputePipelineId, ShaderType,
         },
+        renderer::RenderQueue,
     },
+};
+use bimap::BiHashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone, ShaderType)]
@@ -35,33 +41,107 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct ShocoVoxRenderPlugin {
-    pub resolution: [u32; 2],
+pub struct RenderBevyPlugin<T, const DIM: usize>
+where
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+{
+    pub(crate) dummy: std::marker::PhantomData<T>,
+    pub(crate) resolution: [u32; 2],
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
-#[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
-pub struct ShocoVoxViewingGlass {
+#[derive(Resource, Clone, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::OctreeGPUHost"]
+pub struct OctreeGPUHost<T, const DIM: usize>
+where
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+{
+    pub tree: Octree<T, DIM>,
+}
+
+#[derive(Default, Resource, Clone, TypePath, ExtractResource)]
+#[type_path = "shocovox::gpu::SvxViewSet"]
+pub struct SvxViewSet {
+    pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
+}
+
+#[derive(Resource, Clone, AsBindGroup)]
+pub struct OctreeGPUView {
+    pub spyglass: OctreeSpyGlass,
+    pub(crate) data_handler: OctreeGPUDataHandler,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct VictimPointer {
+    pub(crate) max_meta_len: usize,
+    pub(crate) loop_count: usize,
+    pub(crate) stored_items: usize,
+    pub(crate) meta_index: usize,
+    pub(crate) child: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum BrickOwnedBy {
+    NotOwned,
+    Node(u32, u8),
+}
+
+#[derive(Resource, Clone, AsBindGroup)]
+pub struct OctreeGPUDataHandler {
+    pub(crate) render_data: OctreeRenderData,
+    pub(crate) victim_node: VictimPointer,
+    pub(crate) victim_brick: usize,
+    pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
+    pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
+    pub(crate) brick_ownership: Vec<BrickOwnedBy>,
+    pub(crate) map_to_brick_maybe_owned_by_node: HashMap<(usize, u8), usize>,
+    pub(crate) uploaded_color_palette_size: usize,
+}
+
+#[derive(Clone)]
+pub(crate) struct OctreeRenderDataResources {
+    // Spyglass group
+    pub(crate) spyglass_bind_group: BindGroup,
+    pub(crate) viewport_buffer: Buffer,
+    pub(crate) node_requests_buffer: Buffer,
+
+    // Octree render data group
+    pub(crate) tree_bind_group: BindGroup,
+    pub(crate) metadata_buffer: Buffer,
+    pub(crate) node_children_buffer: Buffer,
+    pub(crate) node_ocbits_buffer: Buffer,
+    pub(crate) voxels_buffer: Buffer,
+    pub(crate) color_palette_buffer: Buffer,
+
+    // Staging buffers for data reads
+    pub(crate) readable_node_requests_buffer: Buffer,
+    pub(crate) readable_metadata_buffer: Buffer,
+}
+
+#[derive(Clone, AsBindGroup)]
+pub struct OctreeSpyGlass {
     #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
 
     #[uniform(1, visibility(compute))]
     pub viewport: Viewport,
+
+    #[storage(2, visibility(compute))]
+    pub(crate) node_requests: Vec<u32>,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
-pub struct ShocoVoxRenderData {
+pub struct OctreeRenderData {
+    /// Contains the properties of the Octree
     #[uniform(0, visibility(compute))]
-    pub(crate) meta: OctreeMetaData,
+    pub(crate) octree_meta: OctreeMetaData,
 
-    /// Composite field containing the properties of Nodes
-    /// Structure is the following:
+    /// Contains the properties of Nodes and Voxel Bricks
     ///  _===================================================================_
     /// | Byte 0  | Node properties                                           |
     /// |---------------------------------------------------------------------|
-    /// |  bit 0  | unused - potentially: "node in use do not delete" bit     |
-    /// |  bit 1  | unused - potentially: "brick in use do not delete" bit    |
+    /// |  bit 0  | 1 if node is used by the raytracing algorithm *(2) *(4)   |
+    /// |  bit 1  | unused                                                    |
     /// |  bit 2  | 1 in case node is a leaf                                  |
     /// |  bit 3  | 1 in case node is uniform                                 |
     /// |  bit 4  | unused - potentially: 1 if node has voxels                |
@@ -69,21 +149,30 @@ pub struct ShocoVoxRenderData {
     /// |  bit 6  | unused - potentially: voxel brick size: 1, full or sparse |
     /// |  bit 7  | unused                                                    |
     /// |=====================================================================|
-    /// | Byte 1  | Child occupied                                            |
+    /// | Byte 1  | Node Child occupied                                       |
     /// |---------------------------------------------------------------------|
     /// | If Leaf | each bit is 0 if child brick is empty at octant *(1)      |
     /// | If Node | unused                                                    |
     /// |=====================================================================|
-    /// | Byte 2  | Child structure                                           |
+    /// | Byte 2  | Node Child structure                                      |
     /// |---------------------------------------------------------------------|
     /// | If Leaf | each bit is 0 if child brick is solid, 1 if parted *(1)   |
     /// | If Node | unused                                                    |
     /// |=====================================================================|
-    /// | Byte 3  | unused                                                    |
+    /// | Byte 3  | Voxel Bricks used *(3)                                    |
+    /// |---------------------------------------------------------------------|
+    /// | each bit is 1 if brick is used (do not delete please)               |
     /// `=====================================================================`
-    /// *(1) Only first bit is used in case leaf is uniform
+    /// *(1) Only first bit is used in case uniform leaf nodes
+    /// *(2) The same bit is used for node_children and node_occupied_bits
+    /// *(3) One index in the array covers 8 bricks, which is the theoretical maximum
+    ///      number of bricks for one node. In practice however the number of bricks
+    ///      are only 4-5 times more, than the number of nodes, because of the internal nodes;
+    ///      And only a fraction of them are visible in a render.
+    /// *(4) Root node does not have this bit used, because it will never be overwritten
+    ///      due to the victim pointer logic
     #[storage(1, visibility(compute))]
-    pub(crate) nodes: Vec<u32>,
+    pub(crate) metadata: Vec<u32>,
 
     /// Index values for Nodes, 8 value per @SizedNode entry. Each value points to:
     /// In case of Internal Nodes
@@ -94,17 +183,17 @@ pub struct ShocoVoxRenderData {
     /// index of where the voxel brick start inside the @voxels buffer.
     /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta, while
     #[storage(2, visibility(compute))]
-    pub(crate) children_buffer: Vec<u32>,
-
-    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
-    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
-    #[storage(3, visibility(compute))]
-    pub(crate) voxels: Vec<Voxelement>,
+    pub(crate) node_children: Vec<u32>,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
+    #[storage(3, visibility(compute))]
+    pub(crate) node_ocbits: Vec<u32>,
+
+    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
+    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
     #[storage(4, visibility(compute))]
-    pub(crate) node_occupied_bits: Vec<u32>,
+    pub(crate) voxels: Vec<Voxelement>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )
@@ -113,19 +202,22 @@ pub struct ShocoVoxRenderData {
 }
 
 #[derive(Resource)]
-pub(crate) struct ShocoVoxRenderPipeline {
+pub(crate) struct SvxRenderPipeline {
     pub update_tree: bool,
-    pub(crate) viewing_glass_bind_group_layout: BindGroupLayout,
-    pub(crate) render_data_bind_group_layout: BindGroupLayout,
+
+    pub(crate) render_queue: RenderQueue,
     pub(crate) update_pipeline: CachedComputePipelineId,
-    pub(crate) viewing_glass_bind_group: Option<BindGroup>,
-    pub(crate) tree_bind_group: Option<BindGroup>,
+
+    // Data layout and data
+    pub(crate) spyglass_bind_group_layout: BindGroupLayout,
+    pub(crate) render_data_bind_group_layout: BindGroupLayout,
+    pub(crate) resources: Option<OctreeRenderDataResources>,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub(crate) struct ShocoVoxLabel;
+pub(crate) struct SvxLabel;
 
-pub(crate) struct ShocoVoxRenderNode {
+pub(crate) struct SvxRenderNode {
     pub(crate) ready: bool,
     pub(crate) resolution: [u32; 2],
 }
