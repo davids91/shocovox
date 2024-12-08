@@ -278,16 +278,19 @@ fn set_brick_used(brick_index: u32) {
 // Unique to this implementation, not adapted from rust code
 /// Requests the child of the given node to be uploaded
 fn request_node(node_meta_index: u32, child_octant: u32) -> bool {
-    let request_data = (
-        (node_meta_index & 0x00FFFFFFu)
-        | ((child_octant & 0x000000FF) << 24)
-    );
     var request_index = 0u;
     loop{
         let exchange_result = atomicCompareExchangeWeak(
-            &node_requests[request_index], EMPTY_MARKER, request_data
+            &node_requests[request_index], EMPTY_MARKER,
+            (node_meta_index & 0x00FFFFFFu)|((child_octant & 0x000000FF) << 24)
         );
-        if(exchange_result.exchanged || exchange_result.old_value == request_data) {
+        if(
+            exchange_result.exchanged 
+            ||(
+                exchange_result.old_value
+                == ((node_meta_index & 0x00FFFFFFu)|((child_octant & 0x000000FF) << 24))
+            )
+        ) {
             break;
         }
         request_index += 1u;

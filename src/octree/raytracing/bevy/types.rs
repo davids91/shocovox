@@ -64,7 +64,7 @@ pub struct SvxViewSet {
     pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[derive(Resource, Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::OctreeGPUView"]
 pub struct OctreeGPUView {
     // +++ DEBUG +++
@@ -76,20 +76,29 @@ pub struct OctreeGPUView {
 
 #[derive(Debug, Clone)]
 pub(crate) struct VictimPointer {
-    pub(crate) max_meta_len: usize, //TODO: should be private to type
+    //TODO: most fields should be private to type
+    pub(crate) max_meta_len: usize,
+    pub(crate) loop_count: usize,
     pub(crate) stored_items: usize,
     pub(crate) meta_index: usize,
     pub(crate) child: usize,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath, ExtractResource)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum BrickOwnedBy {
+    NotOwned,
+    Node(u32, u8),
+}
+
+#[derive(Resource, Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
 pub struct OctreeGPUDataHandler {
     pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
-    pub(crate) victim_brick: VictimPointer,
+    pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
+    pub(crate) brick_ownership: Vec<BrickOwnedBy>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
@@ -165,13 +174,14 @@ pub struct OctreeRenderData {
     /// |=====================================================================|
     /// | Byte 3  | Voxel Bricks used *(3)                                    |
     /// |---------------------------------------------------------------------|
-    /// | each bit is 1 if voxel brick is used by the raytracing algorithm    |
+    /// | each bit is 1 if brick is used (do not delete please)               |
     /// `=====================================================================`
     /// *(1) Only first bit is used in case uniform leaf nodes
     /// *(2) The same bit is used for node_children and node_occupied_bits
     /// *(3) One index in the array covers 8 bricks, which is the theoretical maximum
     ///      number of bricks for one node. In practice however the number of bricks
-    ///      are only 4-5 times more, than the number of nodes, because of the internal nodes.
+    ///      are only 4-5 times more, than the number of nodes, because of the internal nodes;
+    ///      And only a fraction of them are visible in a render.
     /// *(4) Root node does not have this bit used, because it will never be overwritten
     ///      due to the victim pointer logic
     #[storage(1, visibility(compute))]
