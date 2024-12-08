@@ -12,12 +12,17 @@ Roadmap:
 
 Issue spotlight: 
 -
-These are the issues I will work on until 2025 Q1. I am eliminating them in a sequential manner.
-- #54 - Occupied bitmap structure update - Restructure of the per-node and per-brick occupied bitmaps to be more efficient(gotta go fast)
-- #56 - Rework user data handling - Trimming the fat in Voxel storage, broadening the possibilities with user data
-- #45 - GPU cache - To make it possible to display octrees of limitless size on the GPU by streaming only what one can see
+These are the issues I will work on until 2025 Q2. I am eliminating them in a sequential manner.
+- #56 - Introduce Palettes - Trimming the fat in Voxel storage, broadening the possibilities with user data and eliminating some data conversion overhead with bricks.
+- #65 - Flatten brick storage: trimming some additional overhead, and eliminating some possible techDebt (`DIM` generic argument with Octree)
 - #3 - to make it possible to have a limitless octree: so it's not bound by the RAM size anymore
+- #17 Beam Optimization - Pre-render a small resolution image to optimally initialize ray distances, and help with deciding which bricks to load pre-emptively. GOTTA GO FAST
 - #28, #6 - Level of Detail implementation to render large scenes more efficiently
+
+If you feel adventurous:
+-
+
+I have marked some issues with the help needed flag, which I think would be a good addition to the library, but I can not focus on it as I am but a single person with limited time and resources. Feel free to try to tackle any of the marked issues (Or basically anything you'd like), I will provide any needed help and support if I can. 
 
 Special thanks to contributors and supporters!
 -
