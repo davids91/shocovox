@@ -3,7 +3,7 @@ use bevy::{prelude::*, window::WindowPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxViewSet, Viewport},
+    raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
     Albedo, Octree, V3c,
 };
 
@@ -67,14 +67,14 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.spawn(DomePosition {
         yaw: 0.,
         roll: 0.,
-        radius: tree.get_size() as f32 * 2.2,
+        radius: tree.get_size() as f32 * 0.8,
     });
 
     let mut host = OctreeGPUHost { tree };
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        39,
+        35,
         Viewport {
             origin: V3c {
                 x: 0.,
@@ -151,12 +151,6 @@ fn handle_zoom(
     mut angles_query: Query<&mut DomePosition>,
 ) {
     let mut tree_view = view_set.views[0].lock().unwrap();
-    if keys.pressed(KeyCode::Delete) {
-        tree_view.do_the_thing = true;
-    }
-    // if tree_view.is_changed() {
-    //     println!("changed!! --> {:?}", tree_view.read_back);
-    // }
     const ADDITION: f32 = 0.05;
     let angle_update_fn = |angle, delta| -> f32 {
         let new_angle = angle + delta;

@@ -46,7 +46,7 @@ where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
     pub(crate) dummy: std::marker::PhantomData<T>,
-    pub resolution: [u32; 2],
+    pub(crate) resolution: [u32; 2],
 }
 
 #[derive(Resource, Clone, TypePath, ExtractResource)]
@@ -64,19 +64,14 @@ pub struct SvxViewSet {
     pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath)]
-#[type_path = "shocovox::gpu::OctreeGPUView"]
+#[derive(Resource, Clone, AsBindGroup)]
 pub struct OctreeGPUView {
-    // +++ DEBUG +++
-    pub do_the_thing: bool,
-    // --- DEBUG ---
     pub spyglass: OctreeSpyGlass,
     pub(crate) data_handler: OctreeGPUDataHandler,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct VictimPointer {
-    //TODO: most fields should be private to type
     pub(crate) max_meta_len: usize,
     pub(crate) loop_count: usize,
     pub(crate) stored_items: usize,
@@ -90,8 +85,7 @@ pub(crate) enum BrickOwnedBy {
     Node(u32, u8),
 }
 
-#[derive(Resource, Clone, AsBindGroup, TypePath)]
-#[type_path = "shocovox::gpu::OctreeGPUDataHandler"]
+#[derive(Resource, Clone, AsBindGroup)]
 pub struct OctreeGPUDataHandler {
     pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
@@ -99,6 +93,7 @@ pub struct OctreeGPUDataHandler {
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) brick_ownership: Vec<BrickOwnedBy>,
+    pub(crate) map_to_brick_maybe_owned_by_node: HashMap<(usize, u8), usize>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
@@ -111,22 +106,18 @@ pub(crate) struct OctreeRenderDataResources {
 
     // Octree render data group
     pub(crate) tree_bind_group: BindGroup,
-    pub(crate) octree_meta_buffer: Buffer,
     pub(crate) metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,
     pub(crate) node_ocbits_buffer: Buffer,
     pub(crate) voxels_buffer: Buffer,
     pub(crate) color_palette_buffer: Buffer,
-    pub(crate) debug_gpu_interface: Buffer,
 
     // Staging buffers for data reads
     pub(crate) readable_node_requests_buffer: Buffer,
     pub(crate) readable_metadata_buffer: Buffer,
-    pub(crate) readable_debug_gpu_interface: Buffer,
 }
 
-#[derive(Clone, AsBindGroup, TypePath)]
-#[type_path = "shocovox::gpu::ShocoVoxViewingGlass"]
+#[derive(Clone, AsBindGroup)]
 pub struct OctreeSpyGlass {
     #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
@@ -141,10 +132,6 @@ pub struct OctreeSpyGlass {
 #[derive(Clone, AsBindGroup, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
 pub struct OctreeRenderData {
-    // +++ DEBUG +++
-    #[storage(6, visibility(compute))]
-    pub(crate) debug_gpu_interface: u32,
-    // --- DEBUG ---
     /// Contains the properties of the Octree
     #[uniform(0, visibility(compute))]
     pub(crate) octree_meta: OctreeMetaData,
@@ -196,7 +183,7 @@ pub struct OctreeRenderData {
     /// index of where the voxel brick start inside the @voxels buffer.
     /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta, while
     #[storage(2, visibility(compute))]
-    pub node_children: Vec<u32>,
+    pub(crate) node_children: Vec<u32>,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values

@@ -905,11 +905,6 @@ var<storage, read_write> voxels: array<Voxelement>;
 @group(1) @binding(5)
 var<storage, read_write> color_palette: array<vec4f>;
 
-// +++ DEBUG +++
-@group(1) @binding(6)
-var<storage, read_write> debug_interface: u32;
-// --- DEBUG ---
-
 
 @compute @workgroup_size(8, 8, 1)
 fn update(

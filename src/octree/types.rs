@@ -4,9 +4,6 @@ use std::error::Error;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "bevy_wgpu")]
-use {crate::octree::raytracing::bevy::types::OctreeGPUDataHandler, std::sync::Arc};
-
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) enum BrickData<T, const DIM: usize>

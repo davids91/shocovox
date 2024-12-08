@@ -138,16 +138,6 @@ impl render_graph::Node for SvxRenderNode {
                 (std::mem::size_of_val(&current_view.spyglass.node_requests[0])
                     * current_view.spyglass.node_requests.len()) as u64,
             );
-
-            // +++ DEBUG +++
-            command_encoder.copy_buffer_to_buffer(
-                &resources.debug_gpu_interface,
-                0,
-                &resources.readable_debug_gpu_interface,
-                0,
-                std::mem::size_of::<u32>() as u64,
-            )
-            // --- DEBUG ---
         }
         Ok(())
     }
@@ -179,6 +169,7 @@ impl render_graph::Node for SvxRenderNode {
 //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████       ░░█████████
 //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░         ░░░░░░░░░
 //##############################################################################
+/// Constructs buffers, bing groups and uploads rendering data at initialization and whenever prompted
 pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
@@ -258,20 +249,6 @@ pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
         });
 
-        // +++ DEBUG +++
-        let buffer = UniformBuffer::new(vec![0u8; 4]);
-        let debug_gpu_interface = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("Octree Debug Buffer"),
-            contents: &buffer.into_inner(),
-            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-        });
-        let readable_debug_gpu_interface = render_device.create_buffer(&BufferDescriptor {
-            mapped_at_creation: false,
-            size: 4,
-            label: Some("Octree Debug interface Buffer"),
-            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-        });
-        // --- DEBUG ---
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.octree_meta).unwrap();
         let octree_meta_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -349,12 +326,6 @@ pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
                     binding: 5,
                     resource: color_palette_buffer.as_entire_binding(),
                 },
-                // +++ DEBUG +++
-                bevy::render::render_resource::BindGroupEntry {
-                    binding: 6,
-                    resource: debug_gpu_interface.as_entire_binding(),
-                },
-                // --- DEBUG ---
             ],
         );
 
@@ -441,15 +412,12 @@ pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
             spyglass_bind_group,
             tree_bind_group,
             viewport_buffer,
-            octree_meta_buffer,
             metadata_buffer,
             node_children_buffer,
             node_ocbits_buffer,
             voxels_buffer,
             color_palette_buffer,
-            debug_gpu_interface,
             readable_node_requests_buffer,
-            readable_debug_gpu_interface,
             readable_metadata_buffer,
         });
     }

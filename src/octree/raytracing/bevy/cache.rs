@@ -32,23 +32,17 @@ use super::types::{OctreeGPUDataHandler, VictimPointer};
 // ░░░░░           ░░░░░    ░░░░░   ░░░░░
 //##############################################################################
 impl VictimPointer {
-    /// returns with the meta index, and the target octant currently pointed at
-    pub(crate) fn current_target_meta_index(&self, render_data: &OctreeRenderData) -> u32 {
-        if 0 < self.get_loop_count() {
-            render_data.node_children[self.meta_index * 8 + self.child]
-        } else {
-            self.stored_items as u32 - 1
-        }
-    }
-
+    /// Returns the size of the buffer this pointer covers
     pub(crate) fn len(&self) -> usize {
         self.max_meta_len
     }
 
+    /// Returns true if no new nodes can be added without overwriting another
     pub(crate) fn is_full(&self) -> bool {
         self.max_meta_len <= self.stored_items
     }
 
+    /// Creates object, based on the given cache length it should cover
     pub(crate) fn new(max_meta_len: usize) -> Self {
         Self {
             max_meta_len,
@@ -59,6 +53,8 @@ impl VictimPointer {
         }
     }
 
+    /// Steps the iterator forward to the next children, if available, or the next node.
+    /// Wraps around
     pub(crate) fn step(&mut self) {
         if self.child >= 7 {
             self.skip_node();
@@ -67,6 +63,7 @@ impl VictimPointer {
         }
     }
 
+    /// Steps the iterator forward one node
     pub(crate) fn skip_node(&mut self) {
         if self.meta_index == 0 {
             self.loop_count += 1;
@@ -77,21 +74,23 @@ impl VictimPointer {
         self.child = 0;
     }
 
-    /// Tells the number of times the victim node pointer has started from the first element in the cache
+    /// Provides the number of times the victim node pointer has started from the first element in the cache
     pub(crate) fn get_loop_count(&self) -> usize {
         self.loop_count
     }
 
     /// Provides the first available index in the metadata buffer which can be overwritten
-    /// with node related meta information and the index of the meta from where the child was taken.
-    /// The available index is never 0, because that is reserved for the root node, which should not be overwritten.
-    fn go_to_first_available_node(&mut self, render_data: &mut OctreeRenderData) {
+    /// with node related meta information and optionally the source where the child was taken from.
+    fn first_available_node(
+        &mut self,
+        render_data: &mut OctreeRenderData,
+    ) -> (usize, Option<(usize, u8)>) {
         // If there is space left in the cache, use it all up
         if !self.is_full() {
             render_data.metadata[self.stored_items] |= OctreeGPUDataHandler::NODE_USED_MASK;
             self.meta_index = self.stored_items;
             self.stored_items += 1;
-            return;
+            return (self.meta_index, None);
         }
 
         //look for the next internal node ( with node children )
@@ -108,7 +107,7 @@ impl VictimPointer {
                     & OctreeGPUDataHandler::NODE_USED_MASK)
                 {
                     render_data.metadata[child_meta_index] |= OctreeGPUDataHandler::NODE_USED_MASK;
-                    return;
+                    return (child_meta_index, Some((self.meta_index, self.child as u8)));
                 } else {
                     // mark child as unused
                     render_data.metadata[child_meta_index] &= !OctreeGPUDataHandler::NODE_USED_MASK;
@@ -267,7 +266,9 @@ impl OctreeGPUDataHandler {
             parent_key
         );
 
+        // Erase connection to parent
         let child_index = self.render_data.node_children[meta_index * 8 + child_octant] as usize;
+        self.render_data.node_children[meta_index * 8 + child_octant] = empty_marker();
         debug_assert_ne!(
             child_index,
             empty_marker() as usize,
@@ -281,7 +282,7 @@ impl OctreeGPUDataHandler {
             NodeContent::Internal(_occupied_bits) => {
                 debug_assert!(
                     self.node_key_vs_meta_index.contains_right(&child_index),
-                    "Expected parent node to be in metadata index hash!"
+                    "Expected erased child node index[{child_index}] to be in metadata index hash!"
                 );
                 let child_key = self
                     .node_key_vs_meta_index
@@ -289,10 +290,8 @@ impl OctreeGPUDataHandler {
                     .unwrap();
                 debug_assert!(
                     tree.nodes.key_is_valid(*child_key),
-                    "Expected removed child node({:?}) to be valid",
-                    child_key
+                    "Expected erased child node({child_key}) to be valid"
                 );
-                modified_nodes.push(child_index);
 
                 if let NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) =
                     tree.nodes.get(*child_key)
@@ -303,7 +302,6 @@ impl OctreeGPUDataHandler {
                             self.render_data.node_children[child_index * 8 + octant] as usize;
                         if brick_index != empty_marker() as usize {
                             self.brick_ownership[brick_index] = BrickOwnedBy::NotOwned;
-                            modified_bricks.push(brick_index);
 
                             // mark brick as unused
                             self.render_data.metadata[brick_index / 8] &=
@@ -312,9 +310,12 @@ impl OctreeGPUDataHandler {
                             // Eliminate connection
                             self.render_data.node_children[child_index * 8 + octant] =
                                 empty_marker();
+
+                            modified_bricks.push(brick_index);
                         }
                     }
                 }
+                modified_nodes.push(child_index);
             }
             NodeContent::UniformLeaf(_) | NodeContent::Leaf(_) => {
                 debug_assert!(
@@ -333,9 +334,6 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
-
-        //Erase connection to parent
-        self.render_data.node_children[meta_index * 8 + child_octant] = empty_marker();
 
         //return with updated ranges in voxels and metadata
         (modified_nodes, modified_bricks)
@@ -370,27 +368,22 @@ impl OctreeGPUDataHandler {
         try_add_children: bool,
     ) -> Option<(usize, Vec<usize>, Vec<usize>)>
     where
-        T: Default + Copy + Clone + PartialEq + VoxelData,
+        T: Default + Copy + Clone + PartialEq + VoxelData + Send + Sync + 'static,
     {
         if try_add_children && self.victim_node.is_full() {
             // Do not add additional nodes at initial upload if the cache is already full
             return None;
         }
 
-        // Determine the index in meta
-        self.victim_node
-            .go_to_first_available_node(&mut self.render_data);
+        // Determine the index in meta, overwrite a currently present node if needed
+        let (node_element_index, robbed_parent) =
+            self.victim_node.first_available_node(&mut self.render_data);
+        let (mut modified_nodes, mut modified_bricks) = if let Some(robbed_parent) = robbed_parent {
+            self.erase_node_child(robbed_parent.0, robbed_parent.1 as usize, tree)
+        } else {
+            (vec![node_element_index], Vec::new())
+        };
 
-        let node_element_index = self
-            .victim_node
-            .current_target_meta_index(&self.render_data) as usize;
-        let (meta_index, child_octant) = (self.victim_node.meta_index, self.victim_node.child);
-        let (mut modified_nodes, mut modified_bricks) =
-            if !self.node_key_vs_meta_index.contains_right(&meta_index) {
-                (Vec::new(), Vec::new())
-            } else {
-                self.erase_node_child(meta_index, child_octant, tree)
-            };
         self.node_key_vs_meta_index
             .insert(node_key, node_element_index);
 
@@ -522,7 +515,6 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
-        modified_nodes.push(node_element_index);
         Some((node_element_index, modified_nodes, modified_bricks))
     }
 
@@ -544,7 +536,8 @@ impl OctreeGPUDataHandler {
     //  ███████████  █████   █████ █████ ░░█████████  █████ ░░████
     // ░░░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░   ░░░░░░░░░  ░░░░░   ░░░░
     //##############################################################################
-    fn go_to_first_available_brick(&mut self) -> usize {
+    /// Provides the index of the first brick available to be overwritten, through the second chance algorithm
+    fn first_available_brick(&mut self) -> usize {
         let mut brick_index;
         loop {
             brick_index = self.victim_brick;
@@ -579,7 +572,7 @@ impl OctreeGPUDataHandler {
         target_octant: usize,
     ) -> (u32, Vec<usize>, Vec<usize>)
     where
-        T: Default + Clone + PartialEq + VoxelData,
+        T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
     {
         debug_assert_eq!(
             self.render_data.voxels.len() % (DIM * DIM * DIM),
@@ -621,7 +614,22 @@ impl OctreeGPUDataHandler {
                 )
             }
             BrickData::Parted(brick) => {
-                let brick_index = self.go_to_first_available_brick();
+                if let Some(brick_index) = self
+                    .map_to_brick_maybe_owned_by_node
+                    .get(&(node_key, target_octant as u8))
+                {
+                    if self.brick_ownership[*brick_index] == BrickOwnedBy::NotOwned {
+                        self.brick_ownership[*brick_index] =
+                            BrickOwnedBy::Node(node_key as u32, target_octant as u8);
+                        return (*brick_index as u32, Vec::new(), Vec::new());
+                    } else {
+                        // remove from index if it is owned by another node already
+                        self.map_to_brick_maybe_owned_by_node
+                            .remove(&(node_key, target_octant as u8));
+                    }
+                }
+
+                let brick_index = self.first_available_brick();
                 let (modified_nodes, modified_bricks) =
                     if let BrickOwnedBy::Node(key, octant) = self.brick_ownership[brick_index] {
                         debug_assert!(

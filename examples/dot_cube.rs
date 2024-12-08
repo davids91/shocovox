@@ -9,8 +9,8 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
-    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, Viewport},
-    Albedo, Octree, V3c, VoxelData,
+    raytracing::{OctreeGPUHost, OctreeGPUView, Ray, SvxViewSet, Viewport},
+    Albedo, V3c,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -169,12 +169,6 @@ fn handle_zoom(
     mut angles_query: Query<&mut DomePosition>,
     tree: Res<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
 ) {
-    if keys.pressed(KeyCode::Delete) {
-        tree_view.do_the_thing = true;
-    }
-    // if tree_view.is_changed() {
-    //     println!("changed!! --> {:?}", tree_view.read_back);
-    // }
     const ADDITION: f32 = 0.05;
     let angle_update_fn = |angle, delta| -> f32 {
         let new_angle = angle + delta;

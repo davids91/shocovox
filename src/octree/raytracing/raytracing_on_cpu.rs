@@ -8,7 +8,7 @@ use crate::{
             BITMAP_INDEX_LUT, BITMAP_MASK_FOR_OCTANT_LUT, OOB_OCTANT,
             RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
         },
-        math::{hash_direction, hash_region, position_in_bitmap_64bits, BITMAP_DIMENSION},
+        math::{hash_direction, hash_region, BITMAP_DIMENSION},
         raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
     },
 };
