@@ -3,10 +3,10 @@ use bevy::{
     asset::Handle,
     ecs::system::Resource,
     math::Vec4,
+    prelude::Image,
     reflect::TypePath,
     render::{
         extract_resource::ExtractResource,
-        prelude::Image,
         render_graph::RenderLabel,
         render_resource::{
             AsBindGroup, BindGroup, BindGroupLayout, Buffer, CachedComputePipelineId, ShaderType,
@@ -64,7 +64,7 @@ pub struct SvxViewSet {
     pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
 }
 
-#[derive(Resource, Clone, AsBindGroup)]
+#[derive(Resource, Clone)]
 pub struct OctreeGPUView {
     pub spyglass: OctreeSpyGlass,
     pub(crate) data_handler: OctreeGPUDataHandler,
@@ -85,7 +85,7 @@ pub(crate) enum BrickOwnedBy {
     Node(u32, u8),
 }
 
-#[derive(Resource, Clone, AsBindGroup)]
+#[derive(Resource, Clone)]
 pub struct OctreeGPUDataHandler {
     pub(crate) render_data: OctreeRenderData,
     pub(crate) victim_node: VictimPointer,
@@ -117,23 +117,17 @@ pub(crate) struct OctreeRenderDataResources {
     pub(crate) readable_metadata_buffer: Buffer,
 }
 
-#[derive(Clone, AsBindGroup)]
+#[derive(Clone)]
 pub struct OctreeSpyGlass {
-    #[storage_texture(0, image_format = Rgba8Unorm, access = ReadWrite)]
     pub output_texture: Handle<Image>,
-
-    #[uniform(1, visibility(compute))]
     pub viewport: Viewport,
-
-    #[storage(2, visibility(compute))]
     pub(crate) node_requests: Vec<u32>,
 }
 
-#[derive(Clone, AsBindGroup, TypePath)]
+#[derive(Clone, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
 pub struct OctreeRenderData {
     /// Contains the properties of the Octree
-    #[uniform(0, visibility(compute))]
     pub(crate) octree_meta: OctreeMetaData,
 
     /// Contains the properties of Nodes and Voxel Bricks
@@ -171,7 +165,6 @@ pub struct OctreeRenderData {
     ///      And only a fraction of them are visible in a render.
     /// *(4) Root node does not have this bit used, because it will never be overwritten
     ///      due to the victim pointer logic
-    #[storage(1, visibility(compute))]
     pub(crate) metadata: Vec<u32>,
 
     /// Index values for Nodes, 8 value per @SizedNode entry. Each value points to:
@@ -182,22 +175,18 @@ pub struct OctreeRenderData {
     /// -----------------------------------------
     /// index of where the voxel brick start inside the @voxels buffer.
     /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta, while
-    #[storage(2, visibility(compute))]
     pub(crate) node_children: Vec<u32>,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
-    #[storage(3, visibility(compute))]
     pub(crate) node_ocbits: Vec<u32>,
 
     /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
     /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
-    #[storage(4, visibility(compute))]
     pub(crate) voxels: Vec<Voxelement>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )
-    #[storage(5, visibility(compute))]
     pub(crate) color_palette: Vec<Vec4>,
 }
 

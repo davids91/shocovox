@@ -93,15 +93,8 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
     commands.insert_resource(host);
     commands.insert_resource(views);
-    commands.spawn(SpriteBundle {
-        sprite: Sprite {
-            custom_size: Some(Vec2::new(1024., 768.)),
-            ..default()
-        },
-        texture: output_texture,
-        ..default()
-    });
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Sprite::from_image(output_texture));
+    commands.spawn(Camera2d::default());
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -222,12 +215,6 @@ fn handle_zoom(
         img.save("example_junk_cpu_render.png").ok().unwrap();
     }
 
-    let multiplier = if keys.pressed(KeyCode::ShiftLeft) {
-        10.0 // Doesn't have any effect?!
-    } else {
-        1.0
-    };
-
     if keys.pressed(KeyCode::ArrowUp) {
         angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
     }
@@ -241,18 +228,16 @@ fn handle_zoom(
         angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, -ADDITION);
     }
     if keys.pressed(KeyCode::PageUp) {
-        angles_query.single_mut().radius *= 1. - 0.02 * multiplier;
+        angles_query.single_mut().radius *= 1. - 0.02;
     }
     if keys.pressed(KeyCode::PageDown) {
-        angles_query.single_mut().radius *= 1. + 0.02 * multiplier;
+        angles_query.single_mut().radius *= 1. + 0.02;
     }
     if keys.pressed(KeyCode::Home) {
-        tree_view.spyglass.viewport.w_h_fov.x *= 1. + 0.09 * multiplier;
-        tree_view.spyglass.viewport.w_h_fov.y *= 1. + 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.z *= 1. + 0.09;
     }
     if keys.pressed(KeyCode::End) {
-        tree_view.spyglass.viewport.w_h_fov.x *= 1. - 0.09 * multiplier;
-        tree_view.spyglass.viewport.w_h_fov.y *= 1. - 0.09 * multiplier;
+        tree_view.spyglass.viewport.w_h_fov.z *= 1. - 0.09;
     }
 }
 

@@ -301,28 +301,6 @@ fn request_node(node_meta_index: u32, child_octant: u32) -> bool {
     return true;
 }
 
-//crate::spatial::math::step_octant
-fn step_octant(octant: u32, step: ptr<function, vec3f>) -> u32 {
-    return (
-        (
-            OCTANT_STEP_RESULT_LUT[u32(sign((*step).x) + 1)][u32(sign((*step).y) + 1)][u32(sign((*step).z) + 1)]
-            & (0x0Fu << (4 * octant))
-        ) >> (4 * octant)
-    ) & 0x0Fu;
-}
-
-//crate::spatial::math::hash_direction
-fn hash_direction(direction: vec3f) -> u32 {
-    return hash_region(vec3f(1.) + normalize(direction), 1.);
-}
-
-// Functionality-wise this function is more generic, than its counterpart
-// and is used in voxel brick mapping too
-//crate::spatial::math::flat_projection
-fn flat_projection(i: vec3u, dimensions: vec2u) -> u32 {
-    return (i.x + (i.y * dimensions.y) + (i.z * dimensions.x * dimensions.y));
-}
-
 struct BrickHit{
     hit: bool,
     index: vec3u,
@@ -377,7 +355,11 @@ fn traverse_brick(
 
         var mapped_index = (
             brick_start_index * u32(dimension * dimension * dimension)
-            + flat_projection(vec3u(current_index), vec2u(u32(dimension), u32(dimension)))
+            + u32( //crate::spatial::math::flat_projection
+                current_index.x
+                + (current_index.y * dimension)
+                + (current_index.z * dimension * dimension)
+            )
         );
         if mapped_index >= arrayLength(&voxels)
         {
@@ -537,7 +519,9 @@ fn traverse_node_for_ocbits(
 
 fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var ray_scale_factors = get_dda_scale_factors(ray); // Should be const, but then it can't be passed as ptr
-    let direction_lut_index = hash_direction((*ray).direction);
+    let direction_lut_index = ( //crate::spatial::math::hash_direction
+        hash_region(vec3f(1.) + normalize((*ray).direction), 1.)
+    );
 
     var node_stack: array<u32, NODE_STACK_SIZE>;
     var node_stack_meta: u32 = 0;
@@ -714,18 +698,27 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 if(EMPTY_MARKER != node_stack_last(node_stack_meta)){
                     current_node_key = node_stack[node_stack_last(node_stack_meta)];
                     current_node_meta = metadata[current_node_key];
-                    target_octant = step_octant(
-                        hash_region( // parent current target octant
-                            // current bound center
-                            current_bounds.min_position + vec3f(round(current_bounds.size / 2.))
-                            - ( // parent bound min position
-                                current_bounds.min_position
-                                - (current_bounds.min_position % (current_bounds.size * 2.))
-                            ),
-                            current_bounds.size
+
+                    // target octant updated to hold the target octant of the parent node temporarily
+                    target_octant = hash_region(
+                        // current bound center
+                        current_bounds.min_position + vec3f(round(current_bounds.size / 2.))
+                        - ( // parent bound min position
+                            current_bounds.min_position
+                            - (current_bounds.min_position % (current_bounds.size * 2.))
                         ),
-                        &step_vec
+                        current_bounds.size
                     );
+
+                    // ..which is then stepped forward as if the parent was advancing
+                    target_octant = ( //crate::spatial::math::step_octant
+                       (
+                           OCTANT_STEP_RESULT_LUT[u32(sign(step_vec.x) + 1)]
+                                                 [u32(sign(step_vec.y) + 1)]
+                                                 [u32(sign(step_vec.z) + 1)]
+                           & (0x0Fu << (4 * target_octant))
+                       ) >> (4 * target_octant)
+                    ) & 0x0Fu;
                     current_bounds.size = round(current_bounds.size * 2.);
                     current_bounds.min_position -= current_bounds.min_position % current_bounds.size;
                 }
@@ -785,7 +778,14 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         &target_bounds,
                         &ray_scale_factors
                     ));
-                    target_octant = step_octant(target_octant, &step_vec);
+                    target_octant = ( //crate::spatial::math::step_octant
+                       (
+                           OCTANT_STEP_RESULT_LUT[u32(sign(step_vec.x) + 1)]
+                                                 [u32(sign(step_vec.y) + 1)]
+                                                 [u32(sign(step_vec.z) + 1)]
+                           & (0x0Fu << (4 * target_octant))
+                       ) >> (4 * target_octant)
+                    ) & 0x0Fu;
                     if OOB_OCTANT != target_octant {
                         target_bounds = child_bounds_for(&current_bounds, target_octant);
                         target_child_key = node_children[(current_node_key * 8) + target_octant];

@@ -1,24 +1,25 @@
 use crate::octree::{
     raytracing::bevy::types::{
-        OctreeRenderData, OctreeSpyGlass, SvxRenderNode, SvxRenderPipeline, Viewport,
+        OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport, Voxelement,
     },
     VoxelData,
 };
-
 use bevy::{
     asset::AssetServer,
     ecs::{
         system::{Res, ResMut},
         world::{FromWorld, World},
     },
+    prelude::Vec4,
     render::{
         render_asset::RenderAssets,
         render_graph::{self},
         render_resource::{
             encase::{StorageBuffer, UniformBuffer},
-            AsBindGroup, BindGroupEntry, BindingResource, BufferDescriptor, BufferInitDescriptor,
-            BufferUsages, CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor,
-            PipelineCache, ShaderSize,
+            BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBindingType,
+            BufferDescriptor, BufferInitDescriptor, BufferUsages, CachedPipelineState,
+            ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache, ShaderSize,
+            ShaderStages, ShaderType, StorageTextureAccess, TextureFormat, TextureViewDimension,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::GpuImage,
@@ -31,13 +32,112 @@ use super::types::{OctreeRenderDataResources, SvxViewSet};
 impl FromWorld for SvxRenderPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
-        let spyglass_bind_group_layout = OctreeSpyGlass::bind_group_layout(render_device);
-        let render_data_bind_group_layout = OctreeRenderData::bind_group_layout(render_device);
+        let spyglass_bind_group_layout = render_device.create_bind_group_layout(
+            "OctreeSpyGlass",
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::StorageTexture {
+                        access: StorageTextureAccess::ReadWrite,
+                        format: TextureFormat::Rgba8Unorm,
+                        view_dimension: TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1u32,
+                    visibility: ShaderStages::all(),
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Viewport as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+            ],
+        );
+        let render_data_bind_group_layout = render_device.create_bind_group_layout(
+            "OctreeRenderData",
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0u32,
+                    visibility: ShaderStages::all(),
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<OctreeMetaData as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 3u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 4u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<Voxelement> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 5u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<Vec4> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+            ],
+        );
         let shader = world
             .resource::<AssetServer>()
             .load("shaders/viewport_render.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let update_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            zero_initialize_workgroup_memory: false,
             label: None,
             layout: vec![
                 spyglass_bind_group_layout.clone(),
@@ -299,7 +399,7 @@ pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
 
         // Create bind group
         let tree_bind_group = render_device.create_bind_group(
-            OctreeRenderData::label(),
+            "OctreeRenderData",
             &pipeline.render_data_bind_group_layout,
             &[
                 bevy::render::render_resource::BindGroupEntry {
@@ -389,7 +489,7 @@ pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
             .texture_view
             .clone();
         let spyglass_bind_group = render_device.create_bind_group(
-            OctreeSpyGlass::label(),
+            "OctreeSpyGlass",
             &pipeline.spyglass_bind_group_layout,
             &[
                 BindGroupEntry {
