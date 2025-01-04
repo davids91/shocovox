@@ -1,6 +1,6 @@
 [package]
 name = "shocovox-rs"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ default = ["bevy_wgpu","dot_vox_support"]
 raytracing = ["dep:image", "dep:show-image"]
 serialization = ["dep:serde"]
 dot_vox_support = ["dep:dot_vox", "dep:nalgebra"]
-bevy_wgpu = ["raytracing", "dep:bevy", "dep:iyes_perf_ui", "dep:crossbeam", "dep:bimap"]
+bevy_wgpu = ["raytracing", "dep:bevy", "dep:crossbeam", "dep:bimap", "dep:bevy_panorbit_camera", "dep:iyes_perf_ui"]
 
 [dependencies]
 num-traits = "0.2.19"
@@ -29,6 +29,8 @@ show-image = { version = "0.14.0", optional = true }
 bevy = { version = "0.15.0", features = [], optional = true}
 #iyes_perf_ui = { version = "0.3.0", features = [], optional = true}
 iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", features = [], optional = true}
+bevy_panorbit_camera = { version = "0.21.1", features = [], optional = true}
+
 
 # debugging
 #linker = "/usr/bin/clang"

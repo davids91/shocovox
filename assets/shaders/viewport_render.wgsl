@@ -660,6 +660,27 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         }
                         if hit.hit == true {
                             hit.albedo += vec4f(missing_data_color, 0.);
+
+                            /*// +++ DEBUG +++
+                            let current_point = point_in_ray_at_distance(ray, ray_current_distance);
+                            let bound_size_ratio = f32(current_bounds.size) / f32(octree_meta_data.octree_size) * 5.;
+                            if( // Display current bounds boundaries
+                                (abs(current_point.x - current_bounds.min_position.x) < bound_size_ratio)
+                                ||(abs(current_point.y - current_bounds.min_position.y) < bound_size_ratio)
+                                ||(abs(current_point.z - current_bounds.min_position.z) < bound_size_ratio)
+                            ){
+                                hit.albedo -= 0.5;
+                            }
+
+                            /*if( // Display current bounds center
+                                (abs(current_point.x - (current_bounds.min_position.x + (current_bounds.size / 2.))) < bound_size_ratio)
+                                ||(abs(current_point.y - (current_bounds.min_position.y + (current_bounds.size / 2.))) < bound_size_ratio)
+                                ||(abs(current_point.z - (current_bounds.min_position.z + (current_bounds.size / 2.))) < bound_size_ratio)
+                            ){
+                                hit.albedo += 0.5;
+                            }*/
+                            */// --- DEBUG ---
+
                             return hit;
                         }
                     }
@@ -826,25 +847,27 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             }
         } // while (node_stack not empty)
 
-        let current_octant_center = (
+        let next_octant_center = (
             current_bounds.min_position
             + vec3f(round(current_bounds.size / 2.))
             + step_vec * current_bounds.size
         );
         if(
-          current_octant_center.x < f32(octree_meta_data.octree_size)
-          && current_octant_center.y < f32(octree_meta_data.octree_size)
-          && current_octant_center.z < f32(octree_meta_data.octree_size)
-          && current_octant_center.x > 0.
-          && current_octant_center.y > 0.
-          && current_octant_center.z > 0.
+          next_octant_center.x < f32(octree_meta_data.octree_size)
+          && next_octant_center.y < f32(octree_meta_data.octree_size)
+          && next_octant_center.z < f32(octree_meta_data.octree_size)
+          && next_octant_center.x > 0.
+          && next_octant_center.y > 0.
+          && next_octant_center.z > 0.
         ) {
             target_octant = hash_region(
-                current_octant_center, f32(octree_meta_data.octree_size) / 2.
+                next_octant_center, f32(octree_meta_data.octree_size) / 2.
             );
         } else {
             target_octant = OOB_OCTANT;
         }
+        // Push ray current distance a little bit forward to avoid iterating the same paths all over again
+        ray_current_distance += FLOAT_ERROR_TOLERANCE;
     } // while (ray inside root bounds)
     return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), 0, vec3f(0.), vec3f(0., 0., 1.));
 }
