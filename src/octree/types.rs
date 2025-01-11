@@ -4,28 +4,28 @@ use std::error::Error;
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum BrickData<T, const DIM: usize>
+pub(crate) enum BrickData<T>
 where
     T: Clone + PartialEq + Clone + VoxelData,
 {
     Empty,
-    Parted(Box<[[[T; DIM]; DIM]; DIM]>),
+    Parted(Vec<T>),
     Solid(T),
 }
 
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeContent<T, const DIM: usize>
+pub(crate) enum NodeContent<T>
 where
     T: Clone + PartialEq + Clone + VoxelData,
 {
     #[default]
     Nothing,
     Internal(u64), // cache data to store the occupancy of the enclosed nodes
-    Leaf([BrickData<T, DIM>; 8]),
-    UniformLeaf(BrickData<T, DIM>),
+    Leaf([BrickData<T>; 8]),
+    UniformLeaf(BrickData<T>),
 }
 
 /// error types during usage or creation of the octree
@@ -37,7 +37,7 @@ pub enum OctreeError {
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq)]
 #[cfg_attr(test, derive(Eq))]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 pub(crate) enum NodeChildrenArray<T: Default> {
@@ -78,13 +78,14 @@ pub trait VoxelData {
 /// tree-graph where each node has 8 children.
 #[cfg_attr(feature = "serialization", derive(Serialize))]
 #[derive(Clone)]
-pub struct Octree<T, const DIM: usize = 1>
+pub struct Octree<T>
 where
     T: Default + Clone + PartialEq + VoxelData,
 {
     pub auto_simplify: bool,
+    pub(crate) brick_dim: u32,
     pub(crate) octree_size: u32,
-    pub(crate) nodes: ObjectPool<NodeContent<T, DIM>>,
+    pub(crate) nodes: ObjectPool<NodeContent<T>>,
     pub(crate) node_children: Vec<NodeChildren<u32>>, // Children index values of each Node
 }
 

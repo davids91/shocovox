@@ -7,21 +7,20 @@ use crate::octree::{types::NodeChildren, Octree, V3c};
 
 #[test]
 fn test_node_brickdata_serialization() {
-    let brick_data_empty = BrickData::<Albedo, 4>::Empty;
-    let brick_data_solid = BrickData::<Albedo, 2>::Solid(Albedo::default().with_red(50));
-    let brick_data_parted =
-        BrickData::Parted(Box::new([[[Albedo::default().with_blue(33); 4]; 4]; 4]));
+    let brick_data_empty = BrickData::<Albedo>::Empty;
+    let brick_data_solid = BrickData::<Albedo>::Solid(Albedo::default().with_red(50));
+    let brick_data_parted = BrickData::Parted(vec![Albedo::default(); 4 * 4 * 4]);
 
     let brick_data_empty_deserialized =
-        BrickData::<Albedo, 4>::from_bencode(&brick_data_empty.to_bencode().ok().unwrap())
+        BrickData::<Albedo>::from_bencode(&brick_data_empty.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
     let brick_data_solid_deserialized =
-        BrickData::<Albedo, 2>::from_bencode(&brick_data_solid.to_bencode().ok().unwrap())
+        BrickData::<Albedo>::from_bencode(&brick_data_solid.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
     let brick_data_parted_deserialized =
-        BrickData::<Albedo, 4>::from_bencode(&brick_data_parted.to_bencode().ok().unwrap())
+        BrickData::<Albedo>::from_bencode(&brick_data_parted.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
 
@@ -32,39 +31,38 @@ fn test_node_brickdata_serialization() {
 
 #[test]
 fn test_nodecontent_serialization() {
-    let node_content_nothing = NodeContent::<Albedo, 4>::Nothing;
-    let node_content_internal = NodeContent::<Albedo, 8>::Internal(0xAB);
-    let node_content_leaf = NodeContent::<Albedo, 2>::Leaf([
-        BrickData::<Albedo, 2>::Empty,
-        BrickData::<Albedo, 2>::Solid(Albedo::default().with_blue(3)),
-        BrickData::<Albedo, 2>::Parted(Box::new([[[Albedo::default().with_green(5); 2]; 2]; 2])),
-        BrickData::<Albedo, 2>::Empty,
-        BrickData::<Albedo, 2>::Empty,
-        BrickData::<Albedo, 2>::Empty,
-        BrickData::<Albedo, 2>::Empty,
-        BrickData::<Albedo, 2>::Empty,
+    let node_content_nothing = NodeContent::<Albedo>::Nothing;
+    let node_content_internal = NodeContent::<Albedo>::Internal(0xAB);
+    let node_content_leaf = NodeContent::<Albedo>::Leaf([
+        BrickData::<Albedo>::Empty,
+        BrickData::<Albedo>::Solid(Albedo::default().with_blue(3)),
+        BrickData::<Albedo>::Parted(vec![Albedo::default(); 2 * 2 * 2]),
+        BrickData::<Albedo>::Empty,
+        BrickData::<Albedo>::Empty,
+        BrickData::<Albedo>::Empty,
+        BrickData::<Albedo>::Empty,
+        BrickData::<Albedo>::Empty,
     ]);
-    let node_content_uniform_leaf = NodeContent::<Albedo, 16>::UniformLeaf(
-        BrickData::<Albedo, 16>::Solid(Albedo::default().with_blue(3)),
-    );
+    let node_content_uniform_leaf = NodeContent::<Albedo>::UniformLeaf(BrickData::<Albedo>::Solid(
+        Albedo::default().with_blue(3),
+    ));
 
     let node_content_nothing_deserialized =
-        NodeContent::<Albedo, 4>::from_bencode(&node_content_nothing.to_bencode().ok().unwrap())
+        NodeContent::<Albedo>::from_bencode(&node_content_nothing.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
     let node_content_internal_deserialized =
-        NodeContent::<Albedo, 8>::from_bencode(&node_content_internal.to_bencode().ok().unwrap())
+        NodeContent::<Albedo>::from_bencode(&node_content_internal.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
     let node_content_leaf_deserialized =
-        NodeContent::<Albedo, 2>::from_bencode(&node_content_leaf.to_bencode().ok().unwrap())
+        NodeContent::<Albedo>::from_bencode(&node_content_leaf.to_bencode().ok().unwrap())
             .ok()
             .unwrap();
-    let node_content_uniform_leaf_deserialized = NodeContent::<Albedo, 16>::from_bencode(
-        &node_content_uniform_leaf.to_bencode().ok().unwrap(),
-    )
-    .ok()
-    .unwrap();
+    let node_content_uniform_leaf_deserialized =
+        NodeContent::<Albedo>::from_bencode(&node_content_uniform_leaf.to_bencode().ok().unwrap())
+            .ok()
+            .unwrap();
 
     assert_eq!(
         node_content_nothing_deserialized, node_content_nothing,
@@ -134,7 +132,7 @@ fn test_node_children_serialization() {
 fn test_octree_file_io() {
     let red: Albedo = 0xFF0000FF.into();
 
-    let mut tree = Octree::<Albedo>::new(4).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(4, 1).ok().unwrap();
 
     // This will set the area equal to 64 1-sized nodes
     tree.insert_at_lod(&V3c::new(0, 0, 0), 4, red).ok().unwrap();
@@ -167,7 +165,7 @@ fn test_octree_file_io() {
 fn test_big_octree_serialize() {
     const TREE_SIZE: u32 = 128;
     const FILL_RANGE_START: u32 = 100;
-    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE, 1).ok().unwrap();
     for x in FILL_RANGE_START..TREE_SIZE {
         for y in FILL_RANGE_START..TREE_SIZE {
             for z in FILL_RANGE_START..TREE_SIZE {
@@ -196,7 +194,7 @@ fn test_big_octree_serialize() {
 #[test]
 fn test_small_octree_serialize_where_dim_is_1() {
     const TREE_SIZE: u32 = 2;
-    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE, 1).ok().unwrap();
     tree.insert(&V3c::new(0, 0, 0), 1.into()).ok().unwrap();
 
     let serialized = tree.to_bytes();
@@ -212,7 +210,7 @@ fn test_small_octree_serialize_where_dim_is_1() {
 #[test]
 fn test_octree_serialize_where_dim_is_1() {
     const TREE_SIZE: u32 = 4;
-    let mut tree = Octree::<Albedo>::new(TREE_SIZE).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(TREE_SIZE, 1).ok().unwrap();
     for x in 0..TREE_SIZE {
         for y in 0..TREE_SIZE {
             for z in 0..TREE_SIZE {
@@ -243,7 +241,7 @@ fn test_octree_serialize_where_dim_is_1() {
 
 #[test]
 fn test_octree_serialize_where_dim_is_2() {
-    let mut tree = Octree::<Albedo, 2>::new(4).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(4, 2).ok().unwrap();
     for x in 0..4 {
         for y in 0..4 {
             for z in 0..4 {
@@ -258,7 +256,7 @@ fn test_octree_serialize_where_dim_is_2() {
     }
 
     let serialized = tree.to_bytes();
-    let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
+    let deserialized = Octree::<Albedo>::from_bytes(serialized);
 
     for x in 0..4 {
         for y in 0..4 {
@@ -274,7 +272,7 @@ fn test_octree_serialize_where_dim_is_2() {
 
 #[test]
 fn test_big_octree_serialize_where_dim_is_2() {
-    let mut tree = Octree::<Albedo, 2>::new(128).ok().unwrap();
+    let mut tree = Octree::<Albedo>::new(128, 2).ok().unwrap();
     for x in 100..128 {
         for y in 100..128 {
             for z in 100..128 {
@@ -287,7 +285,7 @@ fn test_big_octree_serialize_where_dim_is_2() {
     }
 
     let serialized = tree.to_bytes();
-    let deserialized = Octree::<Albedo, 2>::from_bytes(serialized);
+    let deserialized = Octree::<Albedo>::from_bytes(serialized);
 
     for x in 100..128 {
         for y in 100..128 {

@@ -1,10 +1,16 @@
 use crate::octree::{
-    types::{NodeChildren, NodeChildrenArray, NodeContent, VoxelData},
+    types::{BrickData, NodeChildren, NodeChildrenArray, NodeContent, VoxelData},
     V3c,
 };
 use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
-    math::{set_occupancy_in_bitmap_64bits, BITMAP_DIMENSION},
+    math::{flat_projection, set_occupancy_in_bitmap_64bits},
+};
+
+use std::{
+    fmt::{Debug, Error, Formatter},
+    matches,
+    ops::{Index, IndexMut},
 };
 
 //####################################################################################
@@ -25,6 +31,19 @@ use crate::spatial::{
 //  ░░█████████  █████   █████ █████ ███████████ ██████████   █████   █████ ██████████ █████  ░░█████
 //   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░   ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░    ░░░░░
 //####################################################################################
+impl<T: Default + Debug> Debug for NodeChildrenArray<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match &self {
+            NodeChildrenArray::NoChildren => write!(f, "NodeChildrenArray::NoChildren"),
+            NodeChildrenArray::Children(array) => {
+                write!(f, "NodeChildrenArray::Children({:?})", array)
+            }
+            NodeChildrenArray::OccupancyBitmap(mask) => {
+                write!(f, "NodeChildrenArray::OccupancyBitmap({:#10X})", mask)
+            }
+        }
+    }
+}
 impl<T> NodeChildren<T>
 where
     T: Default + Clone + Eq,
@@ -66,12 +85,6 @@ where
     }
 }
 
-use std::{
-    matches,
-    ops::{Index, IndexMut},
-};
-
-use super::types::BrickData;
 impl<T> Index<u32> for NodeChildren<T>
 where
     T: Default + Copy + Clone,
@@ -118,34 +131,67 @@ where
 //  ██████████   █████   █████    █████    █████   █████
 // ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░
 //####################################################################################
-impl<T, const DIM: usize> BrickData<T, DIM>
+impl<T> Debug for BrickData<T>
+where
+    T: VoxelData + PartialEq + Clone,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match &self {
+            BrickData::Empty => write!(f, "BrickData::Empty"),
+            BrickData::Solid(_) => write!(f, "BrickData::Solid"),
+            BrickData::Parted(_) => write!(f, "BrickData::Parted"),
+        }
+    }
+}
+
+impl<T> BrickData<T>
 where
     T: VoxelData + PartialEq + Clone + Default,
 {
-    /// Provides occupancy information for the part of the brick corresponmding
+    /// Provides occupancy information for the part of the brick corresponding
     /// to the given octant based on the contents of the brick
-    pub(crate) fn is_empty_throughout(&self, octant: usize) -> bool {
+    pub(crate) fn is_empty_throughout(&self, octant: usize, brick_dim: usize) -> bool {
         match self {
             BrickData::Empty => true,
             BrickData::Solid(voxel) => voxel.is_empty(),
             BrickData::Parted(brick) => {
-                if 1 == DIM {
-                    return brick[0][0][0].is_empty();
+                if 1 == brick_dim {
+                    debug_assert!(
+                        1 == brick.len(),
+                        "Expected brick length to align with given brick dimension: {}^3 != {}",
+                        brick.len(),
+                        brick_dim
+                    );
+                    return brick[0].is_empty();
                 }
 
-                if 2 == DIM {
+                if 2 == brick_dim {
+                    debug_assert!(
+                        8 == brick.len(),
+                        "Expected brick length to align with given brick dimension: {}^3 != {}",
+                        brick.len(),
+                        brick_dim
+                    );
                     let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]);
-                    return brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty();
+                    let octant_flat_offset =
+                        flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
+                    return brick[octant_flat_offset].is_empty();
                 }
 
-                let extent = BITMAP_DIMENSION as f32 / 2.;
-                let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant] * extent);
-                for x in 0..extent as usize {
-                    for y in 0..extent as usize {
-                        for z in 0..extent as usize {
-                            if !brick[octant_offset.x + x][octant_offset.y + y][octant_offset.z + z]
-                                .is_empty()
-                            {
+                debug_assert!(
+                    brick.len() > 8,
+                    "Expected brick length to align with given brick dimension: {}^3 != {}",
+                    brick.len(),
+                    brick_dim
+                );
+                let octant_extent = brick_dim / 2usize;
+                let octant_offset =
+                    V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * octant_extent;
+                for x in octant_offset.x..(octant_offset.x + octant_extent) {
+                    for y in octant_offset.y..(octant_offset.y + octant_extent) {
+                        for z in octant_offset.z..(octant_offset.z + octant_extent) {
+                            let octant_flat_offset = flat_projection(x, y, z, brick_dim);
+                            if !brick[octant_flat_offset].is_empty() {
                                 return false;
                             }
                         }
@@ -164,30 +210,39 @@ where
         &self,
         part_octant: usize,
         target_octant: usize,
+        brick_dim: usize,
     ) -> bool {
         match self {
             BrickData::Empty => true,
             BrickData::Solid(voxel) => voxel.is_empty(),
             BrickData::Parted(brick) => {
-                if 1 == DIM {
-                    brick[0][0][0].is_empty()
-                } else if 2 == DIM {
+                if 1 == brick.len() {
+                    // brick dimension is 1
+                    brick[0].is_empty()
+                } else if 8 == brick.len() {
+                    // brick dimension is 2
                     let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant]);
-                    brick[octant_offset.x][octant_offset.y][octant_offset.z].is_empty()
+                    let octant_flat_offset =
+                        flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
+                    brick[octant_flat_offset].is_empty()
                 } else {
-                    let outer_extent = BITMAP_DIMENSION as f32 / 2.;
-                    let inner_extent = BITMAP_DIMENSION as f32 / 4.;
+                    let outer_extent = brick_dim as f32 / 2.;
+                    let inner_extent = brick_dim as f32 / 4.;
                     let octant_offset = V3c::<usize>::from(
                         OCTANT_OFFSET_REGION_LUT[part_octant] * outer_extent
                             + OCTANT_OFFSET_REGION_LUT[target_octant] * inner_extent,
                     );
+
                     for x in 0..inner_extent as usize {
                         for y in 0..inner_extent as usize {
                             for z in 0..inner_extent as usize {
-                                if !brick[octant_offset.x + x][octant_offset.y + y]
-                                    [octant_offset.z + z]
-                                    .is_empty()
-                                {
+                                let octant_flat_offset = flat_projection(
+                                    octant_offset.x + x,
+                                    octant_offset.y + y,
+                                    octant_offset.z + z,
+                                    brick_dim,
+                                );
+                                if !brick[octant_flat_offset].is_empty() {
                                     return false;
                                 }
                             }
@@ -200,16 +255,17 @@ where
     }
 
     /// Calculates the Occupancy bitmap for the given Voxel brick
-    pub(crate) fn calculate_brick_occupied_bits(brick: &[[[T; DIM]; DIM]; DIM]) -> u64 {
+    pub(crate) fn calculate_brick_occupied_bits(brick: &Vec<T>, brick_dimension: usize) -> u64 {
         let mut bitmap = 0;
-        for x in 0..DIM {
-            for y in 0..DIM {
-                for z in 0..DIM {
-                    if !brick[x][y][z].is_empty() {
+        for x in 0..brick_dimension {
+            for y in 0..brick_dimension {
+                for z in 0..brick_dimension {
+                    let flat_index = flat_projection(x, y, z, brick_dimension);
+                    if !brick[flat_index].is_empty() {
                         set_occupancy_in_bitmap_64bits(
                             &V3c::new(x, y, z),
                             1,
-                            DIM,
+                            brick_dimension,
                             true,
                             &mut bitmap,
                         );
@@ -221,7 +277,7 @@ where
     }
 
     /// Calculates the occupancy bitmap based on self
-    pub(crate) fn calculate_occupied_bits(&self) -> u64 {
+    pub(crate) fn calculate_occupied_bits(&self, brick_dimension: usize) -> u64 {
         match self {
             BrickData::Empty => 0,
             BrickData::Solid(voxel) => {
@@ -231,7 +287,7 @@ where
                     u64::MAX
                 }
             }
-            BrickData::Parted(brick) => Self::calculate_brick_occupied_bits(brick),
+            BrickData::Parted(brick) => Self::calculate_brick_occupied_bits(brick, brick_dimension),
         }
     }
 
@@ -241,16 +297,12 @@ where
             BrickData::Empty => None,
             BrickData::Solid(voxel) => Some(voxel),
             BrickData::Parted(brick) => {
-                for x in brick.iter() {
-                    for y in x.iter() {
-                        for voxel in y.iter() {
-                            if *voxel != brick[0][0][0] {
-                                return None;
-                            }
-                        }
+                for voxel in brick.iter() {
+                    if *voxel != brick[0] {
+                        return None;
                     }
                 }
-                Some(&brick[0][0][0])
+                Some(&brick[0])
             }
         }
     }
@@ -289,7 +341,7 @@ where
 //   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
 //####################################################################################
 
-impl<T, const DIM: usize> NodeContent<T, DIM>
+impl<T> NodeContent<T>
 where
     T: VoxelData + PartialEq + Clone + Copy + Default,
 {
@@ -325,13 +377,9 @@ where
                 BrickData::Empty => true,
                 BrickData::Solid(voxel) => voxel.is_empty(),
                 BrickData::Parted(brick) => {
-                    for x in brick.iter() {
-                        for y in x.iter() {
-                            for voxel in y.iter() {
-                                if !voxel.is_empty() {
-                                    return false;
-                                }
-                            }
+                    for voxel in brick.iter() {
+                        if !voxel.is_empty() {
+                            return false;
                         }
                     }
                     true
@@ -349,13 +397,9 @@ where
                             }
                         }
                         BrickData::Parted(brick) => {
-                            for x in brick.iter() {
-                                for y in x.iter() {
-                                    for voxel in y.iter() {
-                                        if !voxel.is_empty() {
-                                            return false;
-                                        }
-                                    }
+                            for voxel in brick.iter() {
+                                if !voxel.is_empty() {
+                                    return false;
                                 }
                             }
                         }
@@ -406,11 +450,11 @@ where
     }
 }
 
-impl<T, const DIM: usize> PartialEq for NodeContent<T, DIM>
+impl<T> PartialEq for NodeContent<T>
 where
     T: Clone + PartialEq + Clone + VoxelData,
 {
-    fn eq(&self, other: &NodeContent<T, DIM>) -> bool {
+    fn eq(&self, other: &NodeContent<T>) -> bool {
         match self {
             NodeContent::Nothing => matches!(other, NodeContent::Nothing),
             NodeContent::Internal(_) => false, // Internal nodes comparison doesn't make sense

@@ -1,6 +1,6 @@
 use crate::spatial::{
     lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
-    math::{hash_region, BITMAP_DIMENSION},
+    math::{flat_projection, hash_region, BITMAP_DIMENSION},
 };
 use crate::{
     object_pool::empty_marker,
@@ -72,7 +72,7 @@ impl From<u32> for Albedo {
 ///####################################################################################
 /// Octree
 ///####################################################################################
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + Clone + PartialEq + VoxelData,
 {
@@ -80,7 +80,7 @@ where
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
 }
 
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData,
 {
@@ -146,12 +146,13 @@ where
                     true
                 }
             }
-            NodeContent::UniformLeaf(brick) => {
-                brick.is_part_empty_throughout(target_octant, target_octant_for_child)
-            }
-            NodeContent::Leaf(bricks) => {
-                bricks[target_octant].is_empty_throughout(target_octant_for_child)
-            }
+            NodeContent::UniformLeaf(brick) => brick.is_part_empty_throughout(
+                target_octant,
+                target_octant_for_child,
+                self.brick_dim as usize,
+            ),
+            NodeContent::Leaf(bricks) => bricks[target_octant]
+                .is_empty_throughout(target_octant_for_child, self.brick_dim as usize),
         }
     }
 
@@ -286,7 +287,7 @@ where
                             // As it is a higher resolution, than the current bitmap, it needs to be bruteforced
                             self.node_children[node_new_children[octant] as usize].content =
                                 NodeChildrenArray::OccupancyBitmap(
-                                    bricks[octant].calculate_occupied_bits(),
+                                    bricks[octant].calculate_occupied_bits(self.brick_dim as usize),
                                 );
                         }
                     };
@@ -330,25 +331,42 @@ where
                             // Set the data of the new child
                             let brick_offset =
                                 V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * 2;
-                            let mut new_brick_data = Box::new(
-                                [[[brick[brick_offset.x][brick_offset.y][brick_offset.z]; DIM];
-                                    DIM]; DIM],
+                            let new_brick_flat_offset = flat_projection(
+                                brick_offset.x,
+                                brick_offset.y,
+                                brick_offset.z,
+                                self.brick_dim as usize,
                             );
-                            for x in 0..DIM {
-                                for y in 0..DIM {
-                                    for z in 0..DIM {
+                            let mut new_brick_data = vec![
+                                brick[new_brick_flat_offset];
+                                (self.brick_dim * self.brick_dim * self.brick_dim)
+                                    as usize
+                            ];
+                            for x in 2..self.brick_dim as usize {
+                                for y in 2..self.brick_dim as usize {
+                                    for z in 2..self.brick_dim as usize {
                                         if x < 2 && y < 2 && z < 2 {
                                             continue;
                                         }
-                                        new_brick_data[x][y][z] = brick[brick_offset.x + x / 2]
-                                            [brick_offset.y + y / 2][brick_offset.z + z / 2];
+                                        let new_brick_flat_offset =
+                                            flat_projection(x, y, z, self.brick_dim as usize);
+                                        let brick_flat_offset = flat_projection(
+                                            brick_offset.x + x / 2,
+                                            brick_offset.y + y / 2,
+                                            brick_offset.z + z / 2,
+                                            self.brick_dim as usize,
+                                        );
+                                        new_brick_data[new_brick_flat_offset] =
+                                            brick[brick_flat_offset];
                                     }
                                 }
                             }
 
                             // Push in the new child
-                            let child_occupied_bits =
-                                BrickData::<T, DIM>::calculate_brick_occupied_bits(&new_brick_data);
+                            let child_occupied_bits = BrickData::<T>::calculate_brick_occupied_bits(
+                                &new_brick_data,
+                                self.brick_dim as usize,
+                            );
                             node_new_children[octant] = self
                                 .nodes
                                 .push(NodeContent::UniformLeaf(BrickData::Parted(new_brick_data)))

@@ -8,13 +8,13 @@ use crate::octree::{
 use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
     math::{
-        hash_region, matrix_index_for, set_occupancy_in_bitmap_64bits, vector::V3c,
-        BITMAP_DIMENSION,
+        flat_projection, hash_region, matrix_index_for, set_occupancy_in_bitmap_64bits,
+        vector::V3c, BITMAP_DIMENSION,
     },
     Cube,
 };
 
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + PartialEq + Clone + Copy + PartialEq + VoxelData,
 {
@@ -29,7 +29,7 @@ where
         target_bounds: &Cube,
         target_child_octant: usize,
         position: &V3c<u32>,
-        size: usize,
+        size: u32,
         data: Option<T>,
     ) -> usize {
         // Update the leaf node, if it is possible as is, and if it's even needed to update
@@ -46,16 +46,26 @@ where
 
         match self.nodes.get_mut(node_key) {
             NodeContent::Leaf(bricks) => {
-                // In case DIM == octree size, the root node can not be a leaf...
-                debug_assert!(DIM < self.octree_size as usize);
+                // In case self.octree_dim == octree size, the root node can not be a leaf...
+                debug_assert!(self.brick_dim < self.octree_size);
                 match &mut bricks[target_child_octant] {
                     //If there is no brick in the target position of the leaf, create one
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
-                        let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
+                        let mut new_brick = vec![
+                            T::default();
+                            (self.brick_dim * self.brick_dim * self.brick_dim)
+                                as usize
+                        ];
                         // update the new empty brick at the given position
-                        let update_size =
-                            Self::update_brick(&mut new_brick, target_bounds, position, size, data);
+                        let update_size = Self::update_brick(
+                            &mut new_brick,
+                            target_bounds,
+                            self.brick_dim,
+                            *position,
+                            size,
+                            data,
+                        );
                         bricks[target_child_octant] = BrickData::Parted(new_brick);
                         update_size
                     }
@@ -66,11 +76,16 @@ where
                             || (data.is_some() && data.unwrap() != *voxel)
                         {
                             // create new brick and update it at the given position
-                            let mut new_brick = Box::new([[[*voxel; DIM]; DIM]; DIM]);
+                            let mut new_brick = vec![
+                                *voxel;
+                                (self.brick_dim * self.brick_dim * self.brick_dim)
+                                    as usize
+                            ];
                             update_size = Self::update_brick(
                                 &mut new_brick,
                                 target_bounds,
-                                position,
+                                self.brick_dim,
+                                *position,
                                 size,
                                 data,
                             );
@@ -83,7 +98,14 @@ where
                     }
                     BrickData::Parted(ref mut brick) => {
                         // Simply update the brick at the given position
-                        Self::update_brick(brick, target_bounds, position, size, data)
+                        Self::update_brick(
+                            brick,
+                            target_bounds,
+                            self.brick_dim,
+                            *position,
+                            size,
+                            data,
+                        )
                     }
                 }
             }
@@ -109,8 +131,19 @@ where
                             ];
 
                             // Add a brick to the target octant and update with the given data
-                            let mut new_brick = Box::new([[[T::default(); DIM]; DIM]; DIM]);
-                            Self::update_brick(&mut new_brick, target_bounds, position, size, data);
+                            let mut new_brick = vec![
+                                T::default();
+                                (self.brick_dim * self.brick_dim * self.brick_dim)
+                                    as usize
+                            ];
+                            Self::update_brick(
+                                &mut new_brick,
+                                target_bounds,
+                                self.brick_dim,
+                                *position,
+                                size,
+                                data,
+                            );
                             new_leaf_content[target_child_octant] = BrickData::Parted(new_brick);
                             *self.nodes.get_mut(node_key) = NodeContent::Leaf(new_leaf_content);
                         }
@@ -145,7 +178,11 @@ where
                         {
                             // Data request doesn't align with the voxel data
                             // create a voxel brick and try to update with the given data
-                            *mat = BrickData::Parted(Box::new([[[*voxel; DIM]; DIM]; DIM]));
+                            *mat = BrickData::Parted(vec![
+                                *voxel;
+                                (self.brick_dim * self.brick_dim * self.brick_dim)
+                                    as usize
+                            ]);
 
                             return self.leaf_update(
                                 node_key,
@@ -166,11 +203,16 @@ where
                         // The target position index is to be calculated from the node bounds,
                         // instead of the target bounds because the position should cover the whole leaf
                         // not just one brick in it
-                        let mat_index = matrix_index_for(node_bounds, position, DIM);
-                        let target_voxel = brick[mat_index.x][mat_index.y][mat_index.z];
-                        if 1 < DIM // BrickData can only stay parted if DIM is above 1
-                            && (data.is_none() && target_voxel.is_empty()
-                                || data.is_some_and(|d| d == target_voxel))
+                        let mat_index = matrix_index_for(node_bounds, position, self.brick_dim);
+                        let mat_index = flat_projection(
+                            mat_index.x,
+                            mat_index.y,
+                            mat_index.z,
+                            self.brick_dim as usize,
+                        );
+                        if 1 < self.brick_dim // BrickData can only stay parted if self.octree_dim is above 1
+                            && (data.is_none() && brick[mat_index].is_empty()
+                                || data.is_some_and(|d| d == brick[mat_index]))
                         {
                             // Target voxel matches with the data request, there's nothing to do!
                             return 0;
@@ -178,7 +220,7 @@ where
 
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
-                        let mut leaf_data: [BrickData<T, DIM>; 8] = [
+                        let mut leaf_data: [BrickData<T>; 8] = [
                             BrickData::Empty,
                             BrickData::Empty,
                             BrickData::Empty,
@@ -193,19 +235,38 @@ where
                         let mut update_size = 0;
                         for octant in 0..8usize {
                             let brick_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant])
-                                * (2.min(DIM - 1));
-                            let mut new_brick = Box::new(
-                                [[[brick[brick_offset.x][brick_offset.y][brick_offset.z]; DIM];
-                                    DIM]; DIM],
+                                * (2.min(self.brick_dim as usize - 1));
+                            let flat_brick_offset = flat_projection(
+                                brick_offset.x,
+                                brick_offset.y,
+                                brick_offset.z,
+                                self.brick_dim as usize,
                             );
-                            for x in 0..DIM {
-                                for y in 0..DIM {
-                                    for z in 0..DIM {
+                            let mut new_brick = vec![
+                                brick[flat_brick_offset];
+                                (self.brick_dim * self.brick_dim * self.brick_dim)
+                                    as usize
+                            ];
+                            for x in 0..self.brick_dim as usize {
+                                for y in 0..self.brick_dim as usize {
+                                    for z in 0..self.brick_dim as usize {
                                         if x < 2 && y < 2 && z < 2 {
                                             continue;
                                         }
-                                        new_brick[x][y][z] = brick[brick_offset.x + x / 2]
-                                            [brick_offset.y + y / 2][brick_offset.z + z / 2];
+                                        let new_brick_flat_brick_offset = flat_projection(
+                                            brick_offset.x,
+                                            brick_offset.y,
+                                            brick_offset.z,
+                                            self.brick_dim as usize,
+                                        );
+                                        let flat_brick_offset = flat_projection(
+                                            brick_offset.x + x / 2,
+                                            brick_offset.y + y / 2,
+                                            brick_offset.z + z / 2,
+                                            self.brick_dim as usize,
+                                        );
+                                        new_brick[new_brick_flat_brick_offset] =
+                                            brick[flat_brick_offset];
                                     }
                                 }
                             }
@@ -215,7 +276,8 @@ where
                                 update_size = Self::update_brick(
                                     &mut new_brick,
                                     target_bounds,
-                                    position,
+                                    self.brick_dim,
+                                    *position,
                                     size,
                                     data,
                                 );
@@ -277,28 +339,34 @@ where
     /// * `data` - the data  to update the brick with. Erases data in case `None`
     /// * Returns with the size of the update
     fn update_brick(
-        brick: &mut [[[T; DIM]; DIM]; DIM],
+        brick: &mut Vec<T>,
         brick_bounds: &Cube,
-        position: &V3c<u32>,
-        size: usize,
+        brick_dim: u32,
+        position: V3c<u32>,
+        size: u32,
         data: Option<T>,
     ) -> usize {
-        let size = size.min(DIM);
-        let mat_index =
-            matrix_index_for(brick_bounds, position, DIM).cut_each_component(&(DIM - size));
+        debug_assert!(
+            bound_contains(&brick_bounds, &(position.into())),
+            "Expected position {:?} to be contained in brick bounds {:?}",
+            position,
+            brick_bounds
+        );
 
-        for x in mat_index.x..(mat_index.x + size) {
-            for y in mat_index.y..(mat_index.y + size) {
-                for z in mat_index.z..(mat_index.z + size) {
+        let mat_index = matrix_index_for(brick_bounds, &position, brick_dim);
+        for x in mat_index.x..(mat_index.x + size as usize).min(brick_dim as usize) {
+            for y in mat_index.y..(mat_index.y + size as usize).min(brick_dim as usize) {
+                for z in mat_index.z..(mat_index.z + size as usize).min(brick_dim as usize) {
+                    let mat_index = flat_projection(x, y, z, brick_dim as usize);
                     if let Some(data) = data {
-                        brick[x][y][z] = data;
+                        brick[mat_index] = data;
                     } else {
-                        brick[x][y][z].clear();
+                        brick[mat_index].clear();
                     }
                 }
             }
         }
-        size
+        size as usize
     }
 
     /// Inserts the given data into the octree into the intended voxel position
@@ -308,7 +376,7 @@ where
 
     /// Sets the given data for the octree in the given lod(level of detail) based on insert_size
     /// * `position` - the position to insert data into, must be contained within the tree
-    /// * `insert_size` - The size of the part to update, counts as one of `DIM * (2^x)` when higher, than DIM
+    /// * `insert_size` - The size of the part to update, counts as one of `self.octree_dim * (2^x)` when higher, than DIM
     /// * `data` - The data to insert - cloned if needed
     pub fn insert_at_lod(
         &mut self,
@@ -349,7 +417,7 @@ where
             let current_node = self.nodes.get(current_node_key);
             let target_child_key =
                 self.node_children[current_node_key][target_child_octant as u32] as usize;
-            if target_bounds.size > insert_size.max(DIM as u32) as f32
+            if target_bounds.size > insert_size.max(self.brick_dim as u32) as f32
                 || self.is_node_internal(current_node_key)
             // Complex internal nodes further reduce possible update size
             {
@@ -369,17 +437,23 @@ where
                         // The current Node is a leaf, representing the area under current_bounds
                         // filled with the data stored in NodeContent::*Leaf(_)
                         let target_match = match current_node {
-                            NodeContent::Nothing | NodeContent::Internal(_) => {
-                                panic!("Non-leaf node expected to be leaf!")
-                            }
+                            NodeContent::Internal(_) | NodeContent::Nothing => false,
                             NodeContent::UniformLeaf(brick) => match brick {
                                 BrickData::Empty => false,
                                 BrickData::Solid(voxel) => *voxel == data,
                                 BrickData::Parted(brick) => {
-                                    let index_in_matrix =
-                                        matrix_index_for(&current_bounds, &(position.into()), DIM);
-                                    brick[index_in_matrix.x][index_in_matrix.y][index_in_matrix.z]
-                                        == data
+                                    let index_in_matrix = matrix_index_for(
+                                        &current_bounds,
+                                        &(position.into()),
+                                        self.brick_dim,
+                                    );
+                                    let index_in_matrix = flat_projection(
+                                        index_in_matrix.x,
+                                        index_in_matrix.y,
+                                        index_in_matrix.z,
+                                        self.brick_dim as usize,
+                                    );
+                                    brick[index_in_matrix] == data
                                 }
                             },
                             NodeContent::Leaf(bricks) => {
@@ -387,11 +461,18 @@ where
                                     BrickData::Empty => false,
                                     BrickData::Solid(voxel) => *voxel == data,
                                     BrickData::Parted(brick) => {
-                                        let index_in_matrix = position - target_bounds.min_position;
-                                        brick[index_in_matrix.x as usize]
-                                            [index_in_matrix.y as usize]
-                                            [index_in_matrix.z as usize]
-                                            == data
+                                        let index_in_matrix = matrix_index_for(
+                                            &target_bounds,
+                                            &(position.into()),
+                                            self.brick_dim,
+                                        );
+                                        let index_in_matrix = flat_projection(
+                                            index_in_matrix.x,
+                                            index_in_matrix.y,
+                                            index_in_matrix.z,
+                                            self.brick_dim as usize,
+                                        );
+                                        brick[index_in_matrix] == data
                                     }
                                 }
                             }
@@ -453,7 +534,7 @@ where
                     &target_bounds,
                     target_child_octant as usize,
                     &(position.into()),
-                    insert_size as usize,
+                    insert_size,
                     Some(data),
                 );
 
@@ -476,7 +557,7 @@ where
                     / node_bounds.size)
                     .ceil() as usize;
                 set_occupancy_in_bitmap_64bits(
-                    &matrix_index_for(&node_bounds, &(position.into()), BITMAP_DIMENSION),
+                    &matrix_index_for(&node_bounds, &(position.into()), BITMAP_DIMENSION as u32),
                     corrected_update_size,
                     BITMAP_DIMENSION,
                     true,
@@ -489,18 +570,19 @@ where
                     new_occupied_bits = u64::MAX;
                 } else {
                     let corrected_update_size = ((node_bounds.size * actual_update_size as f32)
-                        / (DIM as f32 * 2.))
+                        / (self.brick_dim as f32 * 2.))
                         .ceil() as usize;
                     set_occupancy_in_bitmap_64bits(
-                        &matrix_index_for(&node_bounds, &(position.into()), DIM * 2),
+                        &matrix_index_for(&node_bounds, &(position.into()), self.brick_dim * 2),
                         corrected_update_size,
-                        DIM * 2,
+                        (self.brick_dim * 2) as usize,
                         true,
                         &mut new_occupied_bits,
                     );
                 }
                 self.store_occupied_bits(node_key as usize, new_occupied_bits);
             }
+
             if matches!(
                 self.nodes.get(node_key as usize),
                 NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
@@ -524,15 +606,14 @@ where
 
     /// Clears the data at the given position and lod size
     /// * `position` - the position to insert data into, must be contained within the tree
-    /// * `clear_size` - The size of the part to clear, counts as one of `DIM * (2^x)` when higher, than DIM
+    /// * `clear_size` - The size of the part to clear, counts as one of `self.octree_dim * (2^x)` when higher, than DIM
     pub fn clear_at_lod(
         &mut self,
         position: &V3c<u32>,
         clear_size: u32,
     ) -> Result<(), OctreeError> {
-        let position = V3c::<f32>::from(*position);
         let root_bounds = Cube::root_bounds(self.octree_size as f32);
-        if !bound_contains(&root_bounds, &position) {
+        if !bound_contains(&root_bounds, &V3c::from(*position)) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x as u32,
                 y: position.y as u32,
@@ -546,7 +627,7 @@ where
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
-            let target_child_octant = child_octant_for(&current_bounds, &position);
+            let target_child_octant = child_octant_for(&current_bounds, &V3c::from(*position));
             let target_bounds = Cube {
                 min_position: current_bounds.min_position
                     + OCTANT_OFFSET_REGION_LUT[target_child_octant as usize] * current_bounds.size
@@ -557,7 +638,7 @@ where
             let current_node = self.nodes.get(current_node_key);
             let target_child_key =
                 self.node_children[current_node_key][target_child_octant as u32] as usize;
-            if target_bounds.size > clear_size.max(DIM as u32) as f32
+            if target_bounds.size > clear_size.max(self.brick_dim as u32) as f32
                 || self.is_node_internal(current_node_key)
             // Complex internal nodes further reduce possible update size
             {
@@ -584,10 +665,15 @@ where
                                 BrickData::Empty => true,
                                 BrickData::Solid(voxel) => voxel.is_empty(),
                                 BrickData::Parted(brick) => {
-                                    let index_in_matrix = position - current_bounds.min_position;
-                                    brick[index_in_matrix.x as usize][index_in_matrix.y as usize]
-                                        [index_in_matrix.z as usize]
-                                        .is_empty()
+                                    let index_in_matrix =
+                                        *position - V3c::from(current_bounds.min_position);
+                                    let index_in_matrix = flat_projection(
+                                        index_in_matrix.x as usize,
+                                        index_in_matrix.y as usize,
+                                        index_in_matrix.z as usize,
+                                        self.brick_dim as usize,
+                                    );
+                                    brick[index_in_matrix].is_empty()
                                 }
                             },
                             NodeContent::Leaf(bricks) => {
@@ -595,11 +681,15 @@ where
                                     BrickData::Empty => true,
                                     BrickData::Solid(voxel) => voxel.is_empty(),
                                     BrickData::Parted(brick) => {
-                                        let index_in_matrix = position - target_bounds.min_position;
-                                        brick[index_in_matrix.x as usize]
-                                            [index_in_matrix.y as usize]
-                                            [index_in_matrix.z as usize]
-                                            .is_empty()
+                                        let index_in_matrix =
+                                            *position - V3c::from(current_bounds.min_position);
+                                        let index_in_matrix = flat_projection(
+                                            index_in_matrix.x as usize,
+                                            index_in_matrix.y as usize,
+                                            index_in_matrix.z as usize,
+                                            self.brick_dim as usize,
+                                        );
+                                        brick[index_in_matrix].is_empty()
                                     }
                                 }
                             }
@@ -615,9 +705,10 @@ where
                         // with its children having the same data as the current node to keep integrity
                         // It needs to be separated because it has an extent above DIM
                         debug_assert!(
-                            current_bounds.size > DIM as f32,
-                            "Expected Leaf node to have an extent({:?}) above DIM({DIM})!",
-                            current_bounds.size
+                            current_bounds.size > self.brick_dim as f32,
+                            "Expected Leaf node to have an extent({:?}) above DIM({:?})!",
+                            current_bounds.size,
+                            self.brick_dim
                         );
                         self.subdivide_leaf_to_nodes(
                             current_node_key,
@@ -642,8 +733,8 @@ where
                     &current_bounds,
                     &target_bounds,
                     target_child_octant as usize,
-                    &(position.into()),
-                    clear_size as usize,
+                    position,
+                    clear_size,
                     None,
                 );
 
@@ -694,9 +785,9 @@ where
             } else {
                 // Calculate the new occupied bits of the node
                 let start_in_matrix =
-                    matrix_index_for(&node_bounds, &position.into(), (DIM * 2).max(4));
+                    matrix_index_for(&node_bounds, position, (self.brick_dim * 2).max(4));
                 let bitmap_update_size = ((node_bounds.size * actual_update_size as f32)
-                    / (DIM as f32 * 2.).max(4.))
+                    / (self.brick_dim as f32 * 2.).max(4.))
                 .ceil() as usize;
                 for x in start_in_matrix.x
                     ..(start_in_matrix.x + bitmap_update_size).min(BITMAP_DIMENSION)
@@ -714,7 +805,7 @@ where
                                 set_occupancy_in_bitmap_64bits(
                                     &V3c::new(x, y, z),
                                     1,
-                                    (DIM * 2).max(4),
+                                    (self.brick_dim as usize * 2).max(4),
                                     false,
                                     &mut new_occupied_bits,
                                 );

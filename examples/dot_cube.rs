@@ -1,5 +1,9 @@
 #[cfg(feature = "bevy_wgpu")]
 use bevy::{prelude::*, window::WindowPlugin};
+
+#[cfg(feature = "bevy_wgpu")]
+use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
+
 #[cfg(feature = "bevy_wgpu")]
 use iyes_perf_ui::{
     entries::diagnostics::{PerfUiEntryFPS, PerfUiEntryFPSWorst},
@@ -10,7 +14,7 @@ use iyes_perf_ui::{
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
-    Albedo, V3c,
+    Albedo, V3c, V3cf32,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -32,10 +36,11 @@ fn main() {
                 DISPLAY_RESOLUTION,
             ),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
+            PanOrbitCameraPlugin,
             PerfUiPlugin,
         ))
         .add_systems(Startup, setup)
-        .add_systems(Update, rotate_camera)
+        .add_systems(Update, set_viewport_for_camera)
         .add_systems(Update, handle_zoom)
         .run();
 }
@@ -92,12 +97,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         }
     }
 
-    commands.spawn(DomePosition {
-        yaw: 0.,
-        roll: 0.,
-        radius: tree.get_size() as f32 * 2.2,
-    });
-
     let mut host = OctreeGPUHost { tree };
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
@@ -115,6 +114,16 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.insert_resource(views);
     commands.spawn(Sprite::from_image(output_texture));
     commands.spawn(Camera2d::default());
+    commands.spawn((
+        Camera {
+            is_active: false,
+            ..default()
+        },
+        PanOrbitCamera {
+            focus: Vec3::new(0., TREE_SIZE as f32 * 1.2, 0.),
+            ..default()
+        },
+    ));
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -135,25 +144,29 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-#[derive(Component)]
-struct DomePosition {
-    radius: f32,
-    yaw: f32,
-    roll: f32,
+fn direction_from_cam(cam: &PanOrbitCamera) -> Option<V3cf32> {
+    if let Some(radius) = cam.radius {
+        Some(
+            V3c::new(
+                radius / 2. + cam.yaw.unwrap().sin() * radius,
+                radius + cam.pitch.unwrap().sin() * radius * 2.,
+                radius / 2. + cam.yaw.unwrap().cos() * radius,
+            )
+            .normalized(),
+        )
+    } else {
+        None
+    }
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn rotate_camera(angles_query: Query<&mut DomePosition>, view_set: ResMut<SvxViewSet>) {
-    let (yaw, roll) = (angles_query.single().yaw, angles_query.single().roll);
-    let radius = angles_query.single().radius;
-    let mut tree_view = view_set.views[0].lock().unwrap();
-    tree_view.spyglass.viewport.origin = V3c::new(
-        radius / 2. + yaw.sin() * radius,
-        radius + roll.sin() * radius * 2.,
-        radius / 2. + yaw.cos() * radius,
-    );
-    tree_view.spyglass.viewport.direction =
-        (V3c::unit(radius / 2.) - tree_view.spyglass.viewport.origin).normalized();
+fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: ResMut<SvxViewSet>) {
+    let cam = camera_query.single();
+    if let Some(_) = cam.radius {
+        let mut tree_view = view_set.views[0].lock().unwrap();
+        tree_view.spyglass.viewport.origin = V3c::new(cam.focus.x, cam.focus.y, cam.focus.z);
+        tree_view.spyglass.viewport.direction = direction_from_cam(cam).unwrap();
+    }
 }
 
 #[cfg(feature = "bevy_wgpu")]
@@ -161,18 +174,10 @@ fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
     tree: ResMut<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
     view_set: ResMut<SvxViewSet>,
-    mut angles_query: Query<&mut DomePosition>,
+    mut camera_query: Query<&mut PanOrbitCamera>,
 ) {
     let mut tree_view = view_set.views[0].lock().unwrap();
-    const ADDITION: f32 = 0.05;
-    let angle_update_fn = |angle, delta| -> f32 {
-        let new_angle = angle + delta;
-        if new_angle < 360. {
-            new_angle
-        } else {
-            0.
-        }
-    };
+
     if keys.pressed(KeyCode::Tab) {
         // Render the current view with CPU
         let viewport_up_direction = V3c::new(0., 1., 0.);
@@ -235,29 +240,37 @@ fn handle_zoom(
         img.save("example_junk_cpu_render.png").ok().unwrap();
     }
 
-    if keys.pressed(KeyCode::ArrowUp) {
-        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, ADDITION);
-    }
-    if keys.pressed(KeyCode::ArrowDown) {
-        angles_query.single_mut().roll = angle_update_fn(angles_query.single().roll, -ADDITION);
-    }
-    if keys.pressed(KeyCode::ArrowLeft) {
-        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, ADDITION);
-    }
-    if keys.pressed(KeyCode::ArrowRight) {
-        angles_query.single_mut().yaw = angle_update_fn(angles_query.single().yaw, -ADDITION);
-    }
-    if keys.pressed(KeyCode::PageUp) {
-        angles_query.single_mut().radius *= 1. - 0.02;
-    }
-    if keys.pressed(KeyCode::PageDown) {
-        angles_query.single_mut().radius *= 1. + 0.02;
-    }
     if keys.pressed(KeyCode::Home) {
         tree_view.spyglass.viewport.w_h_fov.z *= 1. + 0.09;
     }
     if keys.pressed(KeyCode::End) {
         tree_view.spyglass.viewport.w_h_fov.z *= 1. - 0.09;
+    }
+
+    let mut cam = camera_query.single_mut();
+    if keys.pressed(KeyCode::ShiftLeft) {
+        cam.target_focus.y += 1.;
+    }
+    if keys.pressed(KeyCode::ControlLeft) {
+        cam.target_focus.y -= 1.;
+    }
+
+    if let Some(_) = cam.radius {
+        let dir = direction_from_cam(&cam).unwrap();
+        let dir = Vec3::new(dir.x, dir.y, dir.z);
+        let right = dir.cross(Vec3::new(0., 1., 0.));
+        if keys.pressed(KeyCode::KeyW) {
+            cam.target_focus += dir;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            cam.target_focus -= dir;
+        }
+        if keys.pressed(KeyCode::KeyA) {
+            cam.target_focus += right;
+        }
+        if keys.pressed(KeyCode::KeyD) {
+            cam.target_focus -= right;
+        }
     }
 }
 
