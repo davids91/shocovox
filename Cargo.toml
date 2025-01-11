@@ -1,5 +1,6 @@
 [package]
 name = "shocovox-rs"
+
 version = "0.7.0"
 edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]

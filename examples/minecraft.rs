@@ -101,6 +101,16 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     ));
     commands.spawn(Camera2d::default());
     commands.spawn((
+        Camera {
+            is_active: false,
+            ..default()
+        },
+        PanOrbitCamera {
+            focus: Vec3::new(0., 300., 0.),
+            ..default()
+        },
+    ));
+    commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
             label: "Frame Rate (current)".into(),
