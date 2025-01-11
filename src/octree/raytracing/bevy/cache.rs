@@ -1,6 +1,5 @@
 use crate::object_pool::empty_marker;
 use crate::octree::raytracing::bevy::types::BrickOwnedBy;
-use crate::spatial::math::flat_projection;
 use crate::{
     octree::{
         raytracing::bevy::types::{OctreeRenderData, Voxelement},
@@ -162,9 +161,9 @@ impl OctreeGPUDataHandler {
     /// * `sized_node_meta` - the bytes to update
     /// * `brick` - the brick to describe into the bytes
     /// * `brick_octant` - the octant to update in the bytes
-    fn meta_add_leaf_brick_structure<T, const DIM: usize>(
+    fn meta_add_leaf_brick_structure<T>(
         sized_node_meta: &mut u32,
-        brick: &BrickData<T, DIM>,
+        brick: &BrickData<T>,
         brick_octant: usize,
     ) where
         T: Default + Clone + PartialEq + VoxelData,
@@ -186,7 +185,7 @@ impl OctreeGPUDataHandler {
     }
 
     /// Creates the descriptor bytes for the given node
-    fn create_node_properties<T, const DIM: usize>(node: &NodeContent<T, DIM>) -> u32
+    fn create_node_properties<T>(node: &NodeContent<T>) -> u32
     where
         T: Default + Copy + Clone + PartialEq + VoxelData,
     {
@@ -240,11 +239,11 @@ impl OctreeGPUDataHandler {
     //##############################################################################
     /// Erases the child node pointed by the given victim pointer
     /// returns with the vector of node index values and brick index values modified
-    fn erase_node_child<T, const DIM: usize>(
+    fn erase_node_child<T>(
         &mut self,
         meta_index: usize,
         child_octant: usize,
-        tree: &Octree<T, DIM>,
+        tree: &Octree<T>,
     ) -> (Vec<usize>, Vec<usize>)
     where
         T: Default + Clone + PartialEq + VoxelData,
@@ -361,9 +360,9 @@ impl OctreeGPUDataHandler {
     /// Upon success, returns the index in metadata where the node is added
     /// and vectors of modified nodes, bricks:
     /// (meta_index, modified_nodes, modified_bricks)
-    pub(crate) fn add_node<T, const DIM: usize>(
+    pub(crate) fn add_node<T>(
         &mut self,
-        tree: &Octree<T, DIM>,
+        tree: &Octree<T>,
         node_key: usize,
         try_add_children: bool,
     ) -> Option<(usize, Vec<usize>, Vec<usize>)>
@@ -565,9 +564,9 @@ impl OctreeGPUDataHandler {
     /// * `brick` - The brick to upload
     /// * `tree` - The octree where the brick is found
     /// * `returns` - the index where the brick is found and potentially a list of nodes and bricks modified during insertion
-    pub(crate) fn add_brick<T, const DIM: usize>(
+    pub(crate) fn add_brick<T>(
         &mut self,
-        tree: &Octree<T, DIM>,
+        tree: &Octree<T>,
         node_key: usize,
         target_octant: usize,
     ) -> (u32, Vec<usize>, Vec<usize>)
@@ -575,11 +574,12 @@ impl OctreeGPUDataHandler {
         T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
     {
         debug_assert_eq!(
-            self.render_data.voxels.len() % (DIM * DIM * DIM),
+            self.render_data.voxels.len()
+                % (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
             0,
             "Expected Voxel buffer length({:?}) to be divisble by {:?}",
             self.render_data.voxels.len(),
-            (DIM * DIM * DIM)
+            (tree.brick_dim * tree.brick_dim * tree.brick_dim)
         );
 
         let brick = match tree.nodes.get(node_key) {
@@ -652,35 +652,31 @@ impl OctreeGPUDataHandler {
                 self.brick_ownership[brick_index as usize] =
                     BrickOwnedBy::Node(node_key as u32, target_octant as u8);
 
-                for z in 0..DIM {
-                    for y in 0..DIM {
-                        for x in 0..DIM {
-                            // The number of colors inserted into the palette is the size of the color palette map
-                            let potential_new_albedo_index =
-                                self.map_to_color_index_in_palette.keys().len();
-                            let albedo = brick[x][y][z].albedo();
-                            let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
-                                self.map_to_color_index_in_palette.entry(albedo)
-                            {
-                                e.insert(potential_new_albedo_index);
-                                self.render_data.color_palette[potential_new_albedo_index] =
-                                    Vec4::new(
-                                        albedo.r as f32 / 255.,
-                                        albedo.g as f32 / 255.,
-                                        albedo.b as f32 / 255.,
-                                        albedo.a as f32 / 255.,
-                                    );
-                                potential_new_albedo_index
-                            } else {
-                                self.map_to_color_index_in_palette[&albedo]
-                            };
-                            self.render_data.voxels[(brick_index * (DIM * DIM * DIM))
-                                + flat_projection(x, y, z, DIM)] = Voxelement {
-                                albedo_index: albedo_index as u32,
-                                content: brick[x][y][z].user_data(),
-                            };
-                        }
-                    }
+                for voxel_flat_index in 0..brick.len() {
+                    // The number of colors inserted into the palette is the size of the color palette map
+                    let potential_new_albedo_index =
+                        self.map_to_color_index_in_palette.keys().len();
+                    let albedo = brick[voxel_flat_index].albedo();
+                    let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
+                        self.map_to_color_index_in_palette.entry(albedo)
+                    {
+                        e.insert(potential_new_albedo_index);
+                        self.render_data.color_palette[potential_new_albedo_index] = Vec4::new(
+                            albedo.r as f32 / 255.,
+                            albedo.g as f32 / 255.,
+                            albedo.b as f32 / 255.,
+                            albedo.a as f32 / 255.,
+                        );
+                        potential_new_albedo_index
+                    } else {
+                        self.map_to_color_index_in_palette[&albedo]
+                    };
+                    self.render_data.voxels[(brick_index
+                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize)
+                        + voxel_flat_index] = Voxelement {
+                        albedo_index: albedo_index as u32,
+                        content: brick[voxel_flat_index].user_data(),
+                    };
                 }
 
                 (brick_index as u32, modified_nodes, modified_bricks)

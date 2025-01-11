@@ -25,7 +25,7 @@ use bevy::{
     },
 };
 
-impl<T, const DIM: usize> RenderBevyPlugin<T, DIM>
+impl<T> RenderBevyPlugin<T>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
@@ -37,13 +37,13 @@ where
     }
 }
 
-impl<T, const DIM: usize> Plugin for RenderBevyPlugin<T, DIM>
+impl<T> Plugin for RenderBevyPlugin<T>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData + Send + Sync + 'static,
 {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            ExtractResourcePlugin::<OctreeGPUHost<T, DIM>>::default(),
+            ExtractResourcePlugin::<OctreeGPUHost<T>>::default(),
             ExtractResourcePlugin::<SvxViewSet>::default(),
         ));
         let render_app = app.sub_app_mut(RenderApp);
@@ -51,9 +51,9 @@ where
         render_app.add_systems(
             Render,
             (
-                write_to_gpu::<T, DIM>.in_set(RenderSet::PrepareResources),
-                prepare_bind_groups::<T, DIM>.in_set(RenderSet::PrepareBindGroups),
-                handle_gpu_readback::<T, DIM>.in_set(RenderSet::Cleanup),
+                write_to_gpu::<T>.in_set(RenderSet::PrepareResources),
+                prepare_bind_groups::<T>.in_set(RenderSet::PrepareBindGroups),
+                handle_gpu_readback::<T>.in_set(RenderSet::Cleanup),
             ),
         );
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();

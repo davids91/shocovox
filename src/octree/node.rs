@@ -345,7 +345,7 @@ impl<T> NodeContent<T>
 where
     T: VoxelData + PartialEq + Clone + Copy + Default,
 {
-    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub(crate) fn count_non_empties(&self) -> usize {
         match self {
             NodeContent::Nothing | NodeContent::Internal(_) => 0,

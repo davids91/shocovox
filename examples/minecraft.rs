@@ -21,7 +21,7 @@ use iyes_perf_ui::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const BRICK_DIMENSION: usize = 32;
+const BRICK_DIMENSION: u32 = 32;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -36,9 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo, BRICK_DIMENSION>::new(
-                DISPLAY_RESOLUTION,
-            ),
+            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo>::new(DISPLAY_RESOLUTION),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -55,12 +53,11 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let tree;
     let tree_path = "example_junk_minecraft";
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::<Albedo, BRICK_DIMENSION>::load(&tree_path)
-            .ok()
-            .unwrap();
+        tree = Octree::<Albedo>::load(&tree_path).ok().unwrap();
     } else {
-        tree = match shocovox_rs::octree::Octree::<Albedo, BRICK_DIMENSION>::load_vox_file(
+        tree = match shocovox_rs::octree::Octree::<Albedo>::load_vox_file(
             "assets/models/minecraft.vox",
+            BRICK_DIMENSION,
         ) {
             Ok(tree_) => tree_,
             Err(message) => panic!("Parsing model file failed with message: {message}"),
@@ -92,7 +89,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     commands.insert_resource(host);
     commands.insert_resource(views);
     commands.spawn(Sprite::from_image(output_texture));
-    commands.spawn(Camera2d::default());
     commands.spawn((
         Camera {
             is_active: false,
@@ -103,6 +99,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             ..default()
         },
     ));
+    commands.spawn(Camera2d::default());
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -151,7 +148,7 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    tree: ResMut<OctreeGPUHost<Albedo, BRICK_DIMENSION>>,
+    tree: ResMut<OctreeGPUHost<Albedo>>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
 ) {

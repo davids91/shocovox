@@ -270,7 +270,7 @@ impl render_graph::Node for SvxRenderNode {
 //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░         ░░░░░░░░░
 //##############################################################################
 /// Constructs buffers, bing groups and uploads rendering data at initialization and whenever prompted
-pub(crate) fn prepare_bind_groups<T, const DIM: usize>(
+pub(crate) fn prepare_bind_groups<T>(
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
     mut pipeline: ResMut<SvxRenderPipeline>,

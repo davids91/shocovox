@@ -26,7 +26,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-impl<T, const DIM: usize> OctreeGPUHost<T, DIM>
+impl<T> OctreeGPUHost<T>
 where
     T: Default + Clone + Copy + PartialEq + VoxelData + Send + Sync + 'static,
 {
@@ -69,7 +69,7 @@ where
             render_data: OctreeRenderData {
                 octree_meta: OctreeMetaData {
                     octree_size: self.tree.octree_size,
-                    voxel_brick_dim: DIM as u32,
+                    voxel_brick_dim: self.tree.brick_dim as u32,
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
                         self.tree.octree_size as f32,
@@ -86,7 +86,9 @@ where
                         albedo_index: 0,
                         content: 0
                     };
-                    size * 8 * (DIM * DIM * DIM)
+                    size * 8
+                        * (self.tree.brick_dim * self.tree.brick_dim * self.tree.brick_dim)
+                            as usize
                 ],
             },
             victim_node: VictimPointer::new(size),
@@ -98,7 +100,7 @@ where
             uploaded_color_palette_size: 0,
         };
 
-        gpu_data_handler.add_node(&self.tree, Octree::<T, DIM>::ROOT_NODE_KEY as usize, true);
+        gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize, true);
 
         let mut output_texture = Image::new_fill(
             Extent3d {
@@ -160,7 +162,7 @@ pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
 //##############################################################################
 /// Handles data reads from GPU every loop, mainly data requests and usaage updates.
 /// Based on https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
-pub(crate) fn handle_gpu_readback<T, const DIM: usize>(
+pub(crate) fn handle_gpu_readback<T>(
     render_device: Res<RenderDevice>,
     svx_view_set: ResMut<SvxViewSet>,
     mut svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
@@ -283,8 +285,8 @@ fn write_range_to_buffer<U>(
 }
 
 /// Handles Data Streaming to the GPU based on incoming requests from the view(s)
-pub(crate) fn write_to_gpu<T, const DIM: usize>(
-    tree_gpu_host: Option<ResMut<OctreeGPUHost<T, DIM>>>,
+pub(crate) fn write_to_gpu<T>(
+    tree_gpu_host: Option<ResMut<OctreeGPUHost<T>>>,
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
     svx_view_set: ResMut<SvxViewSet>,
 ) where
@@ -423,11 +425,16 @@ pub(crate) fn write_to_gpu<T, const DIM: usize>(
                             modified_bricks.extend(currently_modified_bricks);
 
                             if let BrickData::Parted(_) = brick {
-                                voxels_updated.start = voxels_updated
-                                    .start
-                                    .min(brick_index as usize * (DIM * DIM * DIM));
+                                voxels_updated.start = voxels_updated.start.min(
+                                    (brick_index
+                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim))
+                                        as usize,
+                                );
                                 voxels_updated.end = voxels_updated.end.max(
-                                    brick_index as usize * (DIM * DIM * DIM) + (DIM * DIM * DIM),
+                                    (brick_index
+                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim)
+                                        + (tree.brick_dim * tree.brick_dim * tree.brick_dim))
+                                        as usize,
                                 );
                             }
                         }
@@ -455,11 +462,16 @@ pub(crate) fn write_to_gpu<T, const DIM: usize>(
                             modified_bricks.extend(currently_modified_bricks);
 
                             if let BrickData::Parted(_) = bricks[requested_child_octant as usize] {
-                                voxels_updated.start = voxels_updated
-                                    .start
-                                    .min(brick_index as usize * (DIM * DIM * DIM));
+                                voxels_updated.start = voxels_updated.start.min(
+                                    (brick_index
+                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim))
+                                        as usize,
+                                );
                                 voxels_updated.end = voxels_updated.end.max(
-                                    brick_index as usize * (DIM * DIM * DIM) + (DIM * DIM * DIM),
+                                    (brick_index
+                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim)
+                                        + (tree.brick_dim * tree.brick_dim * tree.brick_dim))
+                                        as usize,
                                 );
                             }
                         }
