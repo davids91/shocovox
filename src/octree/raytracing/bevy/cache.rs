@@ -416,9 +416,9 @@ impl OctreeGPUDataHandler {
                     modified_nodes.append(&mut current_modified_nodes);
                     modified_bricks.append(&mut current_modified_bricks);
 
-                    self.render_data.node_children[node_element_index * 8 + 0] = brick_index;
+                    self.render_data.node_children[node_element_index * 8] = brick_index;
                 } else {
-                    self.render_data.node_children[node_element_index * 8 + 0] = empty_marker();
+                    self.render_data.node_children[node_element_index * 8] = empty_marker();
                 }
 
                 self.render_data.node_children[node_element_index * 8 + 1] = empty_marker();
@@ -649,7 +649,7 @@ impl OctreeGPUDataHandler {
                         (Vec::new(), Vec::new())
                     };
 
-                self.brick_ownership[brick_index as usize] =
+                self.brick_ownership[brick_index] =
                     BrickOwnedBy::Node(node_key as u32, target_octant as u8);
 
                 for voxel_flat_index in 0..brick.len() {

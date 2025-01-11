@@ -205,8 +205,8 @@ where
         iterate_vox_tree(&vox_tree, |model, position, orientation| {
             let model_size_half_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             ) / 2;
 
             // If the index is negative, then it is calculated
@@ -214,8 +214,8 @@ where
             // So one needs to be added in every dimension where the index is below 0
             let position = convert_coordinate(
                 *position,
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             ) + V3c::new(
                 if model_size_half_lyup.x < 0 { -1 } else { 0 },
                 if model_size_half_lyup.y < 0 { -1 } else { 0 },
@@ -261,14 +261,14 @@ where
         iterate_vox_tree(&vox_tree, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             );
             let position = *position;
             let position_lyup = convert_coordinate(
                 position,
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             );
 
             let current_position = position_lyup - min_position_lyup - (model_size_lyup / 2)
@@ -283,8 +283,8 @@ where
             for voxel in &model.voxels {
                 let voxel_position = convert_coordinate(
                     V3c::from(*voxel).clone_transformed(orientation),
-                    CoordinateSystemType::RZUP,
-                    CoordinateSystemType::LYUP,
+                    CoordinateSystemType::Rzup,
+                    CoordinateSystemType::Lyup,
                 );
                 let cpos = current_position + voxel_position;
                 if cpos.length() < vmin.length() {

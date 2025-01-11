@@ -1,8 +1,5 @@
-use crate::octree::{
-    raytracing::bevy::types::{
-        OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport, Voxelement,
-    },
-    VoxelData,
+use crate::octree::raytracing::bevy::types::{
+    OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport, Voxelement,
 };
 use bevy::{
     asset::AssetServer,
@@ -270,14 +267,12 @@ impl render_graph::Node for SvxRenderNode {
 //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░         ░░░░░░░░░
 //##############################################################################
 /// Constructs buffers, bing groups and uploads rendering data at initialization and whenever prompted
-pub(crate) fn prepare_bind_groups<T>(
+pub(crate) fn prepare_bind_groups(
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
     mut pipeline: ResMut<SvxRenderPipeline>,
     svx_viewset: ResMut<SvxViewSet>,
-) where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
-{
+) {
     if pipeline.resources.is_some() && !pipeline.update_tree {
         return;
     }

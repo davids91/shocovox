@@ -255,7 +255,7 @@ where
     }
 
     /// Calculates the Occupancy bitmap for the given Voxel brick
-    pub(crate) fn calculate_brick_occupied_bits(brick: &Vec<T>, brick_dimension: usize) -> u64 {
+    pub(crate) fn calculate_brick_occupied_bits(brick: &[T], brick_dimension: usize) -> u64 {
         let mut bitmap = 0;
         for x in 0..brick_dimension {
             for y in 0..brick_dimension {

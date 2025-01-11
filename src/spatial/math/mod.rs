@@ -140,7 +140,7 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     }
 
     let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
-    let update_start = (*position * BITMAP_DIMENSION) / brick_dim as usize;
+    let update_start = (*position * BITMAP_DIMENSION) / brick_dim;
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
             for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {
@@ -157,11 +157,12 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
 }
 
 #[cfg(feature = "dot_vox_support")]
+#[allow(dead_code)]
 pub(crate) enum CoordinateSystemType {
-    LZUP, // Left handed Z Up
-    LYUP, // Left handed Y Up
-    RZUP, // Right handed Z Up
-    RYUP, // Right handed Y Up
+    Lzup, // Left handed Z Up
+    Lyup, // Left handed Y Up
+    Rzup, // Right handed Z Up
+    Ryup, // Right handed Y Up
 }
 
 #[cfg(feature = "dot_vox_support")]
@@ -171,25 +172,25 @@ pub(crate) fn convert_coordinate<T: Copy + Neg<Output = T>>(
     dst_type: CoordinateSystemType,
 ) -> V3c<T> {
     match (src_type, dst_type) {
-        (CoordinateSystemType::LZUP, CoordinateSystemType::LZUP) => c,
-        (CoordinateSystemType::LYUP, CoordinateSystemType::LYUP) => c,
-        (CoordinateSystemType::RZUP, CoordinateSystemType::RZUP) => c,
-        (CoordinateSystemType::RYUP, CoordinateSystemType::RYUP) => c,
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Lzup) => c,
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Lyup) => c,
+        (CoordinateSystemType::Rzup, CoordinateSystemType::Rzup) => c,
+        (CoordinateSystemType::Ryup, CoordinateSystemType::Ryup) => c,
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::RYUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::LYUP) => V3c::new(c.x, c.y, -c.z),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Ryup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Lyup) => V3c::new(c.x, c.y, -c.z),
 
-        (CoordinateSystemType::LZUP, CoordinateSystemType::RZUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::LZUP) => V3c::new(c.x, -c.y, c.z),
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Rzup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Lzup) => V3c::new(c.x, -c.y, c.z),
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::LZUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::RZUP) => V3c::new(c.x, -c.z, c.y),
-        (CoordinateSystemType::LZUP, CoordinateSystemType::LYUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, -c.y),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Lzup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Rzup) => V3c::new(c.x, -c.z, c.y),
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Lyup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Ryup) => V3c::new(c.x, c.z, -c.y),
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::RZUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::LYUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::LZUP)
-        | (CoordinateSystemType::LZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, c.y),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Rzup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Lyup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Lzup)
+        | (CoordinateSystemType::Lzup, CoordinateSystemType::Ryup) => V3c::new(c.x, c.z, c.y),
     }
 }

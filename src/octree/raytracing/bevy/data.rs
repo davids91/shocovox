@@ -69,7 +69,7 @@ where
             render_data: OctreeRenderData {
                 octree_meta: OctreeMetaData {
                     octree_size: self.tree.octree_size,
-                    voxel_brick_dim: self.tree.brick_dim as u32,
+                    voxel_brick_dim: self.tree.brick_dim,
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
                         self.tree.octree_size as f32,
@@ -123,7 +123,7 @@ where
             spyglass: OctreeSpyGlass {
                 node_requests: vec![empty_marker(); 4],
                 output_texture: output_texture.clone(),
-                viewport: viewport,
+                viewport,
             },
         })));
         output_texture
@@ -162,13 +162,11 @@ pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
 //##############################################################################
 /// Handles data reads from GPU every loop, mainly data requests and usaage updates.
 /// Based on https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
-pub(crate) fn handle_gpu_readback<T>(
+pub(crate) fn handle_gpu_readback(
     render_device: Res<RenderDevice>,
     svx_view_set: ResMut<SvxViewSet>,
     mut svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
-) where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
-{
+) {
     if let Some(ref mut pipeline) = svx_pipeline {
         let resources = pipeline.resources.as_ref().unwrap();
 
@@ -199,7 +197,7 @@ pub(crate) fn handle_gpu_readback<T>(
         }
         resources.readable_node_requests_buffer.unmap();
 
-        if {
+        let is_metadata_required_this_loop = {
             let mut is_metadata_required_this_loop = false;
             for node_request in &view.spyglass.node_requests {
                 if *node_request != empty_marker() {
@@ -208,7 +206,8 @@ pub(crate) fn handle_gpu_readback<T>(
                 }
             }
             is_metadata_required_this_loop
-        } {
+        };
+        if is_metadata_required_this_loop {
             let metadata_buffer_slice = resources.readable_metadata_buffer.slice(..);
             let (s, metadata_recv) = crossbeam::channel::unbounded::<()>();
             metadata_buffer_slice.map_async(
@@ -260,7 +259,7 @@ pub(crate) fn handle_gpu_readback<T>(
 /// Converts the given array to `&[u8]` on the given range,
 /// and schedules it to be written to the given buffer in the GPU
 fn write_range_to_buffer<U>(
-    array: &Vec<U>,
+    array: &[U],
     range: std::ops::Range<usize>,
     buffer: &Buffer,
     render_queue: &RenderQueue,
@@ -270,16 +269,19 @@ fn write_range_to_buffer<U>(
     if !range.is_empty() {
         let element_size = std::mem::size_of_val(&array[0]);
         let byte_offset = (range.start * element_size) as u64;
-        let slice = array.get(range.clone()).expect(
-            &format!(
-                "Expected range {:?} to be in bounds of {:?}",
-                range,
-                array.len(),
+        let slice = array.get(range.clone()).unwrap_or_else(|| {
+            panic!(
+                "{}",
+                format!(
+                    "Expected range {:?} to be in bounds of {:?}",
+                    range,
+                    array.len(),
+                )
+                .to_owned()
             )
-            .to_owned(),
-        );
+        });
         unsafe {
-            render_queue.write_buffer(buffer, byte_offset, &slice.align_to::<u8>().1);
+            render_queue.write_buffer(buffer, byte_offset, slice.align_to::<u8>().1);
         }
     }
 }
@@ -347,12 +349,11 @@ pub(crate) fn write_to_gpu<T>(
                     .data_handler
                     .node_key_vs_meta_index
                     .contains_right(&requested_parent_meta_index));
-                let requested_parent_node_key = view
+                let requested_parent_node_key = *view
                     .data_handler
                     .node_key_vs_meta_index
                     .get_by_right(&requested_parent_meta_index)
-                    .unwrap()
-                    .clone();
+                    .unwrap();
 
                 debug_assert!(
                     tree.nodes.key_is_valid(requested_parent_node_key),
@@ -379,7 +380,7 @@ pub(crate) fn write_to_gpu<T>(
                         {
                             let (child_index, currently_modified_nodes, currently_modified_bricks) =
                                 view.data_handler
-                                .add_node(&tree, requested_child_node_key, false)
+                                .add_node(tree, requested_child_node_key, false)
                                 .expect("Expected to succeed adding a node into the GPU cache through data_handler");
                             modified_nodes.extend(currently_modified_nodes);
                             modified_bricks.extend(currently_modified_bricks);
@@ -417,7 +418,7 @@ pub(crate) fn write_to_gpu<T>(
                         {
                             let (brick_index, currently_modified_nodes, currently_modified_bricks) =
                                 view.data_handler
-                                    .add_brick(&tree, requested_parent_node_key, 0);
+                                    .add_brick(tree, requested_parent_node_key, 0);
                             view.data_handler.render_data.node_children
                                 [requested_parent_meta_index * 8] = brick_index;
 
@@ -450,7 +451,7 @@ pub(crate) fn write_to_gpu<T>(
                         {
                             let (brick_index, currently_modified_nodes, currently_modified_bricks) =
                                 view.data_handler.add_brick(
-                                    &tree,
+                                    tree,
                                     requested_parent_node_key,
                                     requested_child_octant as usize,
                                 );
@@ -491,7 +492,7 @@ pub(crate) fn write_to_gpu<T>(
                     .count()
                     == node_requests.len()
                     // Or some ndoes were updated this loop
-                    || 0 < modified_nodes.len()
+                    || !modified_nodes.is_empty()
                     // Or the distance traveled by the victim pointer this loop is small enough
                     || (view.data_handler.victim_node.len() as f32 * 0.5) as usize
                         > (victim_node_loop_count - view.data_handler.victim_node.get_loop_count()),
@@ -543,7 +544,7 @@ pub(crate) fn write_to_gpu<T>(
                     &view.data_handler.render_data.color_palette,
                     (host_color_count - color_palette_size_diff)..(host_color_count),
                     &resources.color_palette_buffer,
-                    &render_queue,
+                    render_queue,
                 );
             }
 
@@ -552,25 +553,25 @@ pub(crate) fn write_to_gpu<T>(
                 &view.data_handler.render_data.metadata,
                 meta_updated,
                 &resources.metadata_buffer,
-                &render_queue,
+                render_queue,
             );
             write_range_to_buffer(
                 &view.data_handler.render_data.node_children,
                 node_children_updated,
                 &resources.node_children_buffer,
-                &render_queue,
+                render_queue,
             );
             write_range_to_buffer(
                 &view.data_handler.render_data.node_ocbits,
                 ocbits_updated,
                 &resources.node_ocbits_buffer,
-                &render_queue,
+                render_queue,
             );
             write_range_to_buffer(
                 &view.data_handler.render_data.voxels,
                 voxels_updated,
                 &resources.voxels_buffer,
-                &render_queue,
+                render_queue,
             );
         }
     }

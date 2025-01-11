@@ -339,7 +339,7 @@ where
     /// * `data` - the data  to update the brick with. Erases data in case `None`
     /// * Returns with the size of the update
     fn update_brick(
-        brick: &mut Vec<T>,
+        brick: &mut [T],
         brick_bounds: &Cube,
         brick_dim: u32,
         position: V3c<u32>,
@@ -347,7 +347,7 @@ where
         data: Option<T>,
     ) -> usize {
         debug_assert!(
-            bound_contains(&brick_bounds, &(position.into())),
+            bound_contains(brick_bounds, &(position.into())),
             "Expected position {:?} to be contained in brick bounds {:?}",
             position,
             brick_bounds
@@ -417,7 +417,7 @@ where
             let current_node = self.nodes.get(current_node_key);
             let target_child_key =
                 self.node_children[current_node_key][target_child_octant as u32] as usize;
-            if target_bounds.size > insert_size.max(self.brick_dim as u32) as f32
+            if target_bounds.size > insert_size.max(self.brick_dim) as f32
                 || self.is_node_internal(current_node_key)
             // Complex internal nodes further reduce possible update size
             {
@@ -615,9 +615,9 @@ where
         let root_bounds = Cube::root_bounds(self.octree_size as f32);
         if !bound_contains(&root_bounds, &V3c::from(*position)) {
             return Err(OctreeError::InvalidPosition {
-                x: position.x as u32,
-                y: position.y as u32,
-                z: position.z as u32,
+                x: position.x,
+                y: position.y,
+                z: position.z,
             });
         }
 
@@ -638,7 +638,7 @@ where
             let current_node = self.nodes.get(current_node_key);
             let target_child_key =
                 self.node_children[current_node_key][target_child_octant as u32] as usize;
-            if target_bounds.size > clear_size.max(self.brick_dim as u32) as f32
+            if target_bounds.size > clear_size.max(self.brick_dim) as f32
                 || self.is_node_internal(current_node_key)
             // Complex internal nodes further reduce possible update size
             {

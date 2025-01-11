@@ -155,7 +155,7 @@ where
     fn traverse_brick(
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &Vec<T>,
+        brick: &[T],
         brick_bounds: &Cube,
         brick_dim: usize,
         ray_scale_factors: &V3c<f32>,

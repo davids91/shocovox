@@ -52,8 +52,8 @@ where
             Render,
             (
                 write_to_gpu::<T>.in_set(RenderSet::PrepareResources),
-                prepare_bind_groups::<T>.in_set(RenderSet::PrepareBindGroups),
-                handle_gpu_readback::<T>.in_set(RenderSet::Cleanup),
+                prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
+                handle_gpu_readback.in_set(RenderSet::Cleanup),
             ),
         );
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();

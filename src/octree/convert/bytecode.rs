@@ -28,7 +28,7 @@ where
                 e.emit_str("##b#")?;
                 e.emit_int(brick.len())?;
                 for voxel in brick.iter() {
-                    Self::encode_single(&voxel, e)?;
+                    Self::encode_single(voxel, e)?;
                 }
                 e.emit_str("#")?;
                 Ok(())
@@ -98,7 +98,7 @@ where
     }
 }
 
-impl<'obj, 'ser, T> BrickData<T>
+impl<T> BrickData<T>
 where
     T: Clone + VoxelData + PartialEq,
 {
@@ -111,7 +111,7 @@ where
         encoder.emit(data.user_data())
     }
 
-    fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
+    fn decode_single(list: &mut ListDecoder<'_, '_>) -> Result<T, bendy::decoding::Error> {
         let r = match list.next_object()?.unwrap() {
             Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
