@@ -316,7 +316,6 @@ fn traverse_brick(
     direction_lut_index: u32,
 ) -> BrickHit {
     let dimension = i32(octree_meta_data.voxel_brick_dim);
-
     var current_index = clamp(
         vec3i(vec3f( // entry position in brick
             point_in_ray_at_distance(ray, *ray_current_distance)
@@ -324,6 +323,14 @@ fn traverse_brick(
         ) * f32(dimension) / (*brick_bounds).size),
         vec3i(0),
         vec3i(dimension - 1)
+    );
+    var current_flat_index = (
+        i32(brick_start_index) * (dimension * dimension * dimension)
+        + ( //crate::spatial::math::flat_projection
+            current_index.x
+            + (current_index.y * dimension)
+            + (current_index.z * dimension * dimension)
+        )
     );
     var current_bounds = Cube(
         (
@@ -336,6 +343,7 @@ fn traverse_brick(
     /*// +++ DEBUG +++
     var safety = 0u;
     */// --- DEBUG ---
+    var step = vec3f(0.);
     loop{
         /*// +++ DEBUG +++
         safety += 1u;
@@ -353,24 +361,25 @@ fn traverse_brick(
             return BrickHit(false, vec3u(), 0);
         }
 
-        var mapped_index = (
-            brick_start_index * u32(dimension * dimension * dimension)
-            + u32( //crate::spatial::math::flat_projection
-                current_index.x
-                + (current_index.y * dimension)
-                + (current_index.z * dimension * dimension)
-            )
+
+        // step delta calculated from crate::spatial::math::flat_projection
+        // --> e.g. flat_delta_y = flat_projection(0, 1, 0, brick_dim);
+        current_flat_index += (
+            i32(step.x)
+            + i32(step.y) * dimension
+            + i32(step.z) * dimension * dimension
         );
-        if mapped_index >= arrayLength(&voxels)
+
+        if current_flat_index >= i32(arrayLength(&voxels))
         {
-            return BrickHit(false, vec3u(current_index), mapped_index);
+            return BrickHit(false, vec3u(current_index), u32(current_flat_index));
         }
-        if !is_empty(voxels[mapped_index])
+        if !is_empty(voxels[current_flat_index])
         {
-            return BrickHit(true, vec3u(current_index), mapped_index);
+            return BrickHit(true, vec3u(current_index), u32(current_flat_index));
         }
 
-        let step = round(dda_step_to_next_sibling(
+        step = round(dda_step_to_next_sibling(
             ray,
             ray_current_distance,
             &current_bounds,

@@ -169,7 +169,15 @@ where
             (position_in_brick.y as i32).clamp(0, (brick_dim - 1) as i32),
             (position_in_brick.z as i32).clamp(0, (brick_dim - 1) as i32),
         );
-
+        let flat_delta_x = flat_projection(1, 0, 0, brick_dim) as i32;
+        let flat_delta_y = flat_projection(0, 1, 0, brick_dim) as i32;
+        let flat_delta_z = flat_projection(0, 0, 1, brick_dim) as i32;
+        let mut current_flat_index = flat_projection(
+            current_index.x as usize,
+            current_index.y as usize,
+            current_index.z as usize,
+            brick_dim,
+        ) as i32;
 
         // Map the current position to index and bitmap spaces
         let brick_unit = brick_bounds.size / brick_dim as f32; // how long is index step in space (set by the bounds)
@@ -179,6 +187,7 @@ where
         };
 
         // Loop through the brick, terminate if no possibility of hit
+        let mut step = V3c::unit(0.);
         loop {
             if
             // If index is out of bounds, there's no hit
@@ -192,18 +201,27 @@ where
                 return None;
             }
 
-            let current_flat_index = flat_projection(
-                current_index.x as usize,
-                current_index.y as usize,
-                current_index.z as usize,
-                brick_dim,
+            current_flat_index += step.x as i32 * flat_delta_x
+                + step.y as i32 * flat_delta_y
+                + step.z as i32 * flat_delta_z;
+            debug_assert_eq!(
+                flat_projection(
+                    current_index.x as usize,
+                    current_index.y as usize,
+                    current_index.z as usize,
+                    brick_dim,
+                ),
+                current_flat_index as usize
             );
 
-            if !brick[current_flat_index].is_empty() {
-                return Some((V3c::<usize>::from(current_index), current_flat_index));
+            if !brick[current_flat_index as usize].is_empty() {
+                return Some((
+                    V3c::<usize>::from(current_index),
+                    current_flat_index as usize,
+                ));
             }
 
-            let step = Self::dda_step_to_next_sibling(
+            step = Self::dda_step_to_next_sibling(
                 ray,
                 ray_current_distance,
                 &current_bounds,
@@ -211,6 +229,7 @@ where
             );
             current_bounds.min_position += step * brick_unit;
             current_index += V3c::<i32>::from(step);
+
             #[cfg(debug_assertions)]
             {
                 // Check if the resulting point is inside bounds still
