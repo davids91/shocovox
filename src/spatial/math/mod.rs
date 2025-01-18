@@ -44,7 +44,7 @@ pub(crate) const BITMAP_DIMENSION: usize = 4;
 pub(crate) fn matrix_index_for(
     bounds: &Cube,
     position: &V3c<u32>,
-    matrix_dimension: usize,
+    matrix_dimension: u32,
 ) -> V3c<usize> {
     // The position should be inside the bounds
     debug_assert!(
@@ -53,20 +53,25 @@ pub(crate) fn matrix_index_for(
             && bounds.min_position.z <= position.z as f32
             && bounds.min_position.x + bounds.size > position.x as f32
             && bounds.min_position.y + bounds.size > position.y as f32
-            && bounds.min_position.z + bounds.size > position.z as f32
+            && bounds.min_position.z + bounds.size > position.z as f32,
+        "Position {:?} not inside bounds {:?}",
+        position,
+        bounds
     );
 
     // --> In case the smallest possible node the contained matrix of voxels
     // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
     // --> In case of bigger Nodes the below ratio equation is relevant
     // mat[xyz]/DIM = (position - min_position) / bounds.size
-    let mat_index = (V3c::<usize>::from(*position - bounds.min_position.into()) * matrix_dimension)
-        / bounds.size as usize;
+    let mat_index =
+        (V3c::<usize>::from((*position - bounds.min_position.into()) * matrix_dimension))
+            / bounds.size as usize;
     // The difference between the actual position and min bounds
-    // must not be greater, than DIM at each dimension
-    debug_assert!(mat_index.x < matrix_dimension);
-    debug_assert!(mat_index.y < matrix_dimension);
-    debug_assert!(mat_index.z < matrix_dimension);
+    // must not be greater, than self.octree_dim at each dimension
+    debug_assert!(mat_index.x < matrix_dimension as usize);
+    debug_assert!(mat_index.y < matrix_dimension as usize);
+    debug_assert!(mat_index.z < matrix_dimension as usize);
+
     mat_index
 }
 
@@ -107,35 +112,35 @@ pub(crate) fn position_in_bitmap_64bits(index_in_brick: &V3c<usize>, brick_size:
 pub(crate) fn set_occupancy_in_bitmap_64bits(
     position: &V3c<usize>,
     size: usize,
-    brick_size: usize,
+    brick_dim: usize,
     occupied: bool,
     bitmap: &mut u64,
 ) {
     // In case the brick size is smaller than 4, one position sets multiple bits
-    debug_assert!(brick_size >= 4 || (brick_size == 2 || brick_size == 1));
+    debug_assert!(brick_dim >= 4 || (brick_dim == 2 || brick_dim == 1));
     debug_assert!(
-        position.x < brick_size,
-        "Expected coordinate {:?} < brick size({brick_size})",
+        position.x < brick_dim,
+        "Expected coordinate {:?} < brick size({brick_dim})",
         position.x
     );
     debug_assert!(
-        position.y < brick_size,
-        "Expected coordinate {:?} < brick size({brick_size})",
+        position.y < brick_dim,
+        "Expected coordinate {:?} < brick size({brick_dim})",
         position.y
     );
     debug_assert!(
-        position.z < brick_size,
-        "Expected coordinate {:?} < brick size({brick_size})",
+        position.z < brick_dim,
+        "Expected coordinate {:?} < brick size({brick_dim})",
         position.z
     );
 
-    if brick_size == 1 {
+    if brick_dim == 1 {
         *bitmap = if occupied { u64::MAX } else { 0 };
         return;
     }
 
-    let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_size as f32).ceil() as usize;
-    let update_start = *position * BITMAP_DIMENSION / brick_size;
+    let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
+    let update_start = (*position * BITMAP_DIMENSION) / brick_dim;
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
             for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {
@@ -152,11 +157,12 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
 }
 
 #[cfg(feature = "dot_vox_support")]
+#[allow(dead_code)]
 pub(crate) enum CoordinateSystemType {
-    LZUP, // Left handed Z Up
-    LYUP, // Left handed Y Up
-    RZUP, // Right handed Z Up
-    RYUP, // Right handed Y Up
+    Lzup, // Left handed Z Up
+    Lyup, // Left handed Y Up
+    Rzup, // Right handed Z Up
+    Ryup, // Right handed Y Up
 }
 
 #[cfg(feature = "dot_vox_support")]
@@ -166,25 +172,25 @@ pub(crate) fn convert_coordinate<T: Copy + Neg<Output = T>>(
     dst_type: CoordinateSystemType,
 ) -> V3c<T> {
     match (src_type, dst_type) {
-        (CoordinateSystemType::LZUP, CoordinateSystemType::LZUP) => c,
-        (CoordinateSystemType::LYUP, CoordinateSystemType::LYUP) => c,
-        (CoordinateSystemType::RZUP, CoordinateSystemType::RZUP) => c,
-        (CoordinateSystemType::RYUP, CoordinateSystemType::RYUP) => c,
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Lzup) => c,
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Lyup) => c,
+        (CoordinateSystemType::Rzup, CoordinateSystemType::Rzup) => c,
+        (CoordinateSystemType::Ryup, CoordinateSystemType::Ryup) => c,
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::RYUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::LYUP) => V3c::new(c.x, c.y, -c.z),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Ryup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Lyup) => V3c::new(c.x, c.y, -c.z),
 
-        (CoordinateSystemType::LZUP, CoordinateSystemType::RZUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::LZUP) => V3c::new(c.x, -c.y, c.z),
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Rzup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Lzup) => V3c::new(c.x, -c.y, c.z),
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::LZUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::RZUP) => V3c::new(c.x, -c.z, c.y),
-        (CoordinateSystemType::LZUP, CoordinateSystemType::LYUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, -c.y),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Lzup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Rzup) => V3c::new(c.x, -c.z, c.y),
+        (CoordinateSystemType::Lzup, CoordinateSystemType::Lyup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Ryup) => V3c::new(c.x, c.z, -c.y),
 
-        (CoordinateSystemType::LYUP, CoordinateSystemType::RZUP)
-        | (CoordinateSystemType::RZUP, CoordinateSystemType::LYUP)
-        | (CoordinateSystemType::RYUP, CoordinateSystemType::LZUP)
-        | (CoordinateSystemType::LZUP, CoordinateSystemType::RYUP) => V3c::new(c.x, c.z, c.y),
+        (CoordinateSystemType::Lyup, CoordinateSystemType::Rzup)
+        | (CoordinateSystemType::Rzup, CoordinateSystemType::Lyup)
+        | (CoordinateSystemType::Ryup, CoordinateSystemType::Lzup)
+        | (CoordinateSystemType::Lzup, CoordinateSystemType::Ryup) => V3c::new(c.x, c.z, c.y),
     }
 }

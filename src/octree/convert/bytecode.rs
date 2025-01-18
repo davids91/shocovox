@@ -11,7 +11,7 @@ use bendy::{
 ///####################################################################################
 /// BrickData
 ///####################################################################################
-impl<T, const DIM: usize> ToBencode for BrickData<T, DIM>
+impl<T> ToBencode for BrickData<T>
 where
     T: Default + Clone + PartialEq + VoxelData,
 {
@@ -26,20 +26,18 @@ where
             }),
             BrickData::Parted(brick) => encoder.emit_list(|e| {
                 e.emit_str("##b#")?;
-                for z in 0..DIM {
-                    for y in 0..DIM {
-                        for x in 0..DIM {
-                            Self::encode_single(&brick[x][y][z], e)?;
-                        }
-                    }
+                e.emit_int(brick.len())?;
+                for voxel in brick.iter() {
+                    Self::encode_single(voxel, e)?;
                 }
+                e.emit_str("#")?;
                 Ok(())
             }),
         }
     }
 }
 
-impl<T, const DIM: usize> FromBencode for BrickData<T, DIM>
+impl<T> FromBencode for BrickData<T>
 where
     T: Eq + Default + Clone + Copy + PartialEq + VoxelData,
 {
@@ -77,13 +75,17 @@ where
                 if is_solid {
                     Ok(BrickData::Solid(Self::decode_single(&mut list)?))
                 } else {
-                    let mut brick_data = Box::new([[[T::default(); DIM]; DIM]; DIM]);
-                    for z in 0..DIM {
-                        for y in 0..DIM {
-                            for x in 0..DIM {
-                                brick_data[x][y][z] = Self::decode_single(&mut list).unwrap();
-                            }
-                        }
+                    let len = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field brick length",
+                            "Something else",
+                        )),
+                    }?;
+                    debug_assert!(0 < len, "Expected brick to be of non-zero length!");
+                    let mut brick_data = vec![];
+                    for _ in 0..len {
+                        brick_data.push(BrickData::<T>::decode_single(&mut list)?);
                     }
                     Ok(BrickData::Parted(brick_data))
                 }
@@ -96,7 +98,7 @@ where
     }
 }
 
-impl<'obj, 'ser, T, const DIM: usize> BrickData<T, DIM>
+impl<T> BrickData<T>
 where
     T: Clone + VoxelData + PartialEq,
 {
@@ -109,7 +111,7 @@ where
         encoder.emit(data.user_data())
     }
 
-    fn decode_single(list: &mut ListDecoder<'obj, 'ser>) -> Result<T, bendy::decoding::Error> {
+    fn decode_single(list: &mut ListDecoder<'_, '_>) -> Result<T, bendy::decoding::Error> {
         let r = match list.next_object()?.unwrap() {
             Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
             _ => Err(bendy::decoding::Error::unexpected_token(
@@ -154,7 +156,7 @@ where
 ///####################################################################################
 /// NodeContent
 ///####################################################################################
-impl<T, const DIM: usize> ToBencode for NodeContent<T, DIM>
+impl<T> ToBencode for NodeContent<T>
 where
     T: Default + Clone + PartialEq + VoxelData,
 {
@@ -185,7 +187,7 @@ where
     }
 }
 
-impl<T, const DIM: usize> FromBencode for NodeContent<T, DIM>
+impl<T> FromBencode for NodeContent<T>
 where
     T: Eq + Default + Clone + Copy + PartialEq + VoxelData,
 {
@@ -362,7 +364,7 @@ impl FromBencode for NodeChildren<u32> {
 ///####################################################################################
 /// Octree
 ///####################################################################################
-impl<T, const DIM: usize> ToBencode for Octree<T, DIM>
+impl<T> ToBencode for Octree<T>
 where
     T: Default + Clone + PartialEq + VoxelData,
 {
@@ -371,13 +373,14 @@ where
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
             e.emit_int(self.octree_size)?;
+            e.emit_int(self.brick_dim)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)
         })
     }
 }
 
-impl<T, const DIM: usize> FromBencode for Octree<T, DIM>
+impl<T> FromBencode for Octree<T>
 where
     T: Eq + Default + Clone + Copy + VoxelData,
 {
@@ -397,20 +400,30 @@ where
                     )),
                 }?;
 
-                let root_size = match list.next_object()?.unwrap() {
+                let octree_size = match list.next_object()?.unwrap() {
                     Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
                     _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field root_size",
+                        "int field octree_size",
                         "Something else",
                     )),
                 }?;
-                let nodes = ObjectPool::<NodeContent<T, DIM>>::decode_bencode_object(
+
+                let brick_dim = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field octree_size",
+                        "Something else",
+                    )),
+                }?;
+
+                let nodes = ObjectPool::<NodeContent<T>>::decode_bencode_object(
                     list.next_object()?.unwrap(),
                 )?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
                 Ok(Self {
                     auto_simplify,
-                    octree_size: root_size,
+                    octree_size,
+                    brick_dim,
                     nodes,
                     node_children,
                 })

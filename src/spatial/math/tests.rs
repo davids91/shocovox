@@ -200,8 +200,8 @@ mod dot_vox_tests {
             V3c::new(1., 2., 3.),
             convert_coordinate(
                 V3c::new(1., 2., 3.),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::RZUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Rzup,
             ),
         );
 
@@ -209,8 +209,8 @@ mod dot_vox_tests {
             V3c::new(1., 3., 2.),
             convert_coordinate(
                 V3c::new(1., 2., 3.),
-                CoordinateSystemType::LZUP,
-                CoordinateSystemType::RYUP,
+                CoordinateSystemType::Lzup,
+                CoordinateSystemType::Ryup,
             ),
         );
 
@@ -218,8 +218,8 @@ mod dot_vox_tests {
             V3c::new(1., 3., -2.),
             convert_coordinate(
                 V3c::new(1., 2., 3.),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::RYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Ryup,
             ),
         );
 
@@ -227,8 +227,8 @@ mod dot_vox_tests {
             V3c::new(1., 2., -3.),
             convert_coordinate(
                 V3c::new(1., 2., 3.),
-                CoordinateSystemType::LYUP,
-                CoordinateSystemType::RYUP,
+                CoordinateSystemType::Lyup,
+                CoordinateSystemType::Ryup,
             ),
         );
     }

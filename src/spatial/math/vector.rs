@@ -68,9 +68,11 @@ impl V3c<f32> {
     pub fn length(&self) -> f32 {
         ((self.x * self.x) + (self.y * self.y) + (self.z * self.z)).sqrt()
     }
+
     pub fn normalized(self) -> V3c<f32> {
         self / self.length()
     }
+
     pub fn signum(&self) -> V3c<f32> {
         V3c {
             x: self.x.signum(),
@@ -78,12 +80,20 @@ impl V3c<f32> {
             z: self.z.signum(),
         }
     }
+
     pub fn floor(&self) -> V3c<f32> {
         V3c {
             x: self.x.floor(),
             y: self.y.floor(),
             z: self.z.floor(),
         }
+    }
+
+    pub fn round(&mut self) -> Self {
+        self.x = self.x.round();
+        self.y = self.y.round();
+        self.z = self.z.round();
+        *self
     }
 }
 
@@ -97,14 +107,23 @@ impl V3c<u32> {
     pub fn length(&self) -> f32 {
         (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
     }
+
     pub fn normalized(self) -> V3c<f32> {
         let result: V3c<f32> = self.into();
         result / self.length()
     }
+
     pub fn cut_each_component(&mut self, value: &u32) -> Self {
         self.x = self.x.min(*value);
         self.y = self.y.min(*value);
         self.z = self.z.min(*value);
+        *self
+    }
+
+    pub fn cut_by(&mut self, value: V3c<u32>) -> Self {
+        self.x = self.x.min(value.x);
+        self.y = self.y.min(value.y);
+        self.z = self.z.min(value.z);
         *self
     }
 }
@@ -113,14 +132,23 @@ impl V3c<usize> {
     pub fn length(&self) -> f32 {
         (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
     }
+
     pub fn normalized(self) -> V3c<f32> {
         let result: V3c<f32> = self.into();
         result / self.length()
     }
+
     pub fn cut_each_component(&mut self, value: &usize) -> Self {
         self.x = self.x.min(*value);
         self.y = self.y.min(*value);
         self.z = self.z.min(*value);
+        *self
+    }
+
+    pub fn cut_by(&mut self, value: V3c<usize>) -> Self {
+        self.x = self.x.min(value.x);
+        self.y = self.y.min(value.y);
+        self.z = self.z.min(value.z);
         *self
     }
 }

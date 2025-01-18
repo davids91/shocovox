@@ -193,11 +193,11 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
     }
 }
 
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
-    pub fn load_vox_file(filename: &str) -> Result<Self, &'static str> {
+    pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let vox_tree = dot_vox::load(filename)?;
 
         let mut min_position_lyup = V3c::<i32>::new(0, 0, 0);
@@ -205,8 +205,8 @@ where
         iterate_vox_tree(&vox_tree, |model, position, orientation| {
             let model_size_half_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             ) / 2;
 
             // If the index is negative, then it is calculated
@@ -214,8 +214,8 @@ where
             // So one needs to be added in every dimension where the index is below 0
             let position = convert_coordinate(
                 *position,
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             ) + V3c::new(
                 if model_size_half_lyup.x < 0 { -1 } else { 0 },
                 if model_size_half_lyup.y < 0 { -1 } else { 0 },
@@ -255,18 +255,20 @@ where
             .max(max_position_lyup.z);
         let max_dimension = (max_dimension as f32).log2().ceil() as u32;
         let max_dimension = 2_u32.pow(max_dimension);
-        let mut shocovox_octree = Octree::<T, DIM>::new(max_dimension).ok().unwrap();
+        let mut shocovox_octree = Octree::<T>::new(max_dimension, brick_dimension)
+            .ok()
+            .unwrap();
         iterate_vox_tree(&vox_tree, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             );
             let position = *position;
             let position_lyup = convert_coordinate(
                 position,
-                CoordinateSystemType::RZUP,
-                CoordinateSystemType::LYUP,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
             );
 
             let current_position = position_lyup - min_position_lyup - (model_size_lyup / 2)
@@ -281,8 +283,8 @@ where
             for voxel in &model.voxels {
                 let voxel_position = convert_coordinate(
                     V3c::from(*voxel).clone_transformed(orientation),
-                    CoordinateSystemType::RZUP,
-                    CoordinateSystemType::LYUP,
+                    CoordinateSystemType::Rzup,
+                    CoordinateSystemType::Lyup,
                 );
                 let cpos = current_position + voxel_position;
                 if cpos.length() < vmin.length() {

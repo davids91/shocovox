@@ -9,7 +9,7 @@ use bevy::{
         extract_resource::ExtractResource,
         render_graph::RenderLabel,
         render_resource::{
-            AsBindGroup, BindGroup, BindGroupLayout, Buffer, CachedComputePipelineId, ShaderType,
+            BindGroup, BindGroupLayout, Buffer, CachedComputePipelineId, ShaderType,
         },
         renderer::RenderQueue,
     },
@@ -41,7 +41,7 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct RenderBevyPlugin<T, const DIM: usize>
+pub struct RenderBevyPlugin<T>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
@@ -51,11 +51,11 @@ where
 
 #[derive(Resource, Clone, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUHost"]
-pub struct OctreeGPUHost<T, const DIM: usize>
+pub struct OctreeGPUHost<T>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
-    pub tree: Octree<T, DIM>,
+    pub tree: Octree<T>,
 }
 
 #[derive(Default, Resource, Clone, TypePath, ExtractResource)]

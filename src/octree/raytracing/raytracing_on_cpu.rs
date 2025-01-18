@@ -8,7 +8,7 @@ use crate::{
             BITMAP_INDEX_LUT, BITMAP_MASK_FOR_OCTANT_LUT, OOB_OCTANT,
             RAY_TO_NODE_OCCUPANCY_BITMASK_LUT,
         },
-        math::{hash_direction, hash_region, BITMAP_DIMENSION},
+        math::{flat_projection, hash_direction, hash_region, BITMAP_DIMENSION},
         raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
     },
 };
@@ -78,7 +78,7 @@ where
     }
 }
 
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
@@ -151,51 +151,77 @@ where
     }
 
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
+    /// Returns with the 3d and flat index values pointing to the voxel hit inside the brick in case there's a hit
     fn traverse_brick(
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &[[[T; DIM]; DIM]; DIM],
+        brick: &[T],
         brick_bounds: &Cube,
+        brick_dim: usize,
         ray_scale_factors: &V3c<f32>,
-    ) -> Option<V3c<usize>> {
+    ) -> Option<(V3c<usize>, usize)> {
         // Decide the starting index inside the brick
         let position_in_brick = (ray.point_at(*ray_current_distance) - brick_bounds.min_position)
-            * DIM as f32
+            * brick_dim as f32
             / brick_bounds.size;
         let mut current_index = V3c::new(
-            (position_in_brick.x as i32).clamp(0, (DIM - 1) as i32),
-            (position_in_brick.y as i32).clamp(0, (DIM - 1) as i32),
-            (position_in_brick.z as i32).clamp(0, (DIM - 1) as i32),
+            (position_in_brick.x as i32).clamp(0, (brick_dim - 1) as i32),
+            (position_in_brick.y as i32).clamp(0, (brick_dim - 1) as i32),
+            (position_in_brick.z as i32).clamp(0, (brick_dim - 1) as i32),
         );
+        let flat_delta_x = flat_projection(1, 0, 0, brick_dim) as i32;
+        let flat_delta_y = flat_projection(0, 1, 0, brick_dim) as i32;
+        let flat_delta_z = flat_projection(0, 0, 1, brick_dim) as i32;
+        let mut current_flat_index = flat_projection(
+            current_index.x as usize,
+            current_index.y as usize,
+            current_index.z as usize,
+            brick_dim,
+        ) as i32;
 
         // Map the current position to index and bitmap spaces
-        let brick_unit = brick_bounds.size / DIM as f32; // how long is index step in space (set by the bounds)
+        let brick_unit = brick_bounds.size / brick_dim as f32; // how long is index step in space (set by the bounds)
         let mut current_bounds = Cube {
             min_position: brick_bounds.min_position + V3c::from(current_index) * brick_unit,
             size: brick_unit,
         };
 
         // Loop through the brick, terminate if no possibility of hit
+        let mut step = V3c::unit(0.);
         loop {
             if
             // If index is out of bounds, there's no hit
             current_index.x < 0
-                || current_index.x >= DIM as i32
+                || current_index.x >= brick_dim as i32
                 || current_index.y < 0
-                || current_index.y >= DIM as i32
+                || current_index.y >= brick_dim as i32
                 || current_index.z < 0
-                || current_index.z >= DIM as i32
+                || current_index.z >= brick_dim as i32
             {
                 return None;
             }
 
-            if !brick[current_index.x as usize][current_index.y as usize][current_index.z as usize]
-                .is_empty()
-            {
-                return Some(V3c::<usize>::from(current_index));
+            current_flat_index += step.x as i32 * flat_delta_x
+                + step.y as i32 * flat_delta_y
+                + step.z as i32 * flat_delta_z;
+            debug_assert_eq!(
+                flat_projection(
+                    current_index.x as usize,
+                    current_index.y as usize,
+                    current_index.z as usize,
+                    brick_dim,
+                ),
+                current_flat_index as usize
+            );
+
+            if !brick[current_flat_index as usize].is_empty() {
+                return Some((
+                    V3c::<usize>::from(current_index),
+                    current_flat_index as usize,
+                ));
             }
 
-            let step = Self::dda_step_to_next_sibling(
+            step = Self::dda_step_to_next_sibling(
                 ray,
                 ray_current_distance,
                 &current_bounds,
@@ -203,6 +229,7 @@ where
             );
             current_bounds.min_position += step * brick_unit;
             current_index += V3c::<i32>::from(step);
+
             #[cfg(debug_assertions)]
             {
                 // Check if the resulting point is inside bounds still
@@ -224,7 +251,7 @@ where
         &self,
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &'a BrickData<T, DIM>,
+        brick: &'a BrickData<T>,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
     ) -> Option<(&'a T, V3c<f32>, V3c<f32>)> {
@@ -242,22 +269,24 @@ where
                 ))
             }
             BrickData::Parted(brick) => {
-                if let Some(leaf_brick_hit) = Self::traverse_brick(
+                if let Some((leaf_brick_hit, leaf_brick_hit_flat_index)) = Self::traverse_brick(
                     ray,
                     ray_current_distance,
                     brick,
                     brick_bounds,
+                    self.brick_dim as usize,
                     ray_scale_factors,
                 ) {
                     let hit_bounds = Cube {
-                        size: brick_bounds.size / DIM as f32,
+                        size: brick_bounds.size / self.brick_dim as f32,
                         min_position: brick_bounds.min_position
-                            + V3c::<f32>::from(leaf_brick_hit) * brick_bounds.size / DIM as f32,
+                            + V3c::<f32>::from(leaf_brick_hit) * brick_bounds.size
+                                / self.brick_dim as f32,
                     };
                     let impact_point = ray.point_at(*ray_current_distance);
                     let impact_normal = cube_impact_normal(&hit_bounds, &impact_point);
                     Some((
-                        &brick[leaf_brick_hit.x][leaf_brick_hit.y][leaf_brick_hit.z],
+                        &brick[leaf_brick_hit_flat_index],
                         impact_point,
                         impact_normal,
                     ))

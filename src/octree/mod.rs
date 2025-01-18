@@ -19,13 +19,16 @@ use crate::octree::{
     detail::{bound_contains, child_octant_for},
     types::{BrickData, NodeChildren, NodeContent, OctreeError},
 };
-use crate::spatial::{math::matrix_index_for, Cube};
+use crate::spatial::{
+    math::{flat_projection, matrix_index_for},
+    Cube,
+};
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 #[cfg(debug_assertions)]
 use crate::spatial::math::position_in_bitmap_64bits;
 
-impl<T, const DIM: usize> Octree<T, DIM>
+impl<T> Octree<T>
 where
     T: Default + Eq + Clone + Copy + VoxelData,
 {
@@ -59,24 +62,26 @@ where
     }
 
     /// creates an octree with overall size nodes_dimension * DIM
-    /// Generic parameter DIM must be one of `(2^x)` and smaller, than the size of the octree
-    /// * `size` - must be `DIM * (2^x)`, e.g: DIM == 2 --> size can be 2,4,8,16,32...
-    pub fn new(size: u32) -> Result<Self, OctreeError> {
-        if 0 == size || (DIM as f32).log(2.0).fract() != 0.0 {
-            return Err(OctreeError::InvalidBrickDimension(DIM as u32));
+    /// Generic parameter self.octree_dim must be one of `(2^x)` and smaller, than the size of the octree
+    /// * `size` - must be `self.octree_dim * (2^x)`, e.g: self.octree_dim == 2 --> size can be 2,4,8,16,32...
+    pub fn new(size: u32, brick_dimension: u32) -> Result<Self, OctreeError> {
+        if 0 == size || (brick_dimension as f32).log(2.0).fract() != 0.0 {
+            return Err(OctreeError::InvalidBrickDimension(brick_dimension));
         }
-        if DIM > size as usize || 0 == size || (size as f32 / DIM as f32).log(2.0).fract() != 0.0 {
+        if brick_dimension > size
+            || 0 == size
+            || (size as f32 / brick_dimension as f32).log(2.0).fract() != 0.0
+        {
             return Err(OctreeError::InvalidSize(size));
         }
-        if DIM >= size as usize {
+        if brick_dimension >= size {
             return Err(OctreeError::InvalidStructure(
                 "Octree size must be larger, than the brick dimension".into(),
             ));
         }
-        let node_count_estimation = (size / DIM as u32).pow(3);
-        let mut nodes = ObjectPool::<NodeContent<T, DIM>>::with_capacity(
-            node_count_estimation.min(1024) as usize,
-        );
+        let node_count_estimation = (size / brick_dimension).pow(3);
+        let mut nodes =
+            ObjectPool::<NodeContent<T>>::with_capacity(node_count_estimation.min(1024) as usize);
         let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
         node_children.push(NodeChildren::new(empty_marker()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
@@ -84,6 +89,7 @@ where
         Ok(Self {
             auto_simplify: true,
             octree_size: size,
+            brick_dim: brick_dimension,
             nodes,
             node_children,
         })
@@ -102,8 +108,8 @@ where
             match self.nodes.get(current_node_key) {
                 NodeContent::Nothing => return None,
                 NodeContent::Leaf(bricks) => {
-                    // In case DIM == octree size, the root node can not be a leaf...
-                    debug_assert!(DIM < self.octree_size as usize);
+                    // In case self.octree_dim == octree size, the root node can not be a leaf...
+                    debug_assert!(self.brick_dim < self.octree_size);
                     debug_assert!(
                         0 < self.nodes.get(current_node_key).count_non_empties(),
                         "At least some children should be Some(x) in a Leaf!"
@@ -119,11 +125,19 @@ where
                         BrickData::Parted(brick) => {
                             current_bounds =
                                 Cube::child_bounds_for(&current_bounds, child_octant_at_position);
-                            let mat_index =
-                                matrix_index_for(&current_bounds, &V3c::from(position), DIM);
-
-                            if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
-                                return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
+                            let mat_index = matrix_index_for(
+                                &current_bounds,
+                                &V3c::from(position),
+                                self.brick_dim,
+                            );
+                            let mat_index = flat_projection(
+                                mat_index.x as usize,
+                                mat_index.y as usize,
+                                mat_index.z as usize,
+                                self.brick_dim as usize,
+                            );
+                            if !brick[mat_index].is_empty() {
+                                return Some(&brick[mat_index]);
                             }
                             return None;
                         }
@@ -138,11 +152,17 @@ where
                     }
                     BrickData::Parted(brick) => {
                         let mat_index =
-                            matrix_index_for(&current_bounds, &V3c::from(position), DIM);
-                        if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                            matrix_index_for(&current_bounds, &V3c::from(position), self.brick_dim);
+                        let mat_index = flat_projection(
+                            mat_index.x as usize,
+                            mat_index.y as usize,
+                            mat_index.z as usize,
+                            self.brick_dim as usize,
+                        );
+                        if brick[mat_index].is_empty() {
                             return None;
                         }
-                        return Some(&brick[mat_index.x][mat_index.y][mat_index.z]);
+                        return Some(&brick[mat_index]);
                     }
                     BrickData::Solid(voxel) => {
                         if voxel.is_empty() {
@@ -205,8 +225,8 @@ where
         debug_assert!(bound_contains(bounds, position));
         match self.nodes.get_mut(node_key) {
             NodeContent::Leaf(bricks) => {
-                // In case DIM == octree size, the root node can not be a leaf...
-                debug_assert!(DIM < self.octree_size as usize);
+                // In case self.octree_dim == octree size, the root node can not be a leaf...
+                debug_assert!(self.brick_dim < self.octree_size);
 
                 // Hash the position to the target child
                 let child_octant_at_position = child_octant_for(bounds, position);
@@ -216,9 +236,16 @@ where
                     BrickData::Empty => None,
                     BrickData::Parted(ref mut brick) => {
                         let bounds = Cube::child_bounds_for(bounds, child_octant_at_position);
-                        let mat_index = matrix_index_for(&bounds, &V3c::from(*position), DIM);
-                        if !brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
-                            return Some(&mut brick[mat_index.x][mat_index.y][mat_index.z]);
+                        let mat_index =
+                            matrix_index_for(&bounds, &V3c::from(*position), self.brick_dim);
+                        let mat_index = flat_projection(
+                            mat_index.x as usize,
+                            mat_index.y as usize,
+                            mat_index.z as usize,
+                            self.brick_dim as usize,
+                        );
+                        if !brick[mat_index].is_empty() {
+                            return Some(&mut brick[mat_index]);
                         }
                         None
                     }
@@ -228,11 +255,17 @@ where
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => None,
                 BrickData::Parted(brick) => {
-                    let mat_index = matrix_index_for(bounds, &V3c::from(*position), DIM);
-                    if brick[mat_index.x][mat_index.y][mat_index.z].is_empty() {
+                    let mat_index = matrix_index_for(bounds, &V3c::from(*position), self.brick_dim);
+                    let mat_index = flat_projection(
+                        mat_index.x as usize,
+                        mat_index.y as usize,
+                        mat_index.z as usize,
+                        self.brick_dim as usize,
+                    );
+                    if brick[mat_index].is_empty() {
                         return None;
                     }
-                    Some(&mut brick[mat_index.x][mat_index.y][mat_index.z])
+                    Some(&mut brick[mat_index])
                 }
                 BrickData::Solid(voxel) => {
                     if voxel.is_empty() {
