@@ -1,8 +1,10 @@
 use crate::octree::{
+    empty_marker,
     types::{
-        Albedo, BrickData, NodeChildren, NodeChildrenArray, NodeContent, VoxelContent, VoxelData,
+        Albedo, BrickData, NodeChildren, NodeChildrenArray, NodeContent, PaletteIndexValues,
+        VoxelData,
     },
-    V3c,
+    OctreeEntry, V3c,
 };
 use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
@@ -133,7 +135,7 @@ where
 //  ██████████   █████   █████    █████    █████   █████
 // ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░
 //####################################################################################
-impl BrickData<VoxelContent> {
+impl BrickData<PaletteIndexValues> {
     /// Provides occupancy information for the part of the brick corresponding
     /// to the given octant based on the contents of the brick
     pub(crate) fn is_empty_throughout<V: VoxelData>(
@@ -145,7 +147,9 @@ impl BrickData<VoxelContent> {
     ) -> bool {
         match self {
             BrickData::Empty => true,
-            BrickData::Solid(voxel) => voxel.points_to_empty(color_palette, data_palette),
+            BrickData::Solid(voxel) => {
+                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
+            }
             BrickData::Parted(brick) => {
                 if 1 == brick_dim {
                     debug_assert!(
@@ -154,7 +158,11 @@ impl BrickData<VoxelContent> {
                         brick.len(),
                         brick_dim
                     );
-                    return brick[0].points_to_empty(color_palette, data_palette);
+                    return NodeContent::pix_points_to_empty(
+                        &brick[0],
+                        color_palette,
+                        data_palette,
+                    );
                 }
 
                 if 2 == brick_dim {
@@ -167,7 +175,11 @@ impl BrickData<VoxelContent> {
                     let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]);
                     let octant_flat_offset =
                         flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
-                    return brick[octant_flat_offset].points_to_empty(color_palette, data_palette);
+                    return NodeContent::pix_points_to_empty(
+                        &brick[octant_flat_offset],
+                        color_palette,
+                        data_palette,
+                    );
                 }
 
                 debug_assert!(
@@ -183,9 +195,11 @@ impl BrickData<VoxelContent> {
                     for y in octant_offset.y..(octant_offset.y + octant_extent) {
                         for z in octant_offset.z..(octant_offset.z + octant_extent) {
                             let octant_flat_offset = flat_projection(x, y, z, brick_dim);
-                            if !brick[octant_flat_offset]
-                                .points_to_empty(color_palette, data_palette)
-                            {
+                            if !NodeContent::pix_points_to_empty(
+                                &brick[octant_flat_offset],
+                                color_palette,
+                                data_palette,
+                            ) {
                                 return false;
                             }
                         }
@@ -210,17 +224,23 @@ impl BrickData<VoxelContent> {
     ) -> bool {
         match self {
             BrickData::Empty => true,
-            BrickData::Solid(voxel) => voxel.points_to_empty(color_palette, data_palette),
+            BrickData::Solid(voxel) => {
+                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
+            }
             BrickData::Parted(brick) => {
                 if 1 == brick.len() {
                     // brick dimension is 1
-                    brick[0].points_to_empty(color_palette, data_palette)
+                    NodeContent::pix_points_to_empty(&brick[0], color_palette, data_palette)
                 } else if 8 == brick.len() {
                     // brick dimension is 2
                     let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant]);
                     let octant_flat_offset =
                         flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
-                    brick[octant_flat_offset].points_to_empty(color_palette, data_palette)
+                    NodeContent::pix_points_to_empty(
+                        &brick[octant_flat_offset],
+                        color_palette,
+                        data_palette,
+                    )
                 } else {
                     let outer_extent = brick_dim as f32 / 2.;
                     let inner_extent = brick_dim as f32 / 4.;
@@ -238,9 +258,11 @@ impl BrickData<VoxelContent> {
                                     octant_offset.z + z,
                                     brick_dim,
                                 );
-                                if !brick[octant_flat_offset]
-                                    .points_to_empty(color_palette, data_palette)
-                                {
+                                if !NodeContent::pix_points_to_empty(
+                                    &brick[octant_flat_offset],
+                                    color_palette,
+                                    data_palette,
+                                ) {
                                     return false;
                                 }
                             }
@@ -254,7 +276,7 @@ impl BrickData<VoxelContent> {
 
     /// Calculates the Occupancy bitmap for the given Voxel brick
     pub(crate) fn calculate_brick_occupied_bits<V: VoxelData>(
-        brick: &[VoxelContent],
+        brick: &[PaletteIndexValues],
         brick_dimension: usize,
         color_palette: &[Albedo],
         data_palette: &[V],
@@ -264,7 +286,11 @@ impl BrickData<VoxelContent> {
             for y in 0..brick_dimension {
                 for z in 0..brick_dimension {
                     let flat_index = flat_projection(x, y, z, brick_dimension);
-                    if !brick[flat_index].points_to_empty(color_palette, data_palette) {
+                    if !NodeContent::pix_points_to_empty(
+                        &brick[flat_index],
+                        color_palette,
+                        data_palette,
+                    ) {
                         set_occupancy_in_bitmap_64bits(
                             &V3c::new(x, y, z),
                             1,
@@ -289,7 +315,7 @@ impl BrickData<VoxelContent> {
         match self {
             BrickData::Empty => 0,
             BrickData::Solid(voxel) => {
-                if voxel.points_to_empty(color_palette, data_palette) {
+                if NodeContent::pix_points_to_empty(voxel, color_palette, data_palette) {
                     0
                 } else {
                     u64::MAX
@@ -305,7 +331,7 @@ impl BrickData<VoxelContent> {
     }
 
     /// In case all contained voxels are the same, returns with a reference to the data
-    pub(crate) fn get_homogeneous_data(&self) -> Option<&VoxelContent> {
+    pub(crate) fn get_homogeneous_data(&self) -> Option<&PaletteIndexValues> {
         match self {
             BrickData::Empty => None,
             BrickData::Solid(voxel) => Some(voxel),
@@ -327,7 +353,7 @@ impl BrickData<VoxelContent> {
         data_palette: &[V],
     ) -> bool {
         if let Some(homogeneous_type) = self.get_homogeneous_data() {
-            if homogeneous_type.points_to_empty(color_palette, data_palette) {
+            if NodeContent::pix_points_to_empty(homogeneous_type, color_palette, data_palette) {
                 *self = BrickData::Empty;
             } else {
                 *self = BrickData::Solid(homogeneous_type.clone());
@@ -358,8 +384,107 @@ impl BrickData<VoxelContent> {
 //   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
 //####################################################################################
 
-impl NodeContent<VoxelContent> {
-    /// Returns with true if it doesn't contain any data
+impl NodeContent<PaletteIndexValues> {
+    pub(crate) fn pix_visual(color_index: u16) -> PaletteIndexValues {
+        (color_index as u32) | ((empty_marker::<u16>() as u32) << 16)
+    }
+
+    pub(crate) fn pix_informal(data_index: u16) -> PaletteIndexValues {
+        (empty_marker::<u16>() as u32) | ((data_index as u32) << 16)
+    }
+
+    pub(crate) fn pix_complex(color_index: u16, data_index: u16) -> PaletteIndexValues {
+        (color_index as u32) | ((data_index as u32) << 16)
+    }
+
+    pub(crate) fn pix_color_index(index: &PaletteIndexValues) -> usize {
+        (index & 0x0000FFFF) as usize
+    }
+    pub(crate) fn pix_data_index(index: &PaletteIndexValues) -> usize {
+        ((index & 0xFFFF0000) >> 16) as usize
+    }
+
+    pub(crate) fn pix_color_is_some(index: &PaletteIndexValues) -> bool {
+        Self::pix_color_index(index) < empty_marker::<u16>() as usize
+    }
+
+    pub(crate) fn pix_color_is_none(index: &PaletteIndexValues) -> bool {
+        !Self::pix_color_is_some(index)
+    }
+
+    pub(crate) fn pix_data_is_none(index: &PaletteIndexValues) -> bool {
+        Self::pix_data_index(index) == empty_marker::<u16>() as usize
+    }
+
+    pub(crate) fn pix_data_is_some(index: &PaletteIndexValues) -> bool {
+        Self::pix_data_index(index) < empty_marker()
+    }
+
+    pub(crate) fn pix_points_to_empty<V: VoxelData>(
+        index: &PaletteIndexValues,
+        color_palette: &[Albedo],
+        data_palette: &[V],
+    ) -> bool {
+        debug_assert!(
+            Self::pix_color_index(index) < color_palette.len() || Self::pix_color_is_none(index),
+            "Expected color index to be inside bounds: {} <> {}",
+            Self::pix_color_index(index),
+            color_palette.len()
+        );
+        debug_assert!(
+            Self::pix_data_index(index) < data_palette.len() || Self::pix_data_is_none(index),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            Self::pix_data_index(index),
+            color_palette.len()
+        );
+        (Self::pix_color_is_none(index)
+            || color_palette[Self::pix_color_index(index)].is_transparent())
+            && (Self::pix_data_is_none(index)
+                || data_palette[Self::pix_data_index(index)].is_empty())
+    }
+
+    pub(crate) fn pix_get_ref<'a, V: VoxelData>(
+        index: &PaletteIndexValues,
+        color_palette: &'a [Albedo],
+        data_palette: &'a [V],
+    ) -> OctreeEntry<'a, V> {
+        if Self::pix_data_is_none(index) && Self::pix_color_is_none(index) {
+            return OctreeEntry::Empty;
+        }
+        if Self::pix_data_is_none(index) {
+            debug_assert!(Self::pix_color_is_some(index));
+            debug_assert!(Self::pix_color_index(index) < color_palette.len());
+            return OctreeEntry::Visual(&color_palette[Self::pix_color_index(index)]);
+        }
+
+        if Self::pix_color_is_none(index) {
+            debug_assert!(Self::pix_data_is_some(index));
+            debug_assert!(Self::pix_data_index(index) < data_palette.len());
+            return OctreeEntry::Informative(&data_palette[Self::pix_data_index(index)]);
+        }
+
+        debug_assert!(
+            Self::pix_color_index(index) < color_palette.len(),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            Self::pix_color_index(index),
+            color_palette.len()
+        );
+        debug_assert!(
+            Self::pix_data_index(index) < data_palette.len(),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            Self::pix_data_index(index),
+            data_palette.len()
+        );
+        return OctreeEntry::Complex(
+            &color_palette[Self::pix_color_index(index)],
+            &data_palette[Self::pix_data_index(index)],
+        );
+    }
+
+    /// Returns with true if content doesn't have any data
     pub(crate) fn is_empty<V: VoxelData>(
         &self,
         color_palette: &[Albedo],
@@ -368,10 +493,12 @@ impl NodeContent<VoxelContent> {
         match self {
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => true,
-                BrickData::Solid(voxel) => voxel.points_to_empty(color_palette, data_palette),
+                BrickData::Solid(voxel) => {
+                    Self::pix_points_to_empty(voxel, color_palette, data_palette)
+                }
                 BrickData::Parted(brick) => {
                     for voxel in brick.iter() {
-                        if !voxel.points_to_empty(color_palette, data_palette) {
+                        if !Self::pix_points_to_empty(voxel, color_palette, data_palette) {
                             return false;
                         }
                     }
@@ -385,13 +512,13 @@ impl NodeContent<VoxelContent> {
                             continue;
                         }
                         BrickData::Solid(voxel) => {
-                            if !voxel.points_to_empty(color_palette, data_palette) {
+                            if !Self::pix_points_to_empty(voxel, color_palette, data_palette) {
                                 return false;
                             }
                         }
                         BrickData::Parted(brick) => {
                             for voxel in brick.iter() {
-                                if !voxel.points_to_empty(color_palette, data_palette) {
+                                if !Self::pix_points_to_empty(voxel, color_palette, data_palette) {
                                     return false;
                                 }
                             }
@@ -406,7 +533,7 @@ impl NodeContent<VoxelContent> {
     }
 
     /// Returns with true if all contained elements equal the given data
-    pub(crate) fn is_all(&self, data: &VoxelContent) -> bool {
+    pub(crate) fn is_all(&self, data: &PaletteIndexValues) -> bool {
         match self {
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => false,
@@ -442,7 +569,7 @@ impl NodeContent<VoxelContent> {
         }
     }
 
-    pub(crate) fn compare(&self, other: &NodeContent<VoxelContent>) -> bool {
+    pub(crate) fn compare(&self, other: &NodeContent<PaletteIndexValues>) -> bool {
         match self {
             NodeContent::Nothing => matches!(other, NodeContent::Nothing),
             NodeContent::Internal(_) => false, // Internal nodes comparison doesn't make sense

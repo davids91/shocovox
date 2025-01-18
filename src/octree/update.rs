@@ -2,8 +2,8 @@ use crate::object_pool::empty_marker;
 use crate::octree::types::{BrickData, NodeChildrenArray};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    types::{NodeChildren, NodeContent, OctreeEntry, OctreeError},
-    Octree, VoxelContent, VoxelData,
+    types::{NodeChildren, NodeContent, OctreeEntry, OctreeError, PaletteIndexValues},
+    Octree, VoxelData,
 };
 use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
@@ -22,9 +22,9 @@ where
 {
     /// Updates the stored palette by adding the new colors and data in the given entry
     /// * Returns with the resulting PaletteIndexValues Entry
-    fn add_to_palette(&mut self, entry: &OctreeEntry<T>) -> VoxelContent {
+    fn add_to_palette(&mut self, entry: &OctreeEntry<T>) -> PaletteIndexValues {
         match entry {
-            OctreeEntry::Empty => VoxelContent::empty(),
+            OctreeEntry::Empty => empty_marker::<PaletteIndexValues>(),
             OctreeEntry::Visual(albedo) => {
                 let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
                 let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
@@ -40,7 +40,7 @@ where
                     albedo_index < u16::MAX as usize,
                     "Albedo color palette overflow!"
                 );
-                VoxelContent::visual(albedo_index as u16)
+                NodeContent::pix_visual(albedo_index as u16)
             }
             OctreeEntry::Informative(data) => {
                 let potential_new_data_index = self.map_to_data_index_in_palette.keys().len();
@@ -57,7 +57,7 @@ where
                     data_index < u16::MAX as usize,
                     "Data color palette overflow!"
                 );
-                VoxelContent::informal(data_index as u16)
+                NodeContent::pix_informal(data_index as u16)
             }
             OctreeEntry::Complex(albedo, data) => {
                 let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
@@ -88,7 +88,7 @@ where
                     data_index < u16::MAX as usize,
                     "Data color palette overflow!"
                 );
-                VoxelContent::complex(albedo_index as u16, data_index as u16)
+                NodeContent::pix_complex(albedo_index as u16, data_index as u16)
             }
         }
         // find color in the palette is present, add if not
@@ -97,7 +97,7 @@ where
     /// Updates the given node to be a Leaf, and inserts the provided data for it.
     /// It will update a whole node, or maximum one brick. Brick update range is starting from the position,
     /// goes up to the extent of the brick. Does not set occupancy bitmap of the given node.
-    /// Returns with the size of the actual update
+    /// * Returns with the size of the actual update
     fn leaf_update(
         &mut self,
         node_key: usize,
@@ -106,7 +106,7 @@ where
         target_child_octant: usize,
         position: &V3c<u32>,
         size: u32,
-        target_content: VoxelContent,
+        target_content: PaletteIndexValues,
     ) -> usize {
         // Update the leaf node, if it is possible as is, and if it's even needed to update
         // and decide if the node content needs to be divided into bricks, and the update function to be called again
@@ -130,7 +130,7 @@ where
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
                         let mut new_brick = vec![
-                            VoxelContent::empty();
+                            empty_marker::<PaletteIndexValues>();
                             (self.brick_dim * self.brick_dim * self.brick_dim)
                                 as usize
                         ];
@@ -150,7 +150,8 @@ where
                         // In case the data doesn't match the current contents of the node, it needs to be subdivided
                         let update_size;
                         if (target_content.is_empty()
-                            && !voxel.points_to_empty(
+                            && !NodeContent::pix_points_to_empty(
+                                voxel,
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             ))
@@ -231,15 +232,15 @@ where
                     }
                     BrickData::Solid(voxel) => {
                         debug_assert!(
-                            !voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                            !NodeContent::pix_points_to_empty(voxel, &self.voxel_color_palette, &self.voxel_data_palette)
                                 && (self.node_children[node_key].content
                                     == NodeChildrenArray::OccupancyBitmap(u64::MAX))
-                                || voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                                || NodeContent::pix_points_to_empty(voxel, &self.voxel_color_palette, &self.voxel_data_palette)
                                     && (self.node_children[node_key].content
                                         == NodeChildrenArray::OccupancyBitmap(0)),
                             "Expected Node occupancy bitmap({:?}) to align for Solid Voxel Brick in Uniform Leaf, which is {}",
                             self.node_children[node_key].content,
-                            if voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette) {
+                            if NodeContent::pix_points_to_empty(voxel, &self.voxel_color_palette, &self.voxel_data_palette) {
                                 "empty"
                             } else {
                                 "not empty"
@@ -248,7 +249,8 @@ where
 
                         // In case the data request doesn't match node content, it needs to be subdivided
                         if target_content.is_empty()
-                            && voxel.points_to_empty(
+                            && NodeContent::pix_points_to_empty(
+                                voxel,
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             )
@@ -261,7 +263,8 @@ where
 
                         if !target_content.is_empty() && *voxel != target_content
                             || (target_content.is_empty()
-                                && !voxel.points_to_empty(
+                                && !NodeContent::pix_points_to_empty(
+                                    voxel,
                                     &self.voxel_color_palette,
                                     &self.voxel_data_palette,
                                 ))
@@ -301,7 +304,7 @@ where
                             self.brick_dim as usize,
                         );
                         if 1 < self.brick_dim // BrickData can only stay parted if self.octree_dim is above 1
-                            && (target_content.is_empty() && brick[mat_index].points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                            && (target_content.is_empty() && NodeContent::pix_points_to_empty( &brick[mat_index], &self.voxel_color_palette, &self.voxel_data_palette)
                                 || !target_content.is_empty() && brick[mat_index] == target_content)
                         {
                             // Target voxel matches with the data request, there's nothing to do!
@@ -310,7 +313,7 @@ where
 
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
-                        let mut leaf_data: [BrickData<VoxelContent>; 8] = [
+                        let mut leaf_data: [BrickData<PaletteIndexValues>; 8] = [
                             BrickData::Empty,
                             BrickData::Empty,
                             BrickData::Empty,
@@ -429,12 +432,12 @@ where
     /// * `data` - the data  to update the brick with. Erases data in case `None`
     /// * Returns with the size of the update
     fn update_brick(
-        brick: &mut [VoxelContent],
+        brick: &mut [PaletteIndexValues],
         brick_bounds: &Cube,
         brick_dim: u32,
         position: V3c<u32>,
         size: u32,
-        data: &VoxelContent,
+        data: &PaletteIndexValues,
     ) -> usize {
         debug_assert!(
             bound_contains(brick_bounds, &(position.into())),
@@ -874,7 +877,7 @@ where
                     target_child_octant as usize,
                     position,
                     clear_size,
-                    VoxelContent::empty(),
+                    empty_marker::<PaletteIndexValues>(),
                 );
 
                 break;

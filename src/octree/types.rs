@@ -72,13 +72,6 @@ pub trait VoxelData {
     fn is_empty(&self) -> bool;
 }
 
-/// Index values in data and color palettes
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct VoxelContent {
-    pub(crate) color_index: u16,
-    pub(crate) data_index: u16,
-}
-
 /// Color properties of a voxel
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Albedo {
@@ -87,6 +80,10 @@ pub struct Albedo {
     pub b: u8,
     pub a: u8,
 }
+
+pub(crate) type PaletteIndexValues = u32;
+pub(crate) type NodeData = NodeContent<PaletteIndexValues>;
+pub(crate) type NodeConnection = NodeChildren<u32>;
 
 /// Sparse Octree of Nodes, where each node contains a brick of voxels.
 /// A Brick is a 3 dimensional matrix, each element of it containing a voxel.
@@ -102,10 +99,10 @@ where
     pub auto_simplify: bool,
     pub(crate) brick_dim: u32,   // Size of one brick in a leaf node (dim^3)
     pub(crate) octree_size: u32, // Extent of the octree
-    pub(crate) nodes: ObjectPool<NodeContent<VoxelContent>>, // Storing data at each position through palette index values
-    pub(crate) node_children: Vec<NodeChildren<u32>>,        // Node Connections
-    pub(crate) voxel_color_palette: Vec<Albedo>,             // referenced by @nodes
-    pub(crate) voxel_data_palette: Vec<T>,                   // referenced by @nodes
+    pub(crate) nodes: ObjectPool<NodeData>, // Storing data at each position through palette index values
+    pub(crate) node_children: Vec<NodeConnection>, // Node Connections
+    pub(crate) voxel_color_palette: Vec<Albedo>, // referenced by @nodes
+    pub(crate) voxel_data_palette: Vec<T>,  // referenced by @nodes
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) map_to_data_index_in_palette: HashMap<T, usize>,
 }

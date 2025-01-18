@@ -1,6 +1,7 @@
 mod brick_tests {
     use crate::{
-        octree::{flat_projection, Albedo, BrickData, V3c, VoxelContent},
+        object_pool::empty_marker,
+        octree::{flat_projection, types::PaletteIndexValues, Albedo, BrickData, NodeContent, V3c},
         spatial::lut::OCTANT_OFFSET_REGION_LUT,
     };
 
@@ -8,7 +9,7 @@ mod brick_tests {
     fn test_octant_empty() {
         let color_palette = vec![Albedo::default().with_alpha(100); 1];
         let data_palette = vec![0u32; 1];
-        let data = BrickData::<VoxelContent>::Empty;
+        let data = BrickData::<PaletteIndexValues>::Empty;
         assert!(data.is_empty_throughout(0, 1, &color_palette, &data_palette),);
         assert!(data.is_empty_throughout(1, 1, &color_palette, &data_palette),);
         assert!(data.is_empty_throughout(2, 1, &color_palette, &data_palette),);
@@ -18,7 +19,7 @@ mod brick_tests {
         assert!(data.is_empty_throughout(6, 1, &color_palette, &data_palette),);
         assert!(data.is_empty_throughout(7, 1, &color_palette, &data_palette),);
 
-        let data = BrickData::<VoxelContent>::Parted(vec![VoxelContent::visual(0); 1]);
+        let data = BrickData::<PaletteIndexValues>::Parted(vec![NodeContent::pix_visual(0); 1]);
         assert!(!data.is_empty_throughout(0, 1, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(1, 1, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(2, 1, &color_palette, &data_palette),);
@@ -34,7 +35,8 @@ mod brick_tests {
         // Create a filled parted Brick
         let color_palette = vec![Albedo::default().with_alpha(100); 1];
         let data_palette = vec![0u32; 1];
-        let mut data = BrickData::<VoxelContent>::Parted(vec![VoxelContent::visual(0); 2 * 2 * 2]);
+        let mut data =
+            BrickData::<PaletteIndexValues>::Parted(vec![NodeContent::pix_visual(0); 2 * 2 * 2]);
         assert!(!data.is_empty_throughout(0, 2, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(1, 2, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(2, 2, &color_palette, &data_palette),);
@@ -50,7 +52,7 @@ mod brick_tests {
             let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant]);
             let octant_flat_offset =
                 flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
-            brick[octant_flat_offset] = VoxelContent::empty();
+            brick[octant_flat_offset] = empty_marker::<PaletteIndexValues>();
         }
         assert!(
             data.is_empty_throughout(target_octant, 2, &color_palette, &data_palette,),
@@ -63,7 +65,8 @@ mod brick_tests {
         // Create a filled parted Brick
         let color_palette = vec![Albedo::default().with_alpha(100); 1];
         let data_palette = vec![0u32; 1];
-        let mut data = BrickData::<VoxelContent>::Parted(vec![VoxelContent::visual(0); 4 * 4 * 4]);
+        let mut data =
+            BrickData::<PaletteIndexValues>::Parted(vec![NodeContent::pix_visual(0); 4 * 4 * 4]);
         assert!(!data.is_empty_throughout(0, 4, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(1, 4, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(2, 4, &color_palette, &data_palette),);
@@ -82,7 +85,7 @@ mod brick_tests {
         if let BrickData::Parted(ref mut brick) = data {
             let octant_flat_offset =
                 flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 4);
-            brick[octant_flat_offset] = VoxelContent::empty();
+            brick[octant_flat_offset] = empty_marker::<PaletteIndexValues>();
         }
         assert!(
             !data.is_empty_throughout(target_octant, 4, &color_palette, &data_palette,),
@@ -100,7 +103,7 @@ mod brick_tests {
                             octant_offset.z + z,
                             4,
                         );
-                        brick[octant_flat_offset] = VoxelContent::empty();
+                        brick[octant_flat_offset] = empty_marker::<PaletteIndexValues>();
                     }
                 }
             }
@@ -116,7 +119,8 @@ mod brick_tests {
         // Create a filled parted Brick
         let color_palette = vec![Albedo::default().with_alpha(100); 1];
         let data_palette = vec![0u32; 1];
-        let mut data = BrickData::<VoxelContent>::Parted(vec![VoxelContent::visual(0); 4 * 4 * 4]);
+        let mut data =
+            BrickData::<PaletteIndexValues>::Parted(vec![NodeContent::pix_visual(0); 4 * 4 * 4]);
         for i in 0..8 {
             for j in 0..8 {
                 assert!(!data.is_part_empty_throughout(i, j, 4, &color_palette, &data_palette));
@@ -132,7 +136,7 @@ mod brick_tests {
         if let BrickData::Parted(ref mut brick) = data {
             let octant_flat_offset =
                 flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 4);
-            brick[octant_flat_offset] = VoxelContent::empty();
+            brick[octant_flat_offset] = empty_marker::<PaletteIndexValues>();
         }
         assert!(
             data.is_part_empty_throughout(target_octant, 0, 4, &color_palette, &data_palette),

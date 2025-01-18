@@ -1,7 +1,7 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::{
     types::{BrickData, NodeChildren, NodeChildrenArray, NodeContent},
-    Albedo, Octree, VoxelContent,
+    Albedo, Octree,
 };
 use bendy::{
     decoding::{FromBencode, Object},
@@ -27,44 +27,6 @@ use std::{collections::HashMap, hash::Hash};
 //  ░░█████████  ░░░███████░   █████  ░░█████    █████    ██████████ █████  ░░█████    █████
 //   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
 //####################################################################################
-impl ToBencode for VoxelContent {
-    const MAX_DEPTH: usize = 2;
-    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
-        encoder.emit_list(|e| {
-            e.emit(&self.color_index)?;
-            e.emit(&self.data_index)
-        })
-    }
-}
-
-impl FromBencode for VoxelContent {
-    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
-        match data {
-            Object::List(mut list) => {
-                let color_index = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u16>().ok().unwrap()),
-                    _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field red color component",
-                        "Something else",
-                    )),
-                }?;
-                let data_index = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u16>().ok().unwrap()),
-                    _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field green color component",
-                        "Something else",
-                    )),
-                }?;
-                Ok(Self {
-                    color_index,
-                    data_index,
-                })
-            }
-            _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
-        }
-    }
-}
-
 impl ToBencode for Albedo {
     const MAX_DEPTH: usize = 2;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -525,9 +487,7 @@ where
                     )),
                 }?;
 
-                let nodes = ObjectPool::<NodeContent<VoxelContent>>::decode_bencode_object(
-                    list.next_object()?.unwrap(),
-                )?;
+                let nodes = ObjectPool::decode_bencode_object(list.next_object()?.unwrap())?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
 
                 let voxel_color_palette =

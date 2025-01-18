@@ -12,15 +12,13 @@ mod tests;
 pub mod raytracing;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
-use num_traits::Zero;
-use types::OctreeEntry;
-pub use types::{Albedo, Octree, VoxelData};
+pub use types::{Albedo, Octree, OctreeEntry, VoxelData};
 
 use crate::{
     object_pool::{empty_marker, ObjectPool},
     octree::{
         detail::{bound_contains, child_octant_for},
-        types::{BrickData, NodeChildren, NodeContent, OctreeError, VoxelContent},
+        types::{BrickData, NodeChildren, NodeContent, OctreeError},
     },
     spatial::{
         math::{flat_projection, matrix_index_for},
@@ -28,7 +26,7 @@ use crate::{
     },
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
-
+use num_traits::Zero;
 use std::{collections::HashMap, hash::Hash};
 
 #[cfg(debug_assertions)]
@@ -170,9 +168,7 @@ where
             ));
         }
         let node_count_estimation = (size / brick_dimension).pow(3);
-        let mut nodes = ObjectPool::<NodeContent<VoxelContent>>::with_capacity(
-            node_count_estimation.min(1024) as usize,
-        );
+        let mut nodes = ObjectPool::with_capacity(node_count_estimation.min(1024) as usize);
         let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
         node_children.push(NodeChildren::new(empty_marker()));
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
@@ -228,18 +224,25 @@ where
                                 mat_index.z as usize,
                                 self.brick_dim as usize,
                             );
-                            if !brick[mat_index].points_to_empty(
+                            if !NodeContent::pix_points_to_empty(
+                                &brick[mat_index],
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             ) {
-                                return brick[mat_index]
-                                    .get_ref(&self.voxel_color_palette, &self.voxel_data_palette);
+                                return NodeContent::pix_get_ref(
+                                    &brick[mat_index],
+                                    &self.voxel_color_palette,
+                                    &self.voxel_data_palette,
+                                );
                             }
                             return OctreeEntry::Empty;
                         }
                         BrickData::Solid(voxel) => {
-                            return voxel
-                                .get_ref(&self.voxel_color_palette, &self.voxel_data_palette);
+                            return NodeContent::pix_get_ref(
+                                voxel,
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
+                            );
                         }
                     }
                 }
@@ -256,21 +259,32 @@ where
                             mat_index.z as usize,
                             self.brick_dim as usize,
                         );
-                        if brick[mat_index]
-                            .points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
-                        {
+                        if NodeContent::pix_points_to_empty(
+                            &brick[mat_index],
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        ) {
                             return OctreeEntry::Empty;
                         }
-                        return brick[mat_index]
-                            .get_ref(&self.voxel_color_palette, &self.voxel_data_palette);
+                        return NodeContent::pix_get_ref(
+                            &brick[mat_index],
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        );
                     }
                     BrickData::Solid(voxel) => {
-                        if voxel
-                            .points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
-                        {
+                        if NodeContent::pix_points_to_empty(
+                            voxel,
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        ) {
                             return OctreeEntry::Empty;
                         }
-                        return voxel.get_ref(&self.voxel_color_palette, &self.voxel_data_palette);
+                        return NodeContent::pix_get_ref(
+                            voxel,
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        );
                     }
                 },
                 NodeContent::Internal(occupied_bits) => {

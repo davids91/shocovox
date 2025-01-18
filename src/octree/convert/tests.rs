@@ -1,8 +1,8 @@
 use crate::{
     object_pool::empty_marker,
     octree::{
-        types::{Albedo, BrickData, NodeChildrenArray, NodeContent},
-        NodeChildren, Octree, OctreeEntry, V3c, VoxelContent,
+        types::{Albedo, BrickData, NodeChildrenArray, NodeContent, PaletteIndexValues},
+        NodeChildren, Octree, OctreeEntry, V3c,
     },
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
@@ -33,35 +33,38 @@ fn test_node_brickdata_serialization() {
 
 #[test]
 fn test_nodecontent_serialization() {
-    let node_content_nothing = NodeContent::<VoxelContent>::Nothing;
-    let node_content_internal = NodeContent::<VoxelContent>::Internal(0xAB);
-    let node_content_leaf = NodeContent::<VoxelContent>::Leaf([
+    let node_content_nothing = NodeContent::<PaletteIndexValues>::Nothing;
+    let node_content_internal = NodeContent::<PaletteIndexValues>::Internal(0xAB);
+    let node_content_leaf = NodeContent::<PaletteIndexValues>::Leaf([
         BrickData::Empty,
-        BrickData::Solid(VoxelContent::complex(69, 420)),
-        BrickData::Parted(vec![VoxelContent::visual(666)]),
+        BrickData::Solid(NodeContent::pix_complex(69, 420)),
+        BrickData::Parted(vec![NodeContent::pix_visual(666)]),
         BrickData::Empty,
         BrickData::Empty,
         BrickData::Empty,
         BrickData::Empty,
         BrickData::Empty,
     ]);
-    let node_content_uniform_leaf =
-        NodeContent::<VoxelContent>::UniformLeaf(BrickData::Solid(VoxelContent::informal(42)));
+    let node_content_uniform_leaf = NodeContent::<PaletteIndexValues>::UniformLeaf(
+        BrickData::Solid(NodeContent::pix_informal(42)),
+    );
 
-    let node_content_nothing_deserialized =
-        NodeContent::<VoxelContent>::from_bencode(&node_content_nothing.to_bencode().ok().unwrap())
-            .ok()
-            .unwrap();
-    let node_content_internal_deserialized = NodeContent::<VoxelContent>::from_bencode(
+    let node_content_nothing_deserialized = NodeContent::<PaletteIndexValues>::from_bencode(
+        &node_content_nothing.to_bencode().ok().unwrap(),
+    )
+    .ok()
+    .unwrap();
+    let node_content_internal_deserialized = NodeContent::<PaletteIndexValues>::from_bencode(
         &node_content_internal.to_bencode().ok().unwrap(),
     )
     .ok()
     .unwrap();
-    let node_content_leaf_deserialized =
-        NodeContent::<VoxelContent>::from_bencode(&node_content_leaf.to_bencode().ok().unwrap())
-            .ok()
-            .unwrap();
-    let node_content_uniform_leaf_deserialized = NodeContent::<VoxelContent>::from_bencode(
+    let node_content_leaf_deserialized = NodeContent::<PaletteIndexValues>::from_bencode(
+        &node_content_leaf.to_bencode().ok().unwrap(),
+    )
+    .ok()
+    .unwrap();
+    let node_content_uniform_leaf_deserialized = NodeContent::<PaletteIndexValues>::from_bencode(
         &node_content_uniform_leaf.to_bencode().ok().unwrap(),
     )
     .ok()
