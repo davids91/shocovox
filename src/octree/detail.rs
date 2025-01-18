@@ -1,14 +1,16 @@
-use crate::spatial::{
-    lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
-    math::{flat_projection, hash_region, BITMAP_DIMENSION},
-};
 use crate::{
     object_pool::empty_marker,
     octree::{
         types::{Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData},
-        BrickData, Cube, V3c,
+        BrickData, Cube, OctreeEntry, V3c, VoxelContent,
+    },
+    spatial::{
+        lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
+        math::{flat_projection, hash_region, BITMAP_DIMENSION},
     },
 };
+use num_traits::Zero;
+use std::{hash::Hash, ops::Add};
 
 /// Returns whether the given bound contains the given position.
 pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
@@ -27,6 +29,142 @@ pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
 }
 
 //####################################################################################
+//  █████   █████    ███████    █████ █████ ██████████ █████
+// ░░███   ░░███   ███░░░░░███ ░░███ ░░███ ░░███░░░░░█░░███
+//  ░███    ░███  ███     ░░███ ░░███ ███   ░███  █ ░  ░███
+//  ░███    ░███ ░███      ░███  ░░█████    ░██████    ░███
+//  ░░███   ███  ░███      ░███   ███░███   ░███░░█    ░███
+//   ░░░█████░   ░░███     ███   ███ ░░███  ░███ ░   █ ░███      █
+//     ░░███      ░░░███████░   █████ █████ ██████████ ███████████
+//      ░░░         ░░░░░░░    ░░░░░ ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░░
+//    █████████     ███████    ██████   █████ ███████████ ██████████ ██████   █████ ███████████
+//   ███░░░░░███  ███░░░░░███ ░░██████ ░░███ ░█░░░███░░░█░░███░░░░░█░░██████ ░░███ ░█░░░███░░░█
+//  ███     ░░░  ███     ░░███ ░███░███ ░███ ░   ░███  ░  ░███  █ ░  ░███░███ ░███ ░   ░███  ░
+// ░███         ░███      ░███ ░███░░███░███     ░███     ░██████    ░███░░███░███     ░███
+// ░███         ░███      ░███ ░███ ░░██████     ░███     ░███░░█    ░███ ░░██████     ░███
+// ░░███     ███░░███     ███  ░███  ░░█████     ░███     ░███ ░   █ ░███  ░░█████     ░███
+//  ░░█████████  ░░░███████░   █████  ░░█████    █████    ██████████ █████  ░░█████    █████
+//   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
+//####################################################################################
+impl VoxelContent {
+    pub(crate) fn empty() -> Self {
+        Self {
+            color_index: empty_marker(),
+            data_index: empty_marker(),
+        }
+    }
+
+    pub(crate) fn visual(color_index: u16) -> Self {
+        Self {
+            color_index: color_index,
+            data_index: empty_marker(),
+        }
+    }
+
+    pub(crate) fn informal(data_index: u16) -> Self {
+        Self {
+            color_index: empty_marker(),
+            data_index: data_index,
+        }
+    }
+
+    pub(crate) fn complex(color_index: u16, data_index: u16) -> Self {
+        Self {
+            color_index: color_index,
+            data_index: data_index,
+        }
+    }
+
+    pub(crate) fn color_is_some(&self) -> bool {
+        self.color_index < empty_marker()
+    }
+
+    pub(crate) fn color_is_none(&self) -> bool {
+        self.color_index == empty_marker::<u16>()
+    }
+
+    pub(crate) fn data_is_none(&self) -> bool {
+        self.data_index == empty_marker::<u16>()
+    }
+
+    pub(crate) fn data_is_some(&self) -> bool {
+        self.data_index < empty_marker()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.color_is_none() && self.data_is_none()
+    }
+
+    pub(crate) fn points_to_empty<V: VoxelData>(
+        &self,
+        color_palette: &[Albedo],
+        data_palette: &[V],
+    ) -> bool {
+        debug_assert!(
+            (self.color_index as usize) < color_palette.len() || self.color_is_none(),
+            "Expected color index to be inside bounds: {} <> {}",
+            self.color_index,
+            color_palette.len()
+        );
+        debug_assert!(
+            (self.data_index as usize) < data_palette.len() || self.data_is_none(),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            self.color_index,
+            color_palette.len()
+        );
+        (self.color_is_none() || color_palette[self.color_index as usize].is_transparent())
+            && (self.data_is_none() || data_palette[self.data_index as usize].is_empty())
+    }
+
+    pub(crate) fn get_ref<'a, V: VoxelData>(
+        &self,
+        color_palette: &'a [Albedo],
+        data_palette: &'a [V],
+    ) -> OctreeEntry<'a, V> {
+        if self.data_is_none() && self.color_is_none() {
+            return OctreeEntry::Empty;
+        }
+        if self.data_is_none() {
+            debug_assert!(self.color_is_some());
+            debug_assert!((self.color_index as usize) < color_palette.len());
+            return OctreeEntry::Visual(&color_palette[self.color_index as usize]);
+        }
+
+        if self.color_is_none() {
+            debug_assert!(self.data_is_some());
+            debug_assert!((self.data_index as usize) < data_palette.len());
+            return OctreeEntry::Informative(&data_palette[self.data_index as usize]);
+        }
+
+        debug_assert!(
+            (self.color_index as usize) < color_palette.len(),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            self.color_index,
+            color_palette.len()
+        );
+        debug_assert!(
+            (self.data_index as usize) < data_palette.len(),
+            "Expected data
+             index to be inside bounds: {} <> {}",
+            self.data_index,
+            data_palette.len()
+        );
+        return OctreeEntry::Complex(
+            &color_palette[self.color_index as usize],
+            &data_palette[self.data_index as usize],
+        );
+    }
+}
+
+impl<T: Zero + PartialEq> VoxelData for T {
+    fn is_empty(&self) -> bool {
+        *self == T::zero()
+    }
+}
+
+//####################################################################################
 //     █████████   █████       ███████████  ██████████ ██████████      ███████
 //   ███░░░░░███ ░░███       ░░███░░░░░███░░███░░░░░█░░███░░░░███   ███░░░░░███
 //  ░███    ░███  ░███        ░███    ░███ ░███  █ ░  ░███   ░░███ ███     ░░███
@@ -36,24 +174,30 @@ pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
 //  █████   █████ ███████████ ███████████  ██████████ ██████████   ░░░███████░
 // ░░░░░   ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░░  ░░░░░░░░░░ ░░░░░░░░░░      ░░░░░░░
 //####################################################################################
-impl VoxelData for Albedo {
-    fn new(color: Albedo, _user_data: u32) -> Self {
-        color
+
+impl Albedo {
+    pub fn with_red(mut self, r: u8) -> Self {
+        self.r = r;
+        self
     }
 
-    fn albedo(&self) -> Albedo {
-        *self
+    pub fn with_green(mut self, g: u8) -> Self {
+        self.g = g;
+        self
     }
 
-    fn user_data(&self) -> u32 {
-        0u32
+    pub fn with_blue(mut self, b: u8) -> Self {
+        self.b = b;
+        self
     }
 
-    fn clear(&mut self) {
-        self.r = 0;
-        self.g = 0;
-        self.b = 0;
-        self.a = 0;
+    pub fn with_alpha(mut self, a: u8) -> Self {
+        self.a = a;
+        self
+    }
+
+    pub fn is_transparent(&self) -> bool {
+        self.a == 0
     }
 }
 
@@ -72,6 +216,32 @@ impl From<u32> for Albedo {
     }
 }
 
+impl Add for Albedo {
+    type Output = Albedo;
+    fn add(self, other: Albedo) -> Albedo {
+        Albedo {
+            r: self.r + other.r,
+            g: self.g + other.g,
+            b: self.b + other.b,
+            a: self.a + other.a,
+        }
+    }
+}
+
+impl Zero for Albedo {
+    fn zero() -> Self {
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
+    }
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 //####################################################################################
 //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
 //   ███░░░░░███   ███░░░░░███░█░░░███░░░█░░███░░░░░███ ░░███░░░░░█░░███░░░░░█
@@ -84,7 +254,7 @@ impl From<u32> for Albedo {
 //####################################################################################
 impl<T> Octree<T>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + Hash + VoxelData,
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
@@ -92,7 +262,7 @@ where
 
 impl<T> Octree<T>
 where
-    T: Default + Clone + Copy + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + Hash + VoxelData,
 {
     /// Checks the content of the content of the node if it is empty at the given index,
     /// so the corresponding part of the occupied bits of the node can be set. The check targets
@@ -160,9 +330,15 @@ where
                 target_octant,
                 target_octant_for_child,
                 self.brick_dim as usize,
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
             ),
-            NodeContent::Leaf(bricks) => bricks[target_octant]
-                .is_empty_throughout(target_octant_for_child, self.brick_dim as usize),
+            NodeContent::Leaf(bricks) => bricks[target_octant].is_empty_throughout(
+                target_octant_for_child,
+                self.brick_dim as usize,
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
+            ),
         }
     }
 
@@ -183,10 +359,12 @@ where
             NodeContent::Nothing => true,
             NodeContent::Leaf(bricks) => match &bricks[target_octant] {
                 BrickData::Empty => true,
-                BrickData::Solid(voxel) => voxel.is_empty(),
+                BrickData::Solid(voxel) => {
+                    voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                }
                 BrickData::Parted(_brick) => {
                     if let Some(data) = bricks[target_octant].get_homogeneous_data() {
-                        data.is_empty()
+                        data.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
                     } else {
                         false
                     }
@@ -194,10 +372,12 @@ where
             },
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => true,
-                BrickData::Solid(voxel) => voxel.is_empty(),
+                BrickData::Solid(voxel) => {
+                    voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                }
                 BrickData::Parted(_brick) => {
                     if let Some(data) = brick.get_homogeneous_data() {
-                        data.is_empty()
+                        data.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
                     } else {
                         false
                     }
@@ -297,7 +477,11 @@ where
                             // As it is a higher resolution, than the current bitmap, it needs to be bruteforced
                             self.node_children[node_new_children[octant] as usize].content =
                                 NodeChildrenArray::OccupancyBitmap(
-                                    bricks[octant].calculate_occupied_bits(self.brick_dim as usize),
+                                    bricks[octant].calculate_occupied_bits(
+                                        self.brick_dim as usize,
+                                        &self.voxel_color_palette,
+                                        &self.voxel_data_palette,
+                                    ),
                                 );
                         }
                     };
@@ -373,9 +557,11 @@ where
                             }
 
                             // Push in the new child
-                            let child_occupied_bits = BrickData::<T>::calculate_brick_occupied_bits(
+                            let child_occupied_bits = BrickData::calculate_brick_occupied_bits(
                                 &new_brick_data,
                                 self.brick_dim as usize,
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
                             );
                             node_new_children[octant] = self
                                 .nodes

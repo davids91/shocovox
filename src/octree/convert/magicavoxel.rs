@@ -1,9 +1,11 @@
 use crate::{
-    octree::{Albedo, Octree, V3c, VoxelData},
+    octree::{Albedo, Octree, OctreeEntry, V3c, VoxelData},
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use dot_vox::{Color, DotVoxData, Model, SceneNode, Size, Voxel};
 use nalgebra::Matrix3;
+use std::{convert::From, hash::Hash};
 
 impl From<Albedo> for Color {
     fn from(color: Albedo) -> Self {
@@ -47,24 +49,6 @@ impl From<Size> for V3c<i32> {
     }
 }
 
-impl VoxelData for Color {
-    fn new(albedo: Albedo, _: u32) -> Self {
-        albedo.into()
-    }
-    fn albedo(&self) -> Albedo {
-        (*self).into()
-    }
-    fn user_data(&self) -> u32 {
-        0
-    }
-    fn clear(&mut self) {
-        self.r = 0;
-        self.g = 0;
-        self.b = 0;
-        self.a = 0;
-    }
-}
-
 /// Converts the given byte value to a rotation matrix
 /// Rotation matrix in voxel context enables 90 degr rotations only, so the contents of the matrix is restricted to 0,1,-1
 /// Takes into consideration, that the stored matrix is row-major, while Matrix3 storage is column major
@@ -97,7 +81,7 @@ fn parse_rotation_matrix(b: u8) -> Matrix3<i8> {
 
 impl<T> V3c<T>
 where
-    T: num_traits::Num + Clone + Copy + std::convert::From<i8>,
+    T: num_traits::Num + Clone + Copy + From<i8>,
 {
     fn clone_transformed(&self, matrix: &Matrix3<i8>) -> V3c<T> {
         V3c::new(
@@ -195,7 +179,7 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
 
 impl<T> Octree<T>
 where
-    T: Default + Eq + Clone + Copy + VoxelData,
+    T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let vox_tree = dot_vox::load(filename)?;
@@ -297,7 +281,7 @@ where
                 shocovox_octree
                     .insert(
                         &V3c::<u32>::from(current_position + voxel_position),
-                        T::new(vox_tree.palette[voxel.i as usize].into(), 0),
+                        OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
                     )
                     .ok()
                     .unwrap();

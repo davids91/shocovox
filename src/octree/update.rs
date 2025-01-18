@@ -2,8 +2,8 @@ use crate::object_pool::empty_marker;
 use crate::octree::types::{BrickData, NodeChildrenArray};
 use crate::octree::{
     detail::{bound_contains, child_octant_for},
-    types::{NodeChildren, NodeContent, OctreeError},
-    Octree, VoxelData,
+    types::{NodeChildren, NodeContent, OctreeEntry, OctreeError},
+    Octree, VoxelContent, VoxelData,
 };
 use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
@@ -14,10 +14,86 @@ use crate::spatial::{
     Cube,
 };
 
+use std::hash::Hash;
+
 impl<T> Octree<T>
 where
-    T: Default + PartialEq + Clone + Copy + PartialEq + VoxelData,
+    T: Default + Eq + Clone + Hash + VoxelData,
 {
+    /// Updates the stored palette by adding the new colors and data in the given entry
+    /// * Returns with the resulting PaletteIndexValues Entry
+    fn add_to_palette(&mut self, entry: &OctreeEntry<T>) -> VoxelContent {
+        match entry {
+            OctreeEntry::Empty => VoxelContent::empty(),
+            OctreeEntry::Visual(albedo) => {
+                let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
+                let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
+                    self.map_to_color_index_in_palette.entry(**albedo)
+                {
+                    e.insert(potential_new_albedo_index);
+                    self.voxel_color_palette.push(**albedo);
+                    potential_new_albedo_index
+                } else {
+                    self.map_to_color_index_in_palette[&albedo]
+                };
+                debug_assert!(
+                    albedo_index < u16::MAX as usize,
+                    "Albedo color palette overflow!"
+                );
+                VoxelContent::visual(albedo_index as u16)
+            }
+            OctreeEntry::Informative(data) => {
+                let potential_new_data_index = self.map_to_data_index_in_palette.keys().len();
+                let data_index = if let std::collections::hash_map::Entry::Vacant(e) =
+                    self.map_to_data_index_in_palette.entry((*data).clone())
+                {
+                    e.insert(potential_new_data_index);
+                    self.voxel_data_palette.push((*data).clone());
+                    potential_new_data_index
+                } else {
+                    self.map_to_data_index_in_palette[&data]
+                };
+                debug_assert!(
+                    data_index < u16::MAX as usize,
+                    "Data color palette overflow!"
+                );
+                VoxelContent::informal(data_index as u16)
+            }
+            OctreeEntry::Complex(albedo, data) => {
+                let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
+                let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
+                    self.map_to_color_index_in_palette.entry(**albedo)
+                {
+                    e.insert(potential_new_albedo_index);
+                    self.voxel_color_palette.push(**albedo);
+                    potential_new_albedo_index
+                } else {
+                    self.map_to_color_index_in_palette[&albedo]
+                };
+                let potential_new_data_index = self.map_to_data_index_in_palette.keys().len();
+                let data_index = if let std::collections::hash_map::Entry::Vacant(e) =
+                    self.map_to_data_index_in_palette.entry((*data).clone())
+                {
+                    e.insert(potential_new_data_index);
+                    self.voxel_data_palette.push((*data).clone());
+                    potential_new_data_index
+                } else {
+                    self.map_to_data_index_in_palette[&data]
+                };
+                debug_assert!(
+                    albedo_index < u16::MAX as usize,
+                    "Albedo color palette overflow!"
+                );
+                debug_assert!(
+                    data_index < u16::MAX as usize,
+                    "Data color palette overflow!"
+                );
+                VoxelContent::complex(albedo_index as u16, data_index as u16)
+            }
+        }
+        // find color in the palette is present, add if not
+    }
+
     /// Updates the given node to be a Leaf, and inserts the provided data for it.
     /// It will update a whole node, or maximum one brick. Brick update range is starting from the position,
     /// goes up to the extent of the brick. Does not set occupancy bitmap of the given node.
@@ -30,16 +106,17 @@ where
         target_child_octant: usize,
         position: &V3c<u32>,
         size: u32,
-        data: Option<T>,
+        target_content: VoxelContent,
     ) -> usize {
         // Update the leaf node, if it is possible as is, and if it's even needed to update
         // and decide if the node content needs to be divided into bricks, and the update function to be called again
         if size > 1 && size as f32 >= node_bounds.size {
             // The whole node to be covered in the given data
-            if let Some(data) = data {
-                *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(BrickData::Solid(data));
-            } else {
+            if target_content.is_empty() {
                 *self.nodes.get_mut(node_key) = NodeContent::Nothing;
+            } else {
+                *self.nodes.get_mut(node_key) =
+                    NodeContent::UniformLeaf(BrickData::Solid(target_content));
             }
             return node_bounds.size as usize;
         }
@@ -53,7 +130,7 @@ where
                     BrickData::Empty => {
                         // Create a new empty brick at the given octant
                         let mut new_brick = vec![
-                            T::default();
+                            VoxelContent::empty();
                             (self.brick_dim * self.brick_dim * self.brick_dim)
                                 as usize
                         ];
@@ -64,7 +141,7 @@ where
                             self.brick_dim,
                             *position,
                             size,
-                            data,
+                            &target_content,
                         );
                         bricks[target_child_octant] = BrickData::Parted(new_brick);
                         update_size
@@ -72,8 +149,12 @@ where
                     BrickData::Solid(voxel) => {
                         // In case the data doesn't match the current contents of the node, it needs to be subdivided
                         let update_size;
-                        if (data.is_none() && !voxel.is_empty())
-                            || (data.is_some() && data.unwrap() != *voxel)
+                        if (target_content.is_empty()
+                            && !voxel.points_to_empty(
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
+                            ))
+                            || (!target_content.is_empty() && *voxel != target_content)
                         {
                             // create new brick and update it at the given position
                             let mut new_brick = vec![
@@ -87,7 +168,7 @@ where
                                 self.brick_dim,
                                 *position,
                                 size,
-                                data,
+                                &target_content,
                             );
                             bricks[target_child_octant] = BrickData::Parted(new_brick);
                         } else {
@@ -104,7 +185,7 @@ where
                             self.brick_dim,
                             *position,
                             size,
-                            data,
+                            &target_content,
                         )
                     }
                 }
@@ -118,7 +199,7 @@ where
                             "Expected Node OccupancyBitmap(0) for empty leaf node instead of {:?}",
                             self.node_children[node_key].content
                         );
-                        if data.is_some() {
+                        if !target_content.is_empty() {
                             let mut new_leaf_content = [
                                 BrickData::Empty,
                                 BrickData::Empty,
@@ -132,7 +213,7 @@ where
 
                             // Add a brick to the target octant and update with the given data
                             let mut new_brick = vec![
-                                T::default();
+                                self.add_to_palette(&OctreeEntry::Empty);
                                 (self.brick_dim * self.brick_dim * self.brick_dim)
                                     as usize
                             ];
@@ -142,7 +223,7 @@ where
                                 self.brick_dim,
                                 *position,
                                 size,
-                                data,
+                                &target_content,
                             );
                             new_leaf_content[target_child_octant] = BrickData::Parted(new_brick);
                             *self.nodes.get_mut(node_key) = NodeContent::Leaf(new_leaf_content);
@@ -150,15 +231,15 @@ where
                     }
                     BrickData::Solid(voxel) => {
                         debug_assert!(
-                            !voxel.is_empty()
+                            !voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
                                 && (self.node_children[node_key].content
                                     == NodeChildrenArray::OccupancyBitmap(u64::MAX))
-                                || voxel.is_empty()
+                                || voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
                                     && (self.node_children[node_key].content
                                         == NodeChildrenArray::OccupancyBitmap(0)),
                             "Expected Node occupancy bitmap({:?}) to align for Solid Voxel Brick in Uniform Leaf, which is {}",
                             self.node_children[node_key].content,
-                            if voxel.is_empty() {
+                            if voxel.points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette) {
                                 "empty"
                             } else {
                                 "not empty"
@@ -166,15 +247,24 @@ where
                         );
 
                         // In case the data request doesn't match node content, it needs to be subdivided
-                        if data.is_none() && voxel.is_empty() {
+                        if target_content.is_empty()
+                            && voxel.points_to_empty(
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
+                            )
+                        {
                             // Data request is to clear, it aligns with the voxel content,
                             // it's enough to update the node content in this case
                             *self.nodes.get_mut(node_key) = NodeContent::Nothing;
                             return 0;
                         }
 
-                        if data.is_some_and(|d| d != *voxel)
-                            || (data.is_none() && !voxel.is_empty())
+                        if !target_content.is_empty() && *voxel != target_content
+                            || (target_content.is_empty()
+                                && !voxel.points_to_empty(
+                                    &self.voxel_color_palette,
+                                    &self.voxel_data_palette,
+                                ))
                         {
                             // Data request doesn't align with the voxel data
                             // create a voxel brick and try to update with the given data
@@ -191,7 +281,7 @@ where
                                 target_child_octant,
                                 position,
                                 size,
-                                data,
+                                target_content,
                             );
                         }
 
@@ -211,8 +301,8 @@ where
                             self.brick_dim as usize,
                         );
                         if 1 < self.brick_dim // BrickData can only stay parted if self.octree_dim is above 1
-                            && (data.is_none() && brick[mat_index].is_empty()
-                                || data.is_some_and(|d| d == brick[mat_index]))
+                            && (target_content.is_empty() && brick[mat_index].points_to_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                                || !target_content.is_empty() && brick[mat_index] == target_content)
                         {
                             // Target voxel matches with the data request, there's nothing to do!
                             return 0;
@@ -220,7 +310,7 @@ where
 
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
-                        let mut leaf_data: [BrickData<T>; 8] = [
+                        let mut leaf_data: [BrickData<VoxelContent>; 8] = [
                             BrickData::Empty,
                             BrickData::Empty,
                             BrickData::Empty,
@@ -279,7 +369,7 @@ where
                                     self.brick_dim,
                                     *position,
                                     size,
-                                    data,
+                                    &target_content,
                                 );
                             }
 
@@ -301,7 +391,7 @@ where
                     target_child_octant,
                     position,
                     size,
-                    data,
+                    target_content,
                 )
             }
             NodeContent::Nothing => {
@@ -322,7 +412,7 @@ where
                     target_child_octant,
                     position,
                     size,
-                    data,
+                    target_content,
                 )
             }
             NodeContent::Internal(_occupied_bits) => {
@@ -339,12 +429,12 @@ where
     /// * `data` - the data  to update the brick with. Erases data in case `None`
     /// * Returns with the size of the update
     fn update_brick(
-        brick: &mut [T],
+        brick: &mut [VoxelContent],
         brick_bounds: &Cube,
         brick_dim: u32,
         position: V3c<u32>,
         size: u32,
-        data: Option<T>,
+        data: &VoxelContent,
     ) -> usize {
         debug_assert!(
             bound_contains(brick_bounds, &(position.into())),
@@ -358,31 +448,66 @@ where
             for y in mat_index.y..(mat_index.y + size as usize).min(brick_dim as usize) {
                 for z in mat_index.z..(mat_index.z + size as usize).min(brick_dim as usize) {
                     let mat_index = flat_projection(x, y, z, brick_dim as usize);
-                    if let Some(data) = data {
-                        brick[mat_index] = data;
-                    } else {
-                        brick[mat_index].clear();
-                    }
+                    brick[mat_index] = *data;
                 }
             }
         }
         size as usize
     }
 
+    //####################################################################################
+    //  █████ ██████   █████  █████████  ██████████ ███████████   ███████████
+    // ░░███ ░░██████ ░░███  ███░░░░░███░░███░░░░░█░░███░░░░░███ ░█░░░███░░░█
+    //  ░███  ░███░███ ░███ ░███    ░░░  ░███  █ ░  ░███    ░███ ░   ░███  ░
+    //  ░███  ░███░░███░███ ░░█████████  ░██████    ░██████████      ░███
+    //  ░███  ░███ ░░██████  ░░░░░░░░███ ░███░░█    ░███░░░░░███     ░███
+    //  ░███  ░███  ░░█████  ███    ░███ ░███ ░   █ ░███    ░███     ░███
+    //  █████ █████  ░░█████░░█████████  ██████████ █████   █████    █████
+    // ░░░░░ ░░░░░    ░░░░░  ░░░░░░░░░  ░░░░░░░░░░ ░░░░░   ░░░░░    ░░░░░
+    //####################################################################################
     /// Inserts the given data into the octree into the intended voxel position
-    pub fn insert(&mut self, position: &V3c<u32>, data: T) -> Result<(), OctreeError> {
-        self.insert_at_lod(position, 1, data)
+    pub fn insert<'a, E: Into<OctreeEntry<'a, T>>>(
+        &mut self,
+        position: &V3c<u32>,
+        data: E,
+    ) -> Result<(), OctreeError>
+    where
+        T: 'a,
+    {
+        self.insert_internal(position, data.into())
     }
 
-    /// Sets the given data for the octree in the given lod(level of detail) based on insert_size
+    /// Inserts the given data for the octree in the given lod(level of detail) based on insert_size
+    /// It does not clear the components data doesn't contain
+    /// e.g. OctreeEntry::Visual(_) does not clear the user data of a voxel if set
     /// * `position` - the position to insert data into, must be contained within the tree
     /// * `insert_size` - The size of the part to update, counts as one of `self.octree_dim * (2^x)` when higher, than DIM
     /// * `data` - The data to insert - cloned if needed
-    pub fn insert_at_lod(
+    pub fn insert_at_lod<'a, E: Into<OctreeEntry<'a, T>>>(
         &mut self,
         position: &V3c<u32>,
         insert_size: u32,
-        data: T,
+        data: E,
+    ) -> Result<(), OctreeError>
+    where
+        T: 'a,
+    {
+        self.insert_at_lod_internal(position, insert_size, data.into())
+    }
+
+    pub fn insert_internal(
+        &mut self,
+        position: &V3c<u32>,
+        data: OctreeEntry<T>,
+    ) -> Result<(), OctreeError> {
+        self.insert_at_lod_internal(position, 1, data)
+    }
+
+    pub fn insert_at_lod_internal(
+        &mut self,
+        position: &V3c<u32>,
+        insert_size: u32,
+        data: OctreeEntry<T>,
     ) -> Result<(), OctreeError> {
         let root_bounds = Cube::root_bounds(self.octree_size as f32);
         let position = V3c::<f32>::from(*position);
@@ -395,13 +520,14 @@ where
         }
 
         // Nothing to do when data is empty
-        if data.is_empty() {
+        if data.is_none() {
             return Ok(());
         }
 
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
+        let target_content = self.add_to_palette(&data);
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
@@ -440,7 +566,7 @@ where
                             NodeContent::Internal(_) | NodeContent::Nothing => false,
                             NodeContent::UniformLeaf(brick) => match brick {
                                 BrickData::Empty => false,
-                                BrickData::Solid(voxel) => *voxel == data,
+                                BrickData::Solid(voxel) => *voxel == target_content,
                                 BrickData::Parted(brick) => {
                                     let index_in_matrix = matrix_index_for(
                                         &current_bounds,
@@ -453,13 +579,13 @@ where
                                         index_in_matrix.z,
                                         self.brick_dim as usize,
                                     );
-                                    brick[index_in_matrix] == data
+                                    brick[index_in_matrix] == target_content
                                 }
                             },
                             NodeContent::Leaf(bricks) => {
                                 match &bricks[target_child_octant as usize] {
                                     BrickData::Empty => false,
-                                    BrickData::Solid(voxel) => *voxel == data,
+                                    BrickData::Solid(voxel) => *voxel == target_content,
                                     BrickData::Parted(brick) => {
                                         let index_in_matrix = matrix_index_for(
                                             &target_bounds,
@@ -472,13 +598,13 @@ where
                                             index_in_matrix.z,
                                             self.brick_dim as usize,
                                         );
-                                        brick[index_in_matrix] == data
+                                        brick[index_in_matrix] == target_content
                                     }
                                 }
                             }
                         };
 
-                        if target_match || current_node.is_all(&data) {
+                        if target_match || current_node.is_all(&target_content) {
                             // the data stored equals the given data, at the requested position
                             // so no need to continue iteration as data already matches
                             break;
@@ -535,7 +661,7 @@ where
                     target_child_octant as usize,
                     &(position.into()),
                     insert_size,
-                    Some(data),
+                    target_content,
                 );
 
                 break;
@@ -599,6 +725,16 @@ where
         Ok(())
     }
 
+    //####################################################################################
+    //    █████████  █████       ██████████   █████████   ███████████
+    //   ███░░░░░███░░███       ░░███░░░░░█  ███░░░░░███ ░░███░░░░░███
+    //  ███     ░░░  ░███        ░███  █ ░  ░███    ░███  ░███    ░███
+    // ░███          ░███        ░██████    ░███████████  ░██████████
+    // ░███          ░███        ░███░░█    ░███░░░░░███  ░███░░░░░███
+    // ░░███     ███ ░███      █ ░███ ░   █ ░███    ░███  ░███    ░███
+    //  ░░█████████  ███████████ ██████████ █████   █████ █████   █████
+    //   ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░ ░░░░░   ░░░░░
+    //####################################################################################
     /// clears the voxel at the given position
     pub fn clear(&mut self, position: &V3c<u32>) -> Result<(), OctreeError> {
         self.clear_at_lod(position, 1)
@@ -694,7 +830,10 @@ where
                                 }
                             }
                         };
-                        if target_match || current_node.is_empty() {
+                        if target_match
+                            || current_node
+                                .is_empty(&self.voxel_color_palette, &self.voxel_data_palette)
+                        {
                             // the data stored equals the given data, at the requested position
                             // so no need to continue iteration as data already matches
                             break;
@@ -735,7 +874,7 @@ where
                     target_child_octant as usize,
                     position,
                     clear_size,
-                    None,
+                    VoxelContent::empty(),
                 );
 
                 break;
@@ -832,6 +971,16 @@ where
         Ok(())
     }
 
+    //####################################################################################
+    //   █████████  █████ ██████   ██████ ███████████  █████       █████ ███████████ █████ █████
+    //  ███░░░░░███░░███ ░░██████ ██████ ░░███░░░░░███░░███       ░░███ ░░███░░░░░░█░░███ ░░███
+    // ░███    ░░░  ░███  ░███░█████░███  ░███    ░███ ░███        ░███  ░███   █ ░  ░░███ ███
+    // ░░█████████  ░███  ░███░░███ ░███  ░██████████  ░███        ░███  ░███████     ░░█████
+    //  ░░░░░░░░███ ░███  ░███ ░░░  ░███  ░███░░░░░░   ░███        ░███  ░███░░░█      ░░███
+    //  ███    ░███ ░███  ░███      ░███  ░███         ░███      █ ░███  ░███  ░        ░███
+    // ░░█████████  █████ █████     █████ █████        ███████████ █████ █████          █████
+    //  ░░░░░░░░░  ░░░░░ ░░░░░     ░░░░░ ░░░░░        ░░░░░░░░░░░ ░░░░░ ░░░░░          ░░░░░
+    //####################################################################################
     /// Updates the given node recursively to collapse nodes with uniform children into a leaf
     /// Returns with true if the given node was simplified
     pub(crate) fn simplify(&mut self, node_key: usize) -> bool {
@@ -892,7 +1041,7 @@ where
                             }
                         }
                         BrickData::Parted(_brick) => {
-                            if brick.simplify() {
+                            if brick.simplify(&self.voxel_color_palette, &self.voxel_data_palette) {
                                 debug_assert!(
                                     self.node_children[node_key].content
                                         == NodeChildrenArray::OccupancyBitmap(u64::MAX)
@@ -915,9 +1064,10 @@ where
                         "Expected node child to be OccupancyBitmap(_) instead of {:?}",
                         self.node_children[node_key].content
                     );
-                    bricks[0].simplify();
+                    bricks[0].simplify(&self.voxel_color_palette, &self.voxel_data_palette);
                     for octant in 1..8 {
-                        bricks[octant].simplify();
+                        bricks[octant]
+                            .simplify(&self.voxel_color_palette, &self.voxel_data_palette);
                         if bricks[0] != bricks[octant] {
                             return false;
                         }
@@ -966,8 +1116,10 @@ where
                     for octant in 1..8 {
                         self.simplify(child_keys[octant] as usize);
                         if !self.nodes.key_is_valid(child_keys[octant] as usize)
-                            || (self.nodes.get(child_keys[0] as usize)
-                                != self.nodes.get(child_keys[octant] as usize))
+                            || !self
+                                .nodes
+                                .get(child_keys[0] as usize)
+                                .compare(&self.nodes.get(child_keys[octant] as usize))
                         {
                             return false;
                         }

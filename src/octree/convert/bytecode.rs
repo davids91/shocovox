@@ -1,19 +1,141 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::{
     types::{BrickData, NodeChildren, NodeChildrenArray, NodeContent},
-    Albedo, Octree, VoxelData,
+    Albedo, Octree, VoxelContent,
 };
 use bendy::{
-    decoding::{FromBencode, ListDecoder, Object},
-    encoding::{Encoder, Error as BencodeError, SingleItemEncoder, ToBencode},
+    decoding::{FromBencode, Object},
+    encoding::{Error as BencodeError, SingleItemEncoder, ToBencode},
 };
+use std::{collections::HashMap, hash::Hash};
 
-///####################################################################################
-/// BrickData
-///####################################################################################
+//####################################################################################
+//  █████   █████    ███████    █████ █████ ██████████ █████
+// ░░███   ░░███   ███░░░░░███ ░░███ ░░███ ░░███░░░░░█░░███
+//  ░███    ░███  ███     ░░███ ░░███ ███   ░███  █ ░  ░███
+//  ░███    ░███ ░███      ░███  ░░█████    ░██████    ░███
+//  ░░███   ███  ░███      ░███   ███░███   ░███░░█    ░███
+//   ░░░█████░   ░░███     ███   ███ ░░███  ░███ ░   █ ░███      █
+//     ░░███      ░░░███████░   █████ █████ ██████████ ███████████
+//      ░░░         ░░░░░░░    ░░░░░ ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░░
+//    █████████     ███████    ██████   █████ ███████████ ██████████ ██████   █████ ███████████
+//   ███░░░░░███  ███░░░░░███ ░░██████ ░░███ ░█░░░███░░░█░░███░░░░░█░░██████ ░░███ ░█░░░███░░░█
+//  ███     ░░░  ███     ░░███ ░███░███ ░███ ░   ░███  ░  ░███  █ ░  ░███░███ ░███ ░   ░███  ░
+// ░███         ░███      ░███ ░███░░███░███     ░███     ░██████    ░███░░███░███     ░███
+// ░███         ░███      ░███ ░███ ░░██████     ░███     ░███░░█    ░███ ░░██████     ░███
+// ░░███     ███░░███     ███  ░███  ░░█████     ░███     ░███ ░   █ ░███  ░░█████     ░███
+//  ░░█████████  ░░░███████░   █████  ░░█████    █████    ██████████ █████  ░░█████    █████
+//   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
+//####################################################################################
+impl ToBencode for VoxelContent {
+    const MAX_DEPTH: usize = 2;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit(&self.color_index)?;
+            e.emit(&self.data_index)
+        })
+    }
+}
+
+impl FromBencode for VoxelContent {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let color_index = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u16>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field red color component",
+                        "Something else",
+                    )),
+                }?;
+                let data_index = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u16>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field green color component",
+                        "Something else",
+                    )),
+                }?;
+                Ok(Self {
+                    color_index,
+                    data_index,
+                })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
+        }
+    }
+}
+
+impl ToBencode for Albedo {
+    const MAX_DEPTH: usize = 2;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit(&self.r)?;
+            e.emit(&self.g)?;
+            e.emit(&self.b)?;
+            e.emit(&self.a)
+        })
+    }
+}
+
+impl FromBencode for Albedo {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let r = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field red color component",
+                        "Something else",
+                    )),
+                }?;
+                let g = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field green color component",
+                        "Something else",
+                    )),
+                }?;
+                let b = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field blue color component",
+                        "Something else",
+                    )),
+                }?;
+                let a = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field alpha color component",
+                        "Something else",
+                    )),
+                }?;
+                Ok(Self { r, g, b, a })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
+        }
+    }
+}
+
+//####################################################################################
+//  ███████████  ███████████   █████   █████████  █████   ████
+// ░░███░░░░░███░░███░░░░░███ ░░███   ███░░░░░███░░███   ███░
+//  ░███    ░███ ░███    ░███  ░███  ███     ░░░  ░███  ███
+//  ░██████████  ░██████████   ░███ ░███          ░███████
+//  ░███░░░░░███ ░███░░░░░███  ░███ ░███          ░███░░███
+//  ░███    ░███ ░███    ░███  ░███ ░░███     ███ ░███ ░░███
+//  ███████████  █████   █████ █████ ░░█████████  █████ ░░████
+// ░░░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░   ░░░░░░░░░  ░░░░░   ░░░░
+//  ██████████     █████████   ███████████   █████████
+// ░░███░░░░███   ███░░░░░███ ░█░░░███░░░█  ███░░░░░███
+//  ░███   ░░███ ░███    ░███ ░   ░███  ░  ░███    ░███
+//  ░███    ░███ ░███████████     ░███     ░███████████
+//  ░███    ░███ ░███░░░░░███     ░███     ░███░░░░░███
+//  ░███    ███  ░███    ░███     ░███     ░███    ░███
+//  ██████████   █████   █████    █████    █████   █████
+//####################################################################################
 impl<T> ToBencode for BrickData<T>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: ToBencode + Default + Clone + PartialEq,
 {
     const MAX_DEPTH: usize = 3;
 
@@ -22,13 +144,13 @@ where
             BrickData::Empty => encoder.emit_str("#b"),
             BrickData::Solid(voxel) => encoder.emit_list(|e| {
                 e.emit_str("#b#")?;
-                Self::encode_single(voxel, e)
+                e.emit(voxel)
             }),
             BrickData::Parted(brick) => encoder.emit_list(|e| {
                 e.emit_str("##b#")?;
                 e.emit_int(brick.len())?;
                 for voxel in brick.iter() {
-                    Self::encode_single(voxel, e)?;
+                    e.emit(voxel)?;
                 }
                 e.emit_str("#")?;
                 Ok(())
@@ -39,7 +161,7 @@ where
 
 impl<T> FromBencode for BrickData<T>
 where
-    T: Eq + Default + Clone + Copy + PartialEq + VoxelData,
+    T: FromBencode + Clone + PartialEq,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -73,7 +195,9 @@ where
                     )),
                 }?;
                 if is_solid {
-                    Ok(BrickData::Solid(Self::decode_single(&mut list)?))
+                    Ok(BrickData::Solid(T::decode_bencode_object(
+                        list.next_object()?.unwrap(),
+                    )?))
                 } else {
                     let len = match list.next_object()?.unwrap() {
                         Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
@@ -83,9 +207,9 @@ where
                         )),
                     }?;
                     debug_assert!(0 < len, "Expected brick to be of non-zero length!");
-                    let mut brick_data = vec![];
+                    let mut brick_data = Vec::with_capacity(len as usize);
                     for _ in 0..len {
-                        brick_data.push(BrickData::<T>::decode_single(&mut list)?);
+                        brick_data.push(T::decode_bencode_object(list.next_object()?.unwrap())?);
                     }
                     Ok(BrickData::Parted(brick_data))
                 }
@@ -98,67 +222,28 @@ where
     }
 }
 
-impl<T> BrickData<T>
-where
-    T: Clone + VoxelData + PartialEq,
-{
-    fn encode_single(data: &T, encoder: &mut Encoder) -> Result<(), BencodeError> {
-        let color = data.albedo();
-        encoder.emit(color.r)?;
-        encoder.emit(color.g)?;
-        encoder.emit(color.b)?;
-        encoder.emit(color.a)?;
-        encoder.emit(data.user_data())
-    }
+//####################################################################################
+//  ██████   █████    ███████    ██████████   ██████████
+// ░░██████ ░░███   ███░░░░░███ ░░███░░░░███ ░░███░░░░░█
+//  ░███░███ ░███  ███     ░░███ ░███   ░░███ ░███  █ ░
+//  ░███░░███░███ ░███      ░███ ░███    ░███ ░██████
+//  ░███ ░░██████ ░███      ░███ ░███    ░███ ░███░░█
+//  ░███  ░░█████ ░░███     ███  ░███    ███  ░███ ░   █
+//  █████  ░░█████ ░░░███████░   ██████████   ██████████
+// ░░░░░    ░░░░░    ░░░░░░░    ░░░░░░░░░░   ░░░░░░░░░░
 
-    fn decode_single(list: &mut ListDecoder<'_, '_>) -> Result<T, bendy::decoding::Error> {
-        let r = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-            _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field red color component",
-                "Something else",
-            )),
-        }?;
-        let g = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-            _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field green color component",
-                "Something else",
-            )),
-        }?;
-        let b = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-            _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field blue color component",
-                "Something else",
-            )),
-        }?;
-        let a = match list.next_object()?.unwrap() {
-            Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
-            _ => Err(bendy::decoding::Error::unexpected_token(
-                "int field alpha color component",
-                "Something else",
-            )),
-        }?;
-        let user_data = match list.next_object()?.unwrap() {
-            Object::Integer(i) => i.parse::<u32>().ok().unwrap(),
-            _ => 0,
-        };
-        let albedo = Albedo::default()
-            .with_red(r)
-            .with_green(g)
-            .with_blue(b)
-            .with_alpha(a);
-        Ok(VoxelData::new(albedo, user_data))
-    }
-}
-
-///####################################################################################
-/// NodeContent
-///####################################################################################
+//    █████████     ███████    ██████   █████ ███████████ ██████████ ██████   █████ ███████████
+//   ███░░░░░███  ███░░░░░███ ░░██████ ░░███ ░█░░░███░░░█░░███░░░░░█░░██████ ░░███ ░█░░░███░░░█
+//  ███     ░░░  ███     ░░███ ░███░███ ░███ ░   ░███  ░  ░███  █ ░  ░███░███ ░███ ░   ░███  ░
+// ░███         ░███      ░███ ░███░░███░███     ░███     ░██████    ░███░░███░███     ░███
+// ░███         ░███      ░███ ░███ ░░██████     ░███     ░███░░█    ░███ ░░██████     ░███
+// ░░███     ███░░███     ███  ░███  ░░█████     ░███     ░███ ░   █ ░███  ░░█████     ░███
+//  ░░█████████  ░░░███████░   █████  ░░█████    █████    ██████████ █████  ░░█████    █████
+//   ░░░░░░░░░     ░░░░░░░    ░░░░░    ░░░░░    ░░░░░    ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░
+//####################################################################################
 impl<T> ToBencode for NodeContent<T>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: ToBencode + Default + Clone + PartialEq,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -189,7 +274,7 @@ where
 
 impl<T> FromBencode for NodeContent<T>
 where
-    T: Eq + Default + Clone + Copy + PartialEq + VoxelData,
+    T: FromBencode + Clone + PartialEq,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -281,9 +366,24 @@ where
     }
 }
 
-///####################################################################################
-/// NodeChildren
-///####################################################################################
+//####################################################################################
+//  ██████   █████    ███████    ██████████   ██████████
+// ░░██████ ░░███   ███░░░░░███ ░░███░░░░███ ░░███░░░░░█
+//  ░███░███ ░███  ███     ░░███ ░███   ░░███ ░███  █ ░
+//  ░███░░███░███ ░███      ░███ ░███    ░███ ░██████
+//  ░███ ░░██████ ░███      ░███ ░███    ░███ ░███░░█
+//  ░███  ░░█████ ░░███     ███  ░███    ███  ░███ ░   █
+//  █████  ░░█████ ░░░███████░   ██████████   ██████████
+// ░░░░░    ░░░░░    ░░░░░░░    ░░░░░░░░░░   ░░░░░░░░░░
+//    █████████  █████   █████ █████ █████       ██████████   ███████████   ██████████ ██████   █████
+//   ███░░░░░███░░███   ░░███ ░░███ ░░███       ░░███░░░░███ ░░███░░░░░███ ░░███░░░░░█░░██████ ░░███
+//  ███     ░░░  ░███    ░███  ░███  ░███        ░███   ░░███ ░███    ░███  ░███  █ ░  ░███░███ ░███
+// ░███          ░███████████  ░███  ░███        ░███    ░███ ░██████████   ░██████    ░███░░███░███
+// ░███          ░███░░░░░███  ░███  ░███        ░███    ░███ ░███░░░░░███  ░███░░█    ░███ ░░██████
+// ░░███     ███ ░███    ░███  ░███  ░███      █ ░███    ███  ░███    ░███  ░███ ░   █ ░███  ░░█████
+//  ░░█████████  █████   █████ █████ ███████████ ██████████   █████   █████ ██████████ █████  ░░█████
+//   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░   ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░    ░░░░░
+//####################################################################################
 // using generic arguments means the default key needs to be serialzied along with the data, which means a lot of wasted space..
 // so serialization for the current ObjectPool key is adequate; The engineering hour cost of implementing new serialization logic
 // every time the ObjectPool::Itemkey type changes is acepted.
@@ -361,12 +461,19 @@ impl FromBencode for NodeChildren<u32> {
     }
 }
 
-///####################################################################################
-/// Octree
-///####################################################################################
+//####################################################################################
+//     ███████      █████████  ███████████ ███████████   ██████████ ██████████
+//   ███░░░░░███   ███░░░░░███░█░░░███░░░█░░███░░░░░███ ░░███░░░░░█░░███░░░░░█
+//  ███     ░░███ ███     ░░░ ░   ░███  ░  ░███    ░███  ░███  █ ░  ░███  █ ░
+// ░███      ░███░███             ░███     ░██████████   ░██████    ░██████
+// ░███      ░███░███             ░███     ░███░░░░░███  ░███░░█    ░███░░█
+// ░░███     ███ ░░███     ███    ░███     ░███    ░███  ░███ ░   █ ░███ ░   █
+//  ░░░███████░   ░░█████████     █████    █████   █████ ██████████ ██████████
+//    ░░░░░░░      ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░
+//####################################################################################
 impl<T> ToBencode for Octree<T>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: ToBencode + Default + Clone + Eq + Hash,
 {
     const MAX_DEPTH: usize = 10;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -375,14 +482,16 @@ where
             e.emit_int(self.octree_size)?;
             e.emit_int(self.brick_dim)?;
             e.emit(&self.nodes)?;
-            e.emit(&self.node_children)
+            e.emit(&self.node_children)?;
+            e.emit(&self.voxel_color_palette)?;
+            e.emit(&self.voxel_data_palette)
         })
     }
 }
 
 impl<T> FromBencode for Octree<T>
 where
-    T: Eq + Default + Clone + Copy + VoxelData,
+    T: FromBencode + Default + Clone + Eq + Hash,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -416,16 +525,35 @@ where
                     )),
                 }?;
 
-                let nodes = ObjectPool::<NodeContent<T>>::decode_bencode_object(
+                let nodes = ObjectPool::<NodeContent<VoxelContent>>::decode_bencode_object(
                     list.next_object()?.unwrap(),
                 )?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
+
+                let voxel_color_palette =
+                    Vec::<Albedo>::decode_bencode_object(list.next_object()?.unwrap())?;
+                let mut map_to_color_index_in_palette = HashMap::new();
+                for i in 0..voxel_color_palette.len() {
+                    map_to_color_index_in_palette.insert(voxel_color_palette[i], i);
+                }
+
+                let voxel_data_palette =
+                    Vec::<T>::decode_bencode_object(list.next_object()?.unwrap())?;
+                let mut map_to_data_index_in_palette = HashMap::new();
+                for i in 0..voxel_data_palette.len() {
+                    map_to_data_index_in_palette.insert(voxel_data_palette[i].clone(), i);
+                }
+
                 Ok(Self {
                     auto_simplify,
                     octree_size,
                     brick_dim,
                     nodes,
                     node_children,
+                    voxel_color_palette,
+                    voxel_data_palette,
+                    map_to_color_index_in_palette,
+                    map_to_data_index_in_palette,
                 })
             }
             _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
