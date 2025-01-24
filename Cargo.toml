@@ -15,7 +15,7 @@ bevy_wgpu = ["raytracing", "dep:bevy", "dep:crossbeam", "dep:bimap", "dep:bevy_p
 [dependencies]
 num-traits = "0.2.19"
 serde = { version = "1.0.183", features = ["derive"], optional = true }
-bendy = { git = "https://github.com/davids91/bendy.git" , features = ["std", "serde"]}
+bendy = { git = "https://github.com/P3KI/bendy.git" , features = ["std", "serde"]}
 dot_vox = { version = "5.1.1", optional = true }
 nalgebra = { version = "0.33.0", optional = true }
 crossbeam = { version = "0.8.4", optional = true }

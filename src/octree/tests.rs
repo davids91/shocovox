@@ -185,23 +185,59 @@ mod octree_tests {
     }
 
     #[test]
+    fn test_insert_empty() {
+        let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
+        tree.auto_simplify = false;
+        tree.insert(&V3c::new(0, 0, 0), OctreeEntry::Empty).ok();
+        assert!(tree.get(&V3c::new(0, 0, 0)) == OctreeEntry::Empty);
+    }
+
+    #[test]
     fn test_complex_insert_and_get() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
 
         let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
         tree.auto_simplify = false;
-        tree.insert(&V3c::new(1, 0, 0), (&red, &0))
+        tree.insert(&V3c::new(1, 0, 0), (&red, &3))
             .expect("insert to work");
         tree.insert(&V3c::new(0, 1, 0), (&green, &1))
             .expect("insert to work");
         tree.insert(&V3c::new(0, 0, 1), voxel_data!(&2))
             .expect("insert to work");
 
-        assert!(tree.get(&V3c::new(1, 0, 0)) == (&red, &0).into());
-        assert!(tree.get(&V3c::new(0, 1, 0)) == (&green, &1).into());
-        assert!(tree.get(&V3c::new(0, 0, 1)) == voxel_data!(&2));
-        assert!(tree.get(&V3c::new(1, 1, 1)) == OctreeEntry::Empty);
+        let hit = tree.get(&V3c::new(1, 0, 0));
+        assert!(
+            hit == (&red, &3).into(),
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            (&red, &3)
+        );
+        let hit = tree.get(&V3c::new(0, 1, 0));
+        assert!(
+            hit == (&green, &1).into(),
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            (&green, &1)
+        );
+        let hit = tree.get(&V3c::new(0, 0, 1));
+        assert!(
+            hit == voxel_data!(&2),
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            &2
+        );
+        let hit = tree.get(&V3c::new(1, 1, 1));
+        assert!(
+            hit == OctreeEntry::Empty,
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            OctreeEntry::<u32>::Empty
+        );
 
         // Overwrite some data as well
         tree.insert(&V3c::new(1, 0, 0), voxel_data!(&3))
@@ -482,7 +518,62 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_uniform_solid_leaf_separated_by_clear__() {
+    fn test_update_color() {
+        let red: Albedo = 0xFF0000FF.into();
+        let green: Albedo = 0x00FF00FF.into();
+        let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
+        tree.auto_simplify = false;
+
+        tree.insert(&V3c::new(0, 0, 0), (&red, &3)).ok();
+        assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
+
+        tree.update(&V3c::new(0, 0, 0), &green).ok();
+        let hit = tree.get(&V3c::new(0, 0, 0));
+        assert!(
+            hit == (&green, &3).into(),
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            (&green, &3)
+        );
+    }
+
+    #[test]
+    fn test_update_data() {
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
+        tree.auto_simplify = false;
+
+        tree.insert(&V3c::new(0, 0, 0), (&red, &3)).ok();
+        assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
+
+        tree.update(&V3c::new(0, 0, 0), OctreeEntry::Informative(&4))
+            .ok();
+        let hit = tree.get(&V3c::new(0, 0, 0));
+        assert!(
+            hit == (&red, &4).into(),
+            "Hit mismatch at {:?}: {:?} <> {:?}",
+            (0, 0, 0),
+            hit,
+            (&red, &4)
+        );
+    }
+
+    #[test]
+    fn test_update_empty() {
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
+        tree.auto_simplify = false;
+
+        tree.insert(&V3c::new(0, 0, 0), (&red, &3)).ok();
+        assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
+
+        tree.update(&V3c::new(0, 0, 0), OctreeEntry::Empty).ok();
+        assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
+    }
+
+    #[test]
+    fn test_uniform_solid_leaf_separated_by_clear_where_dim_is_1() {
         let tree_size = 2;
         const MATRIX_DIMENSION: u32 = 1;
         let mut tree: Octree = Octree::new(tree_size, MATRIX_DIMENSION).ok().unwrap();
@@ -510,7 +601,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_uniform_solid_leaf_separated_by_insert__() {
+    fn test_uniform_solid_leaf_separated_by_insert_where_dim_is_1() {
         let tree_size = 2;
         const MATRIX_DIMENSION: u32 = 1;
         let mut tree: Octree = Octree::new(tree_size, MATRIX_DIMENSION).ok().unwrap();
@@ -992,7 +1083,7 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_simple_clear_with_aligned_dim() {
+    fn test_simple_clear_where_dim_is_1() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
@@ -1031,6 +1122,23 @@ mod octree_tests {
         assert!(item_at_001 == OctreeEntry::Empty);
         let item_at_111 = tree.get(&V3c::new(1, 1, 1));
         assert!(item_at_111 == OctreeEntry::Empty);
+    }
+
+    #[test]
+    fn test_clear_small_part_of_large_node_ocbits_resolution_test() {
+        const TREE_SIZE: u32 = 64;
+        const BRICK_DIMENSION: u32 = 8;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
+
+        tree.insert(&V3c::new(0, 1, 1), &red).ok().unwrap();
+        tree.insert(&V3c::new(1, 0, 0), &red).ok().unwrap();
+
+        assert_eq!(tree.get(&V3c::new(0, 1, 1)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(1, 0, 0)), (&red).into());
+
+        tree.clear(&V3c::new(1, 0, 0)).ok().unwrap();
+        assert_eq!(tree.get(&V3c::new(1, 0, 0)), voxel_data!());
     }
 
     #[test]
@@ -1142,7 +1250,59 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_clear_at_lod_with_aligned_dim() {
+    fn test_clear_edge_case() {
+        const TREE_SIZE: u32 = 64;
+        const BRICK_DIMENSION: u32 = 8;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
+
+        tree.update(&V3c::new(1, 0, 0), voxel_data!(&0xFACEFEED))
+            .ok()
+            .unwrap();
+
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 32, &red)
+            .ok()
+            .unwrap();
+
+        tree.clear_at_lod(&V3c::new(5, 5, 5), 8).ok().unwrap();
+        for x in 5..8 {
+            for y in 5..8 {
+                for z in 5..8 {
+                    assert_eq!(tree.get(&V3c::new(x, y, z)), voxel_data!());
+                }
+            }
+        }
+
+        for x in 0..5 {
+            for y in 0..5 {
+                for z in 0..5 {
+                    assert_eq!(
+                        tree.get(&V3c::new(x, y, z)),
+                        (&red).into(),
+                        "Hit mismatch at {:?}",
+                        (x, y, z)
+                    );
+                }
+            }
+        }
+
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 32).ok().unwrap();
+        for x in 0..32 {
+            for y in 0..32 {
+                for z in 0..32 {
+                    assert_eq!(
+                        tree.get(&V3c::new(x, y, z)),
+                        voxel_data!(),
+                        "Hit mismatch at {:?}",
+                        (x, y, z)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_clear_at_lod_where_dim_is_1() {
         let albedo: Albedo = 0xFFAAEEFF.into();
         let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
 

@@ -137,7 +137,7 @@ where
     /// Checks the content of the content of the node if it is empty at the given index,
     /// so the corresponding part of the occupied bits of the node can be set. The check targets
     /// the occupied bits, so it has a resolution of the occupied bit size.
-    pub(crate) fn should_bitmap_be_empty_at_index(
+    pub(crate) fn should_bitmap_be_empty_at_bitmap_index(
         &self,
         node_key: usize,
         index: &V3c<usize>,

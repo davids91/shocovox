@@ -21,7 +21,7 @@ use crate::{
         types::{BrickData, NodeChildren, NodeContent, OctreeError},
     },
     spatial::{
-        math::{flat_projection, matrix_index_for},
+        math::{flat_projection, matrix_index_for, BITMAP_DIMENSION},
         Cube,
     },
 };
@@ -60,6 +60,9 @@ impl<'a, T: VoxelData> From<(&'a Albedo, &'a T)> for OctreeEntry<'a, T> {
 macro_rules! voxel_data {
     ($data:expr) => {
         OctreeEntry::Informative($data)
+    };
+    () => {
+        OctreeEntry::Empty
     };
 }
 
@@ -149,9 +152,9 @@ where
         Ok(Self::from_bytes(bytes))
     }
 
-    /// creates an octree with overall size nodes_dimension * DIM
-    /// Generic parameter self.octree_dim must be one of `(2^x)` and smaller, than the size of the octree
-    /// * `size` - must be `self.octree_dim * (2^x)`, e.g: self.octree_dim == 2 --> size can be 2,4,8,16,32...
+    /// creates an octree with the given size
+    /// * `brick_dimension` - must be one of `(2^x)` and smaller than the size of the octree
+    /// * `size` - must be `brick_dimension * (2^x)`, e.g: brick_dimension == 2 --> size can be 2,4,8,16,32...
     pub fn new(size: u32, brick_dimension: u32) -> Result<Self, OctreeError> {
         if 0 == size || (brick_dimension as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidBrickDimension(brick_dimension));
@@ -199,7 +202,7 @@ where
             match self.nodes.get(current_node_key) {
                 NodeContent::Nothing => return OctreeEntry::Empty,
                 NodeContent::Leaf(bricks) => {
-                    // In case self.octree_dim == octree size, the root node can not be a leaf...
+                    // In case brick_dimension == octree size, the root node can not be a leaf...
                     debug_assert!(self.brick_dim < self.octree_size);
 
                     // Hash the position to the target child
@@ -298,8 +301,11 @@ where
                         #[cfg(debug_assertions)]
                         {
                             // calculate the corresponding position in the nodes occupied bits
-                            let pos_in_node =
-                                matrix_index_for(&current_bounds, &(position.into()), 4);
+                            let pos_in_node = matrix_index_for(
+                                &current_bounds,
+                                &(position.into()),
+                                BITMAP_DIMENSION as u32,
+                            );
 
                             let should_bit_be_empty = self.should_bitmap_be_empty_at_position(
                                 current_node_key,
@@ -309,19 +315,19 @@ where
 
                             let pos_in_bitmap = position_in_bitmap_64bits(&pos_in_node, 4);
                             let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
-                            // println!(
-                            //     "node_children: {:?}",
-                            //     self.node_children[current_node_key as usize]
-                            // );
 
                             // the corresponding bit should be set
                             debug_assert!(
-                                 (should_bit_be_empty && is_bit_empty)||(!should_bit_be_empty && !is_bit_empty),
-                                  "Node[{:?}] under {:?} \n has a child in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}",
+                                 should_bit_be_empty == is_bit_empty,
+                                  "Node[{:?}] under {:?} \n has a child(node[{:?}]) in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X};\nbecause: (should be empty: {} <> is empty: {})\n child node: {:?}; child node children: {:?};",
                                   current_node_key,
                                   current_bounds,
+                                  self.node_children[current_node_key][child_octant_at_position as u32],
                                   child_octant_at_position,
-                                  position, occupied_bits
+                                  position, occupied_bits,
+                                  should_bit_be_empty, is_bit_empty,
+                                  self.nodes.get(self.node_children[current_node_key][child_octant_at_position as u32] as usize),
+                                  self.node_children[self.node_children[current_node_key][child_octant_at_position as u32] as usize].content
                             );
                         }
                         current_node_key = child_at_position as usize;

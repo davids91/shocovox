@@ -5,6 +5,7 @@ use crate::{
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 use dot_vox::{Color, DotVoxData, Model, SceneNode, Size, Voxel};
 use nalgebra::Matrix3;
+use num_traits::{Num, Zero};
 use std::{convert::From, hash::Hash};
 
 impl From<Albedo> for Color {
@@ -81,7 +82,7 @@ fn parse_rotation_matrix(b: u8) -> Matrix3<i8> {
 
 impl<T> V3c<T>
 where
-    T: num_traits::Num + Clone + Copy + From<i8>,
+    T: Num + Clone + Copy + From<i8>,
 {
     fn clone_transformed(&self, matrix: &Matrix3<i8>) -> V3c<T> {
         V3c::new(
@@ -179,7 +180,7 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
 
 impl<T> Octree<T>
 where
-    T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+    T: FromBencode + ToBencode + Default + Eq + Clone + Hash + Zero + VoxelData,
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let vox_tree = dot_vox::load(filename)?;

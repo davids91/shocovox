@@ -63,11 +63,13 @@ pub(crate) fn matrix_index_for(
     // starts at bounds min_position and ends in min_position + (DIM,DIM,DIM)
     // --> In case of bigger Nodes the below ratio equation is relevant
     // mat[xyz]/DIM = (position - min_position) / bounds.size
-    let mat_index =
-        (V3c::<usize>::from((*position - bounds.min_position.into()) * matrix_dimension))
-            / bounds.size as usize;
+    let mat_index = V3c::<usize>::from(
+        ((V3c::<f32>::from(*position) - bounds.min_position) * matrix_dimension as f32
+            / bounds.size)
+            .floor(),
+    );
     // The difference between the actual position and min bounds
-    // must not be greater, than self.octree_dim at each dimension
+    // must not be greater, than brick_dimension at each dimension
     debug_assert!(mat_index.x < matrix_dimension as usize);
     debug_assert!(mat_index.y < matrix_dimension as usize);
     debug_assert!(mat_index.z < matrix_dimension as usize);
@@ -140,7 +142,10 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     }
 
     let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
-    let update_start = (*position * BITMAP_DIMENSION) / brick_dim;
+    let update_start: V3c<usize> = (V3c::<f32>::from(*position * BITMAP_DIMENSION)
+        / brick_dim as f32)
+        .ceil()
+        .into();
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
             for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {

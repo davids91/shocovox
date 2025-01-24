@@ -228,11 +228,9 @@ impl BrickData<PaletteIndexValues> {
                 NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
             }
             BrickData::Parted(brick) => {
-                if 1 == brick.len() {
-                    // brick dimension is 1
+                if 1 == brick_dim {
                     NodeContent::pix_points_to_empty(&brick[0], color_palette, data_palette)
-                } else if 8 == brick.len() {
-                    // brick dimension is 2
+                } else if 2 == brick_dim {
                     let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant]);
                     let octant_flat_offset =
                         flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
@@ -404,6 +402,22 @@ impl NodeContent<PaletteIndexValues> {
         ((index & 0xFFFF0000) >> 16) as usize
     }
 
+    pub(crate) fn pix_overwrite_color(
+        mut index: PaletteIndexValues,
+        delta: &PaletteIndexValues,
+    ) -> PaletteIndexValues {
+        index = (index & 0xFFFF0000) | (delta & 0x0000FFFF);
+        index
+    }
+
+    pub(crate) fn pix_overwrite_data(
+        mut index: PaletteIndexValues,
+        delta: &PaletteIndexValues,
+    ) -> PaletteIndexValues {
+        index = (index & 0x0000FFFF) | (delta & 0xFFFF0000);
+        index
+    }
+
     pub(crate) fn pix_color_is_some(index: &PaletteIndexValues) -> bool {
         Self::pix_color_index(index) < empty_marker::<u16>() as usize
     }
@@ -417,7 +431,7 @@ impl NodeContent<PaletteIndexValues> {
     }
 
     pub(crate) fn pix_data_is_some(index: &PaletteIndexValues) -> bool {
-        Self::pix_data_index(index) < empty_marker()
+        !Self::pix_data_is_none(index)
     }
 
     pub(crate) fn pix_points_to_empty<V: VoxelData>(

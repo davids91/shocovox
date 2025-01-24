@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
-#[derive(Default, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Default, Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
 #[cfg_attr(
     feature = "serialization",
     derive(serde::Serialize, serde::Deserialize)
@@ -86,6 +86,14 @@ impl V3c<f32> {
             x: self.x.floor(),
             y: self.y.floor(),
             z: self.z.floor(),
+        }
+    }
+
+    pub fn ceil(&self) -> V3c<f32> {
+        V3c {
+            x: self.x.ceil(),
+            y: self.y.ceil(),
+            z: self.z.ceil(),
         }
     }
 

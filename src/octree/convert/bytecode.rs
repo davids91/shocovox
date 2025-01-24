@@ -44,28 +44,28 @@ impl FromBencode for Albedo {
         match data {
             Object::List(mut list) => {
                 let r = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field red color component",
                         "Something else",
                     )),
                 }?;
                 let g = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field green color component",
                         "Something else",
                     )),
                 }?;
                 let b = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field blue color component",
                         "Something else",
                     )),
                 }?;
                 let a = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u8>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field alpha color component",
                         "Something else",
@@ -162,7 +162,7 @@ where
                     )?))
                 } else {
                     let len = match list.next_object()?.unwrap() {
-                        Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                        Object::Integer(i) => Ok(i.parse()?),
                         _ => Err(bendy::decoding::Error::unexpected_token(
                             "int field brick length",
                             "Something else",
@@ -274,7 +274,7 @@ where
                 if !is_leaf && !is_uniform {
                     let occupied_bits;
                     match list.next_object()?.unwrap() {
-                        Object::Integer(i) => occupied_bits = i.parse::<u64>().ok().unwrap(),
+                        Object::Integer(i) => occupied_bits = i.parse()?,
                         _ => {
                             return Err(bendy::decoding::Error::unexpected_token(
                                 "int field for Internal Node Occupancy bitmap",
@@ -472,7 +472,7 @@ where
                 }?;
 
                 let octree_size = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field octree_size",
                         "Something else",
@@ -480,7 +480,7 @@ where
                 }?;
 
                 let brick_dim = match list.next_object()?.unwrap() {
-                    Object::Integer(i) => Ok(i.parse::<u32>().ok().unwrap()),
+                    Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
                         "int field octree_size",
                         "Something else",
