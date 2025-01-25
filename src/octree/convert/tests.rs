@@ -137,7 +137,7 @@ fn test_node_children_serialization() {
 #[test]
 fn test_octree_file_io() {
     let red: Albedo = 0xFF0000FF.into();
-    let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
+    let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
 
     // This will set the area equal to 64 1-sized nodes
     tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &red)
@@ -174,7 +174,7 @@ fn test_octree_file_io() {
     }
 
     // number of hits should be the number of nodes set minus the number of nodes cleared
-    assert!(hits == (64 - 8));
+    assert_eq!(hits, (64 - 8));
 }
 
 #[test]

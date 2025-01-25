@@ -279,11 +279,11 @@ mod octree_tests {
     }
 
     #[test]
-    fn test_insert_at_lod_with_aligned_dim() {
+    fn test_insert_at_lod_where_dim_is_1() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
 
-        let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
         tree.auto_simplify = false;
 
         // This will set the area equal to 8 1-sized nodes
@@ -326,7 +326,7 @@ mod octree_tests {
                 }
             }
         }
-        assert!(hits == 64);
+        assert_eq!(hits, 64);
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod octree_tests {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
 
-        let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 2).ok().unwrap();
         tree.auto_simplify = false;
 
         // This will set the area equal to 8 1-sized nodes
@@ -377,7 +377,7 @@ mod octree_tests {
                 }
             }
         }
-        assert!(hits == 64);
+        assert_eq!(hits, 64);
     }
 
     #[test]
@@ -793,7 +793,6 @@ mod octree_tests {
 
     #[test]
     fn test_uniform_parted_brick_leaf_separated_by_insert() {
-        std::env::set_var("RUST_BACKTRACE", "1");
         let tree_size = 4;
         const MATRIX_DIMENSION: u32 = 2;
         let mut tree: Octree = Octree::new(tree_size, MATRIX_DIMENSION).ok().unwrap();
@@ -960,18 +959,18 @@ mod octree_tests {
         let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
 
         // This will set the area equal to 8 1-sized nodes
-        tree.insert_at_lod(&V3c::new(5, 0, 0), 2, &red)
+        tree.insert_at_lod(&V3c::new(4, 0, 0), 2, &red)
             .ok()
             .unwrap();
 
-        assert!(tree.get(&V3c::new(4, 0, 0)) == (&red).into());
-        assert!(tree.get(&V3c::new(4, 0, 1)) == (&red).into());
-        assert!(tree.get(&V3c::new(4, 1, 0)) == (&red).into());
-        assert!(tree.get(&V3c::new(4, 1, 1)) == (&red).into());
-        assert!(tree.get(&V3c::new(5, 0, 0)) == (&red).into());
-        assert!(tree.get(&V3c::new(5, 0, 1)) == (&red).into());
-        assert!(tree.get(&V3c::new(5, 1, 0)) == (&red).into());
-        assert!(tree.get(&V3c::new(5, 1, 1)) == (&red).into());
+        assert_eq!(tree.get(&V3c::new(4, 0, 0)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(4, 0, 1)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(4, 1, 0)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(4, 1, 1)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(5, 0, 0)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(5, 0, 1)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(5, 1, 0)), (&red).into());
+        assert_eq!(tree.get(&V3c::new(5, 1, 1)), (&red).into());
 
         // This will set the area equal to 64 1-sized nodes:
         // a size-4 node includes 2 levels,
@@ -987,13 +986,7 @@ mod octree_tests {
                 for z in 0..4 {
                     let hit = tree.get(&V3c::new(x, y, z));
                     if hit != OctreeEntry::Empty {
-                        assert!(
-                            hit == (&green).into(),
-                            "Hit mismatch at {:?}: {:?} <> {:?}",
-                            (x, y, z),
-                            hit,
-                            green,
-                        );
+                        assert_eq!(hit, (&green).into(), "Hit mismatch at {:?}", (x, y, z));
                         hits += 1;
                     }
                 }
@@ -1005,19 +998,13 @@ mod octree_tests {
                 for z in 0..2 {
                     let hit = tree.get(&V3c::new(x, y, z));
                     if hit != OctreeEntry::Empty {
-                        assert!(
-                            hit == (&red).into(),
-                            "Hit mismatch at {:?}: {:?} <> {:?}",
-                            (x, y, z),
-                            hit,
-                            red,
-                        );
+                        assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                         hits += 1;
                     }
                 }
             }
         }
-        assert!(hits == (64 + 8), "Expected 64 + 8 hits instead of {hits}");
+        assert_eq!(hits, (64 + 8));
     }
 
     #[test]
@@ -1223,7 +1210,7 @@ mod octree_tests {
     fn test_clear_to_nothing() {
         let albedo: Albedo = 0xFFAAEEFF.into();
         let entry = OctreeEntry::Visual(&albedo);
-        let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
+        let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
 
         // The below set of values should be simplified to a single node
         tree.insert(&V3c::new(0, 0, 0), entry).ok().unwrap();
@@ -1252,7 +1239,7 @@ mod octree_tests {
     #[test]
     fn test_clear_edge_case() {
         const TREE_SIZE: u32 = 64;
-        const BRICK_DIMENSION: u32 = 8;
+        const BRICK_DIMENSION: u32 = 16;
         let red: Albedo = 0xFF0000FF.into();
         let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 
@@ -1304,7 +1291,7 @@ mod octree_tests {
     #[test]
     fn test_clear_at_lod_where_dim_is_1() {
         let albedo: Albedo = 0xFFAAEEFF.into();
-        let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
 
         // This will set the area equal to 64 1-sized nodes
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &albedo)
@@ -1334,13 +1321,13 @@ mod octree_tests {
         }
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
-        assert!(hits == (64 - 8));
+        assert_eq!(hits, (64 - 8));
     }
 
     #[test]
     fn test_clear_at_lod_where_dim_is_2() {
         let albedo: Albedo = 0xFFAAEEFF.into();
-        let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 2).ok().unwrap();
 
         // This will set the area equal to 64 1-sized nodes
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &albedo)
@@ -1370,13 +1357,13 @@ mod octree_tests {
         }
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
-        assert!(hits == (64 - 8));
+        assert_eq!(hits, (64 - 8));
     }
 
     #[test]
     fn test_clear_at_lod_with_unaligned_position() {
         let albedo: Albedo = 0xFFAAEEFF.into();
-        let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
 
         // This will set the area equal to 64 1-sized nodes
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &albedo)
@@ -1431,7 +1418,7 @@ mod octree_tests {
     #[test]
     fn test_clear_at_lod_with_unaligned_position_where_dim_is_4() {
         let albedo: Albedo = 0xFFAAEEFF.into();
-        let mut tree: Octree = Octree::new(8, 4).ok().unwrap();
+        let mut tree: Octree = Octree::new(16, 4).ok().unwrap();
 
         tree.insert_at_lod(&V3c::new(0, 0, 0), 8, &albedo)
             .ok()
@@ -1489,7 +1476,7 @@ mod octree_tests {
     #[test]
     fn test_clear_at_lod_with_unaligned_size_where_dim_is_1() {
         let albedo: Albedo = 0xFFAAEEFF.into();
-        let mut tree: Octree = Octree::new(4, 1).ok().unwrap();
+        let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &albedo)
             .ok()
             .unwrap();
@@ -1516,7 +1503,7 @@ mod octree_tests {
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
         // in this case, clear size is taken as 2 as it is the smaller number where 2^x < clear_size < 2^(x+1)
-        assert!(hits == (64 - 8));
+        assert_eq!(hits, (64 - 8));
     }
 
     #[test]
@@ -1526,8 +1513,27 @@ mod octree_tests {
         tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &albedo)
             .ok()
             .unwrap();
-        tree.clear_at_lod(&V3c::new(0, 0, 0), 3).ok().unwrap();
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let hit = tree.get(&V3c::new(x, y, z));
+                    if hit != OctreeEntry::Empty {
+                        assert!(
+                            hit == (&albedo).into(),
+                            "Hit mismatch at {:?}: {:?} <> {:?}",
+                            (x, y, z),
+                            hit,
+                            albedo,
+                        );
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(hits, 64);
 
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 3).ok().unwrap();
         let mut hits = 0;
         for x in 0..8 {
             for y in 0..8 {
@@ -1548,7 +1554,115 @@ mod octree_tests {
         }
 
         // number of hits should be the number of nodes set minus the number of nodes cleared
-        assert!(hits == (64 - 27));
+        assert_eq!(hits, (64 - 27));
+    }
+
+    #[test]
+    fn test_clear_whole_nodes_where_dim_is_4() {
+        let albedo: Albedo = 0xFFAAEEFF.into();
+        let mut tree: Octree = Octree::new(16, 4).ok().unwrap();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 8, &albedo)
+            .ok()
+            .unwrap();
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let hit = tree.get(&V3c::new(x, y, z));
+                    if hit != OctreeEntry::Empty {
+                        assert!(
+                            hit == (&albedo).into(),
+                            "Hit mismatch at {:?}: {:?} <> {:?}",
+                            (x, y, z),
+                            hit,
+                            albedo,
+                        );
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(hits, 512);
+
+        tree.clear_at_lod(&V3c::new(0, 0, 0), 5).ok().unwrap();
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let hit = tree.get(&V3c::new(x, y, z));
+                    if hit != OctreeEntry::Empty {
+                        assert!(
+                            hit == (&albedo).into(),
+                            "Hit mismatch at {:?}: {:?} <> {:?}",
+                            (x, y, z),
+                            hit,
+                            albedo,
+                        );
+                        hits += 1;
+                    }
+                }
+            }
+        }
+
+        // number of hits should be the number of nodes set minus the number of nodes cleared
+        assert_eq!(hits, (512 - 64));
+    }
+
+    #[test]
+    fn test_overwrite_whole_nodes_where_dim_is_4() {
+        let red: Albedo = 0xFF0000FF.into();
+        let blue: Albedo = 0x0000FFFF.into();
+        let mut tree: Octree = Octree::new(16, 4).ok().unwrap();
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 8, &red)
+            .ok()
+            .unwrap();
+        let mut hits = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let hit = tree.get(&V3c::new(x, y, z));
+                    if hit != OctreeEntry::Empty {
+                        assert!(
+                            hit == (&red).into(),
+                            "Hit mismatch at {:?}: {:?} <> {:?}",
+                            (x, y, z),
+                            hit,
+                            red,
+                        );
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(hits, 512);
+
+        tree.insert_at_lod(&V3c::new(0, 0, 0), 5, &blue)
+            .ok()
+            .unwrap();
+        let mut hits_red = 0;
+        let mut hits_blue = 0;
+        for x in 0..8 {
+            for y in 0..8 {
+                for z in 0..8 {
+                    let hit = tree.get(&V3c::new(x, y, z));
+                    assert_ne!(hit, OctreeEntry::Empty);
+                    match hit {
+                        OctreeEntry::Visual(hit) => {
+                            if *hit == red {
+                                hits_red += 1
+                            }
+                            if *hit == blue {
+                                hits_blue += 1
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        assert_eq!(hits_red, (512 - 64));
+        assert_eq!(hits_blue, (64));
     }
 
     #[test]

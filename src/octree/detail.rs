@@ -1,7 +1,10 @@
 use crate::{
     object_pool::empty_marker,
     octree::{
-        types::{Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData},
+        types::{
+            Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, PaletteIndexValues,
+            VoxelData,
+        },
         BrickData, Cube, V3c,
     },
     spatial::{
@@ -24,7 +27,12 @@ pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
 
 /// Returns with the octant value(i.e. index) of the child for the given position
 pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
-    debug_assert!(bound_contains(bounds, position));
+    debug_assert!(
+        bound_contains(bounds, position),
+        "Position {:?}, out of {:?}",
+        position,
+        bounds
+    );
     hash_region(&(*position - bounds.min_position), bounds.size / 2.)
 }
 
@@ -212,17 +220,6 @@ where
         }
     }
 
-    /// Can't really be more obvious with the name
-    pub(crate) fn is_node_internal(&self, node_key: usize) -> bool {
-        if !self.nodes.key_is_valid(node_key) {
-            return false;
-        }
-        match self.nodes.get(node_key) {
-            NodeContent::Nothing | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => false,
-            NodeContent::Internal(_) => true,
-        }
-    }
-
     /// Returns with true if Node is empty at the given target octant. Uses occupied bits for Internal nodes.
     pub(crate) fn node_empty_at(&self, node_key: usize, target_octant: usize) -> bool {
         match self.nodes.get(node_key) {
@@ -320,8 +317,6 @@ where
                                         .max(node_new_children[octant] as usize + 1),
                                     NodeChildren::new(empty_marker()),
                                 );
-                                self.node_children[node_new_children[octant] as usize].content =
-                                    NodeChildrenArray::NoChildren;
                             }
                         }
                         BrickData::Solid(voxel) => {
@@ -469,21 +464,38 @@ where
         self.node_children[node_key].content = NodeChildrenArray::Children(node_new_children);
     }
 
+    /// Tries to create a brick from the given node if possible. WARNING: Data loss may occur
+    pub(crate) fn try_brick_from_node(&self, node_key: usize) -> BrickData<PaletteIndexValues> {
+        if !self.nodes.key_is_valid(node_key) {
+            return BrickData::Empty;
+        }
+        match self.nodes.get(node_key) {
+            NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::Leaf(_) => {
+                BrickData::Empty
+            }
+
+            NodeContent::UniformLeaf(brick) => brick.clone(),
+        }
+    }
+
     /// Erase all children of the node under the given key, and set its children to "No children"
-    pub(crate) fn deallocate_children_of(&mut self, node: u32) {
+    pub(crate) fn deallocate_children_of(&mut self, node: usize) {
+        if !self.nodes.key_is_valid(node) {
+            return;
+        }
         let mut to_deallocate = Vec::new();
-        if let Some(children) = self.node_children[node as usize].iter() {
+        if let Some(children) = self.node_children[node].iter() {
             for child in children {
                 if self.nodes.key_is_valid(*child as usize) {
                     to_deallocate.push(*child);
                 }
             }
             for child in to_deallocate {
-                self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
+                self.deallocate_children_of(child as usize); // Recursion should be fine as depth is not expceted to be more, than 32
                 self.nodes.free(child as usize);
             }
         }
-        self.node_children[node as usize].content = NodeChildrenArray::NoChildren;
+        self.node_children[node].content = NodeChildrenArray::NoChildren;
     }
 
     /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
@@ -497,7 +509,8 @@ where
                     NodeChildrenArray::Children(children) => {
                         debug_assert!(
                             false,
-                            "Expected Leaf[{node_key}] nodes to not have children. Children values: {:?}",
+                            "Expected node[{node_key}] to not have children.\nnode:{:?}\nchildren: {:?}",
+                            self.nodes.get(node_key),
                             children
                         );
                         0

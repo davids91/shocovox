@@ -103,9 +103,9 @@ fn main() {
         }
     }
 
-    // The maximum update size in a bulk operation depends on the brick dimension,
-    // the maximum it can overwrite is (2 * brick_dimension)
-    // If the target position is a multiple of (2 * brick_dimension)
+    // The update size in a bulk operation is always 2^x (1,2,4,8,16,32) etc..
+    // The maximum it can overwrite is half of the tree size,
+    // if the target position is aligned with the tree nodes! See below
     tree.clear_at_lod(&V3c::new(0, 0, 0), 32).ok().unwrap();
     for x in 0..32 {
         for y in 0..32 {
@@ -116,10 +116,11 @@ fn main() {
     }
 
     // It sounds a bit tricky at first, but totally managable:
-    // One leaf node (the biggest updatable area) is the size of 8 voxel bricks, packed together into a cube
-    // The leaf node at the lowest position starts at (0,0,0)
-    // The leaf node at the lowest position ends at (brick_dimension * 2, brick_dimension * 2, brick_dimension * 2)
-    // Each leaf starts at a multiple of (2 * brick_dimension), which is the smallest corner of a leaf node
+    // One node contains 8 other nodes, packed together into a cube
+    // Contained node might be a leaf node
+    // One leaf node is the size of 8 voxel bricks, also packed together into a cube
+    // Each node starts at a multiple of its size, which is the smallest corner of it
+    // e.g. a node of size 16 might start at (0,0,0), (16,0,0), (0,16,0), (0,0,32), ... etc..
 
     // You can also use your own data types to be stored in an octree
     // You have to implement some traits(e.g. VoxelData) for it though. See below!
