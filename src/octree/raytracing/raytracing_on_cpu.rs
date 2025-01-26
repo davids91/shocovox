@@ -1,7 +1,7 @@
 use crate::{
     octree::{
-        types::{NodeChildrenArray, NodeContent},
-        BrickData, Cube, Octree, V3c, VoxelData,
+        types::{NodeChildrenArray, NodeContent, PaletteIndexValues},
+        BrickData, Cube, Octree, OctreeEntry, V3c, VoxelData,
     },
     spatial::{
         lut::{
@@ -12,6 +12,7 @@ use crate::{
         raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
     },
 };
+use std::hash::Hash;
 
 #[derive(Debug)]
 pub(crate) struct NodeStack<T, const SIZE: usize = 4> {
@@ -80,7 +81,7 @@ where
 
 impl<T> Octree<T>
 where
-    T: Default + Eq + Clone + Copy + VoxelData,
+    T: Default + Eq + Clone + Copy + VoxelData + Hash,
 {
     pub(crate) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(
@@ -153,9 +154,10 @@ where
     /// Iterates on the given ray and brick to find a potential intersection in 3D space
     /// Returns with the 3d and flat index values pointing to the voxel hit inside the brick in case there's a hit
     fn traverse_brick(
+        &self,
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &[T],
+        brick: &[PaletteIndexValues],
         brick_bounds: &Cube,
         brick_dim: usize,
         ray_scale_factors: &V3c<f32>,
@@ -214,7 +216,11 @@ where
                 current_flat_index as usize
             );
 
-            if !brick[current_flat_index as usize].is_empty() {
+            if !NodeContent::pix_points_to_empty(
+                &brick[current_flat_index as usize],
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
+            ) {
                 return Some((
                     V3c::<usize>::from(current_index),
                     current_flat_index as usize,
@@ -251,10 +257,10 @@ where
         &self,
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &'a BrickData<T>,
+        brick: &'a BrickData<PaletteIndexValues>,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
-    ) -> Option<(&'a T, V3c<f32>, V3c<f32>)> {
+    ) -> Option<(OctreeEntry<T>, V3c<f32>, V3c<f32>)> {
         match brick {
             BrickData::Empty => {
                 // No need to do anything, iteration continues with "leaf miss"
@@ -263,13 +269,17 @@ where
             BrickData::Solid(voxel) => {
                 let impact_point = ray.point_at(*ray_current_distance);
                 Some((
-                    voxel,
+                    NodeContent::pix_get_ref(
+                        voxel,
+                        &self.voxel_color_palette,
+                        &self.voxel_data_palette,
+                    ),
                     impact_point,
                     cube_impact_normal(brick_bounds, &impact_point),
                 ))
             }
             BrickData::Parted(brick) => {
-                if let Some((leaf_brick_hit, leaf_brick_hit_flat_index)) = Self::traverse_brick(
+                if let Some((leaf_brick_hit, leaf_brick_hit_flat_index)) = self.traverse_brick(
                     ray,
                     ray_current_distance,
                     brick,
@@ -286,7 +296,11 @@ where
                     let impact_point = ray.point_at(*ray_current_distance);
                     let impact_normal = cube_impact_normal(&hit_bounds, &impact_point);
                     Some((
-                        &brick[leaf_brick_hit_flat_index],
+                        NodeContent::pix_get_ref(
+                            &brick[leaf_brick_hit_flat_index],
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        ),
                         impact_point,
                         impact_normal,
                     ))
@@ -299,7 +313,7 @@ where
 
     /// provides the collision point of the ray with the contained voxel field
     /// return reference of the data, collision point and normal at impact, should there be any
-    pub fn get_by_ray(&self, ray: &Ray) -> Option<(&T, V3c<f32>, V3c<f32>)> {
+    pub fn get_by_ray(&self, ray: &Ray) -> Option<(OctreeEntry<T>, V3c<f32>, V3c<f32>)> {
         // Pre-calculated optimization variables
         let ray_scale_factors = Self::get_dda_scale_factors(ray);
         let direction_lut_index = hash_direction(&ray.direction) as usize;
