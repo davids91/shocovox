@@ -10,7 +10,6 @@ use crate::spatial::{
     lut::OCTANT_OFFSET_REGION_LUT,
     math::{flat_projection, set_occupancy_in_bitmap_64bits},
 };
-
 use std::{
     fmt::{Debug, Error, Formatter},
     matches,

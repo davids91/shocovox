@@ -10,7 +10,7 @@ use crate::octree::{
     Albedo, Octree, VoxelData,
 };
 use crate::spatial::{
-    lut::OCTANT_OFFSET_REGION_LUT,
+    lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
     math::{
         flat_projection, hash_region, matrix_index_for, set_occupancy_in_bitmap_64bits,
         vector::V3c, BITMAP_DIMENSION,
@@ -802,39 +802,46 @@ where
                 *self.nodes.get_mut(node_key as usize) = NodeContent::Internal(0);
             }
 
-            // Update Node occupied bits in case of internal nodes
-            if let NodeContent::Internal(ref mut occupied_bits) =
-                self.nodes.get_mut(node_key as usize)
-            {
-                let corrected_update_size = ((actual_update_size as f32 * BITMAP_DIMENSION as f32)
-                    / node_bounds.size)
-                    .ceil() as usize;
-                set_occupancy_in_bitmap_64bits(
-                    &matrix_index_for(&node_bounds, &(position.into()), BITMAP_DIMENSION as u32),
-                    corrected_update_size,
-                    BITMAP_DIMENSION,
-                    true,
-                    occupied_bits,
-                );
+            // Update Node occupied bits
+            let mut new_occupied_bits = self.stored_occupied_bits(node_key as usize);
+            if node_bounds.size as usize == actual_update_size {
+                new_occupied_bits = u64::MAX;
             } else {
-                // Update the occupied bits of leaf nodes
-                let mut new_occupied_bits = self.stored_occupied_bits(node_key as usize);
-                if node_bounds.size as usize == actual_update_size {
-                    new_occupied_bits = u64::MAX;
-                } else {
-                    let corrected_update_size = ((node_bounds.size * actual_update_size as f32)
-                        / (self.brick_dim as f32 * 2.))
-                        .ceil() as usize;
-                    set_occupancy_in_bitmap_64bits(
-                        &matrix_index_for(&node_bounds, &(position.into()), self.brick_dim * 2),
-                        corrected_update_size,
-                        (self.brick_dim * 2) as usize,
-                        true,
-                        &mut new_occupied_bits,
-                    );
-                }
-                self.store_occupied_bits(node_key as usize, new_occupied_bits);
+                set_occupancy_in_bitmap_64bits(
+                    &((position - node_bounds.min_position).into()),
+                    actual_update_size,
+                    node_bounds.size as usize,
+                    true,
+                    &mut new_occupied_bits,
+                );
             }
+            #[cfg(debug_assertions)]
+            {
+                if let NodeContent::Leaf(bricks) = self.nodes.get(node_key as usize) {
+                    for octant in 0..8 {
+                        if let BrickData::Solid(_) | BrickData::Empty = bricks[octant] {
+                            // with solid and empty bricks, the relevant occupied bits should either be empty or full
+                            if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                self.node_children[node_key as usize].content
+                            {
+                                debug_assert!(
+                                        0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                            || BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                                == occupied_bits
+                                                    & BITMAP_MASK_FOR_OCTANT_LUT[octant],
+                                        "Brickdata at octant[{:?}] doesn't match occupied bricks: {:?} <> ({:#10X} & {:#10X})",
+                                        octant,
+                                        bricks[octant],
+                                        occupied_bits,
+                                        BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                    );
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.store_occupied_bits(node_key as usize, new_occupied_bits);
 
             if matches!(
                 self.nodes.get(node_key as usize),
@@ -1080,21 +1087,6 @@ where
                 previous_occupied_bits
             };
 
-            *self.nodes.get_mut(node_key as usize) = if 0 != new_occupied_bits
-                && matches!(
-                    self.node_children[node_key as usize].content,
-                    NodeChildrenArray::Children(_)
-                ) {
-                NodeContent::Internal(new_occupied_bits)
-            } else {
-                NodeContent::Nothing
-            };
-
-            if let NodeContent::Nothing = self.nodes.get(node_key as usize) {
-                debug_assert!(self.node_children[node_key as usize].is_empty());
-                removed_node = Some((node_key, node_bounds));
-            }
-
             if node_bounds.size as usize == actual_update_size {
                 new_occupied_bits = 0;
             } else {
@@ -1129,6 +1121,22 @@ where
                     }
                 }
             }
+
+            *self.nodes.get_mut(node_key as usize) = if 0 != new_occupied_bits
+                && matches!(
+                    self.node_children[node_key as usize].content,
+                    NodeChildrenArray::Children(_)
+                ) {
+                NodeContent::Internal(new_occupied_bits)
+            } else {
+                //Occupied bits depleted to 0x0
+                for child_octant in 0..8 {
+                    debug_assert!(self.node_empty_at(node_key as usize, child_octant as usize));
+                }
+                self.deallocate_children_of(node_key as usize);
+                removed_node = Some((node_key, node_bounds));
+                NodeContent::Nothing
+            };
             debug_assert!(
                 0 != new_occupied_bits
                     || matches!(self.nodes.get(node_key as usize), NodeContent::Nothing),
@@ -1245,6 +1253,31 @@ where
                     }
                 }
                 NodeContent::Leaf(bricks) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        for octant in 0..8 {
+                            if let BrickData::Solid(_) | BrickData::Empty = bricks[octant] {
+                                // with solid and empty bricks, the relevant occupied bits should either be empty or full
+                                if let NodeChildrenArray::OccupancyBitmap(occupied_bits) =
+                                    self.node_children[node_key].content
+                                {
+                                    // println!("node[{:?}] octant[{:?}]", node_key, octant);
+                                    debug_assert!(
+                                        0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                            || BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                                == occupied_bits
+                                                    & BITMAP_MASK_FOR_OCTANT_LUT[octant],
+                                        "Brickdata at octant[{:?}] doesn't match occupied bricks: {:?} <> ({:#10X} & {:#10X})",
+                                        octant,
+                                        bricks[octant],
+                                        occupied_bits,
+                                        BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     debug_assert!(
                         matches!(
                             self.node_children[node_key].content,

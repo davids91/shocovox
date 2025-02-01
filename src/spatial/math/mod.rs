@@ -144,7 +144,7 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
     let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
     let update_start: V3c<usize> = (V3c::<f32>::from(*position * BITMAP_DIMENSION)
         / brick_dim as f32)
-        .ceil()
+        .floor()
         .into();
     for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
         for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {

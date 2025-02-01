@@ -1129,6 +1129,38 @@ mod octree_tests {
     }
 
     #[test]
+    fn test_set_small_part_of_large_node_ocbits_resolution_test_underflow() {
+        const TREE_SIZE: u32 = 64;
+        const BRICK_DIMENSION: u32 = 8;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
+
+        tree.insert_at_lod(&V3c::new(33, 33, 33), 2, &red)
+            .ok()
+            .unwrap();
+
+        assert_eq!(tree.get(&V3c::new(33, 33, 33)), (&red).into());
+
+        tree.clear(&V3c::new(33, 33, 33)).ok().unwrap();
+        assert_eq!(tree.get(&V3c::new(33, 33, 33)), voxel_data!());
+    }
+
+    #[test]
+    fn test_set_small_part_of_large_node_ocbits_resolution_test_overflow() {
+        const TREE_SIZE: u32 = 64;
+        const BRICK_DIMENSION: u32 = 8;
+        let red: Albedo = 0xFF0000FF.into();
+        let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
+
+        tree.insert(&V3c::new(31, 31, 31), &red).ok().unwrap();
+
+        assert_eq!(tree.get(&V3c::new(31, 31, 31)), (&red).into());
+
+        tree.clear(&V3c::new(31, 31, 31)).ok().unwrap();
+        assert_eq!(tree.get(&V3c::new(31, 31, 31)), voxel_data!());
+    }
+
+    #[test]
     fn test_double_clear() {
         let albedo_black: Albedo = 0x000000FF.into();
         let albedo_white: Albedo = 0xFFFFFFFF.into();

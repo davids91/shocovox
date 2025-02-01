@@ -8,7 +8,7 @@ use crate::{
         BrickData, Cube, V3c,
     },
     spatial::{
-        lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
+        lut::OCTANT_OFFSET_REGION_LUT,
         math::{flat_projection, hash_region, BITMAP_DIMENSION},
     },
 };
@@ -262,7 +262,7 @@ where
                     }
                 }
             },
-            NodeContent::Internal(occupied_bits) => {
+            NodeContent::Internal(_occupied_bits) => {
                 debug_assert!(
                     !matches!(
                         self.node_children[node_key].content,
@@ -271,8 +271,15 @@ where
                     "Expected for internal node to not have OccupancyBitmap as assigned child: {:?}",
                     self.node_children[node_key].content,
                 );
-
-                0 == (BITMAP_MASK_FOR_OCTANT_LUT[target_octant] & occupied_bits)
+                for child_octant in 0..8 {
+                    let child_key = self.node_children[node_key][target_octant as u32] as usize;
+                    if self.nodes.key_is_valid(child_key)
+                        && !self.node_empty_at(child_key, child_octant)
+                    {
+                        return false;
+                    }
+                }
+                true
             }
         }
     }
