@@ -202,9 +202,9 @@ fn handle_zoom(
                         x,
                         actual_y_in_image,
                         Rgb([
-                            (data.r as f32 * diffuse_light_strength) as u8,
-                            (data.g as f32 * diffuse_light_strength) as u8,
-                            (data.b as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().r as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().g as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().b as f32 * diffuse_light_strength) as u8,
                         ]),
                     );
                 } else {

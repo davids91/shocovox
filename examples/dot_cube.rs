@@ -81,7 +81,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     // println!("Inserting at: {:?}", (x, y, z));
                     tree.insert(
                         &V3c::new(x, y, z),
-                        Albedo::default()
+                        &Albedo::default()
                             .with_red(r as u8)
                             .with_green(g as u8)
                             .with_blue(b as u8)
@@ -99,7 +99,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        45,
+        100,
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),
@@ -122,16 +122,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         },
     ));
     commands.spawn(Camera2d::default());
-    commands.spawn((
-        Camera {
-            is_active: false,
-            ..default()
-        },
-        PanOrbitCamera {
-            focus: Vec3::new(0., TREE_SIZE as f32 * 1.2, 0.),
-            ..default()
-        },
-    ));
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -234,9 +224,9 @@ fn handle_zoom(
                         x,
                         actual_y_in_image,
                         Rgb([
-                            (data.r as f32 * diffuse_light_strength) as u8,
-                            (data.g as f32 * diffuse_light_strength) as u8,
-                            (data.b as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().r as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().g as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().b as f32 * diffuse_light_strength) as u8,
                         ]),
                     );
                 } else {

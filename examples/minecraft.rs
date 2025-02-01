@@ -69,7 +69,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        100,
+        30,
         Viewport {
             origin: V3c {
                 x: 0.,
@@ -100,16 +100,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         },
     ));
     commands.spawn(Camera2d::default());
-    commands.spawn((
-        Camera {
-            is_active: false,
-            ..default()
-        },
-        PanOrbitCamera {
-            focus: Vec3::new(0., 300., 0.),
-            ..default()
-        },
-    ));
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -212,9 +202,9 @@ fn handle_zoom(
                         x,
                         actual_y_in_image,
                         Rgb([
-                            (data.r as f32 * diffuse_light_strength) as u8,
-                            (data.g as f32 * diffuse_light_strength) as u8,
-                            (data.b as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().r as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().g as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().b as f32 * diffuse_light_strength) as u8,
                         ]),
                     );
                 } else {

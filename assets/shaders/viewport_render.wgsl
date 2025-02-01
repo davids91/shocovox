@@ -396,7 +396,6 @@ fn traverse_brick(
 struct OctreeRayIntersection {
     hit: bool,
     albedo : vec4<f32>,
-    content: u32,
     collision_point: vec3f,
     impact_normal: vec3f,
 }
@@ -417,8 +416,7 @@ fn probe_brick(
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
                 true,
-                color_palette[brick_index], // Albedo is in color_palette, data is not a brick index in this case
-                0, // user data lost for now as color palette doesn't have it.. sorry
+                color_palette[brick_index & 0x0000FFFF], // Albedo is in color_palette, it's not a brick index in this case
                 point_in_ray_at_distance(ray, *ray_current_distance),
                 cube_impact_normal(*brick_bounds, point_in_ray_at_distance(ray, *ray_current_distance))
             );
@@ -431,8 +429,7 @@ fn probe_brick(
             if leaf_brick_hit.hit == true {
                 return OctreeRayIntersection(
                     true,
-                    color_palette[voxels[leaf_brick_hit.flat_index].albedo_index],
-                    voxels[leaf_brick_hit.flat_index].content,
+                    color_palette[voxels[leaf_brick_hit.flat_index] & 0x0000FFFF],
                     point_in_ray_at_distance(ray, *ray_current_distance),
                     cube_impact_normal(
                         Cube(
@@ -449,7 +446,7 @@ fn probe_brick(
         }
     }
 
-    return OctreeRayIntersection(false, vec4f(0.), 0, vec3f(0.), vec3f(0., 0., 1.));
+    return OctreeRayIntersection(false, vec4f(0.), vec3f(0.), vec3f(0., 0., 1.));
 }
 
 // Unique to this implementation, not adapted from rust code
@@ -878,21 +875,20 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         // Push ray current distance a little bit forward to avoid iterating the same paths all over again
         ray_current_distance += FLOAT_ERROR_TOLERANCE;
     } // while (ray inside root bounds)
-    return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), 0, vec3f(0.), vec3f(0., 0., 1.));
+    return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), vec3f(0.), vec3f(0., 0., 1.));
 }
 
-struct Voxelement {
-    albedo_index: u32,
-    content: u32,
-}
+alias Voxelement = u32;
 
 fn is_empty(e: Voxelement) -> bool {
     return (
-        0. == color_palette[e.albedo_index].r
-        && 0. == color_palette[e.albedo_index].g
-        && 0. == color_palette[e.albedo_index].b
-        && 0. == color_palette[e.albedo_index].a
-        && 0 == e.content
+        (0x0000FFFF == (0x0000FFFF & e))
+        ||(
+            0. == color_palette[e & 0x0000FFFF].r
+            && 0. == color_palette[e & 0x0000FFFF].g
+            && 0. == color_palette[e & 0x0000FFFF].b
+            && 0. == color_palette[e & 0x0000FFFF].a
+        )
     );
 }
 

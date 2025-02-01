@@ -1,4 +1,4 @@
-use crate::octree::{Albedo, Octree, V3cf32, VoxelData};
+use crate::octree::{types::PaletteIndexValues, Octree, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -17,14 +17,9 @@ use bevy::{
 use bimap::BiHashMap;
 use std::{
     collections::HashMap,
+    hash::Hash,
     sync::{Arc, Mutex},
 };
-
-#[derive(Clone, ShaderType)]
-pub(crate) struct Voxelement {
-    pub(crate) albedo_index: u32, // in color palette
-    pub(crate) content: u32,
-}
 
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
@@ -53,7 +48,7 @@ where
 #[type_path = "shocovox::gpu::OctreeGPUHost"]
 pub struct OctreeGPUHost<T>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + Hash + 'static,
 {
     pub tree: Octree<T>,
 }
@@ -182,7 +177,7 @@ pub struct OctreeRenderData {
 
     /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
     /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
-    pub(crate) voxels: Vec<Voxelement>,
+    pub(crate) voxels: Vec<PaletteIndexValues>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )
@@ -212,13 +207,12 @@ pub(crate) struct SvxRenderNode {
 
 #[cfg(test)]
 mod types_wgpu_byte_compatibility_tests {
-    use super::{OctreeMetaData, Viewport, Voxelement};
+    use super::{OctreeMetaData, Viewport};
     use bevy::render::render_resource::encase::ShaderType;
 
     #[test]
     fn test_wgpu_compatibility() {
         Viewport::assert_uniform_compat();
         OctreeMetaData::assert_uniform_compat();
-        Voxelement::assert_uniform_compat();
     }
 }

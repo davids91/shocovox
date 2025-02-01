@@ -1,5 +1,6 @@
-use crate::octree::raytracing::bevy::types::{
-    OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport, Voxelement,
+use crate::octree::{
+    raytracing::bevy::types::{OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport},
+    types::PaletteIndexValues,
 };
 use bevy::{
     asset::AssetServer,
@@ -113,7 +114,7 @@ impl FromWorld for SvxRenderPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(<Vec<Voxelement> as ShaderType>::min_size()),
+                        min_binding_size: Some(<Vec<PaletteIndexValues> as ShaderType>::min_size()),
                     },
                     count: None,
                 },
