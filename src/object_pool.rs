@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 /// One item in a datapool with a used flag
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Clone)]
-struct ReusableItem<T: Clone> {
+struct ReusableItem<T> {
     reserved: bool,
     item: T,
 }
 
-pub fn empty_marker() -> u32 {
-    u32::MAX
+pub fn empty_marker<T: num_traits::Bounded>() -> T {
+    T::max_value()
 }
 
 use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
@@ -82,15 +82,14 @@ where
 /// It keeps track of different buffers for different levels in the graph, allocating more space initially to lower levels
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) struct ObjectPool<T: Clone> {
+pub(crate) struct ObjectPool<T> {
     buffer: Vec<ReusableItem<T>>, // Pool of objects to be reused
     first_available: usize,       // the index of the first available item
 }
 
-impl<
-        #[cfg(not(feature = "serialization"))] T: Default + Clone + ToBencode,
-        #[cfg(feature = "serialization")] T: Default + Clone + ToBencode,
-    > ToBencode for ObjectPool<T>
+impl<T> ToBencode for ObjectPool<T>
+where
+    T: ToBencode + Default + Clone,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -103,7 +102,7 @@ impl<
 
 impl<T> FromBencode for ObjectPool<T>
 where
-    T: Default + Clone + FromBencode,
+    T: FromBencode + Default + Clone,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {

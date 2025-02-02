@@ -1,14 +1,19 @@
-use crate::spatial::{
-    lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
-    math::{flat_projection, hash_region, BITMAP_DIMENSION},
-};
 use crate::{
     object_pool::empty_marker,
     octree::{
-        types::{Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, VoxelData},
+        types::{
+            Albedo, NodeChildren, NodeChildrenArray, NodeContent, Octree, PaletteIndexValues,
+            VoxelData,
+        },
         BrickData, Cube, V3c,
     },
+    spatial::{
+        lut::OCTANT_OFFSET_REGION_LUT,
+        math::{flat_projection, hash_region, BITMAP_DIMENSION},
+    },
 };
+use num_traits::Zero;
+use std::{hash::Hash, ops::Add};
 
 /// Returns whether the given bound contains the given position.
 pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
@@ -22,8 +27,19 @@ pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
 
 /// Returns with the octant value(i.e. index) of the child for the given position
 pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
-    debug_assert!(bound_contains(bounds, position));
+    debug_assert!(
+        bound_contains(bounds, position),
+        "Position {:?}, out of {:?}",
+        position,
+        bounds
+    );
     hash_region(&(*position - bounds.min_position), bounds.size / 2.)
+}
+
+impl<T: Zero + PartialEq> VoxelData for T {
+    fn is_empty(&self) -> bool {
+        *self == T::zero()
+    }
 }
 
 //####################################################################################
@@ -36,24 +52,30 @@ pub(crate) fn child_octant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
 //  █████   █████ ███████████ ███████████  ██████████ ██████████   ░░░███████░
 // ░░░░░   ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░░  ░░░░░░░░░░ ░░░░░░░░░░      ░░░░░░░
 //####################################################################################
-impl VoxelData for Albedo {
-    fn new(color: Albedo, _user_data: u32) -> Self {
-        color
+
+impl Albedo {
+    pub fn with_red(mut self, r: u8) -> Self {
+        self.r = r;
+        self
     }
 
-    fn albedo(&self) -> Albedo {
-        *self
+    pub fn with_green(mut self, g: u8) -> Self {
+        self.g = g;
+        self
     }
 
-    fn user_data(&self) -> u32 {
-        0u32
+    pub fn with_blue(mut self, b: u8) -> Self {
+        self.b = b;
+        self
     }
 
-    fn clear(&mut self) {
-        self.r = 0;
-        self.g = 0;
-        self.b = 0;
-        self.a = 0;
+    pub fn with_alpha(mut self, a: u8) -> Self {
+        self.a = a;
+        self
+    }
+
+    pub fn is_transparent(&self) -> bool {
+        self.a == 0
     }
 }
 
@@ -72,6 +94,32 @@ impl From<u32> for Albedo {
     }
 }
 
+impl Add for Albedo {
+    type Output = Albedo;
+    fn add(self, other: Albedo) -> Albedo {
+        Albedo {
+            r: self.r + other.r,
+            g: self.g + other.g,
+            b: self.b + other.b,
+            a: self.a + other.a,
+        }
+    }
+}
+
+impl Zero for Albedo {
+    fn zero() -> Self {
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }
+    }
+    fn is_zero(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 //####################################################################################
 //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
 //   ███░░░░░███   ███░░░░░███░█░░░███░░░█░░███░░░░░███ ░░███░░░░░█░░███░░░░░█
@@ -84,7 +132,7 @@ impl From<u32> for Albedo {
 //####################################################################################
 impl<T> Octree<T>
 where
-    T: Default + Clone + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + Hash + VoxelData,
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
@@ -92,12 +140,12 @@ where
 
 impl<T> Octree<T>
 where
-    T: Default + Clone + Copy + PartialEq + VoxelData,
+    T: Default + Clone + PartialEq + Hash + VoxelData,
 {
     /// Checks the content of the content of the node if it is empty at the given index,
     /// so the corresponding part of the occupied bits of the node can be set. The check targets
     /// the occupied bits, so it has a resolution of the occupied bit size.
-    pub(crate) fn should_bitmap_be_empty_at_index(
+    pub(crate) fn should_bitmap_be_empty_at_bitmap_index(
         &self,
         node_key: usize,
         index: &V3c<usize>,
@@ -160,20 +208,15 @@ where
                 target_octant,
                 target_octant_for_child,
                 self.brick_dim as usize,
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
             ),
-            NodeContent::Leaf(bricks) => bricks[target_octant]
-                .is_empty_throughout(target_octant_for_child, self.brick_dim as usize),
-        }
-    }
-
-    /// Can't really be more obvious with the name
-    pub(crate) fn is_node_internal(&self, node_key: usize) -> bool {
-        if !self.nodes.key_is_valid(node_key) {
-            return false;
-        }
-        match self.nodes.get(node_key) {
-            NodeContent::Nothing | NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => false,
-            NodeContent::Internal(_) => true,
+            NodeContent::Leaf(bricks) => bricks[target_octant].is_empty_throughout(
+                target_octant_for_child,
+                self.brick_dim as usize,
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
+            ),
         }
     }
 
@@ -183,10 +226,18 @@ where
             NodeContent::Nothing => true,
             NodeContent::Leaf(bricks) => match &bricks[target_octant] {
                 BrickData::Empty => true,
-                BrickData::Solid(voxel) => voxel.is_empty(),
+                BrickData::Solid(voxel) => NodeContent::pix_points_to_empty(
+                    voxel,
+                    &self.voxel_color_palette,
+                    &self.voxel_data_palette,
+                ),
                 BrickData::Parted(_brick) => {
                     if let Some(data) = bricks[target_octant].get_homogeneous_data() {
-                        data.is_empty()
+                        NodeContent::pix_points_to_empty(
+                            data,
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        )
                     } else {
                         false
                     }
@@ -194,16 +245,24 @@ where
             },
             NodeContent::UniformLeaf(brick) => match brick {
                 BrickData::Empty => true,
-                BrickData::Solid(voxel) => voxel.is_empty(),
+                BrickData::Solid(voxel) => NodeContent::pix_points_to_empty(
+                    voxel,
+                    &self.voxel_color_palette,
+                    &self.voxel_data_palette,
+                ),
                 BrickData::Parted(_brick) => {
                     if let Some(data) = brick.get_homogeneous_data() {
-                        data.is_empty()
+                        NodeContent::pix_points_to_empty(
+                            data,
+                            &self.voxel_color_palette,
+                            &self.voxel_data_palette,
+                        )
                     } else {
                         false
                     }
                 }
             },
-            NodeContent::Internal(occupied_bits) => {
+            NodeContent::Internal(_occupied_bits) => {
                 debug_assert!(
                     !matches!(
                         self.node_children[node_key].content,
@@ -212,8 +271,15 @@ where
                     "Expected for internal node to not have OccupancyBitmap as assigned child: {:?}",
                     self.node_children[node_key].content,
                 );
-
-                0 == (BITMAP_MASK_FOR_OCTANT_LUT[target_octant] & occupied_bits)
+                for child_octant in 0..8 {
+                    let child_key = self.node_children[node_key][target_octant as u32] as usize;
+                    if self.nodes.key_is_valid(child_key)
+                        && !self.node_empty_at(child_key, child_octant)
+                    {
+                        return false;
+                    }
+                }
+                true
             }
         }
     }
@@ -258,8 +324,6 @@ where
                                         .max(node_new_children[octant] as usize + 1),
                                     NodeChildren::new(empty_marker()),
                                 );
-                                self.node_children[node_new_children[octant] as usize].content =
-                                    NodeChildrenArray::NoChildren;
                             }
                         }
                         BrickData::Solid(voxel) => {
@@ -297,7 +361,11 @@ where
                             // As it is a higher resolution, than the current bitmap, it needs to be bruteforced
                             self.node_children[node_new_children[octant] as usize].content =
                                 NodeChildrenArray::OccupancyBitmap(
-                                    bricks[octant].calculate_occupied_bits(self.brick_dim as usize),
+                                    bricks[octant].calculate_occupied_bits(
+                                        self.brick_dim as usize,
+                                        &self.voxel_color_palette,
+                                        &self.voxel_data_palette,
+                                    ),
                                 );
                         }
                     };
@@ -373,9 +441,11 @@ where
                             }
 
                             // Push in the new child
-                            let child_occupied_bits = BrickData::<T>::calculate_brick_occupied_bits(
+                            let child_occupied_bits = BrickData::calculate_brick_occupied_bits(
                                 &new_brick_data,
                                 self.brick_dim as usize,
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
                             );
                             node_new_children[octant] = self
                                 .nodes
@@ -401,21 +471,38 @@ where
         self.node_children[node_key].content = NodeChildrenArray::Children(node_new_children);
     }
 
+    /// Tries to create a brick from the given node if possible. WARNING: Data loss may occur
+    pub(crate) fn try_brick_from_node(&self, node_key: usize) -> BrickData<PaletteIndexValues> {
+        if !self.nodes.key_is_valid(node_key) {
+            return BrickData::Empty;
+        }
+        match self.nodes.get(node_key) {
+            NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::Leaf(_) => {
+                BrickData::Empty
+            }
+
+            NodeContent::UniformLeaf(brick) => brick.clone(),
+        }
+    }
+
     /// Erase all children of the node under the given key, and set its children to "No children"
-    pub(crate) fn deallocate_children_of(&mut self, node: u32) {
+    pub(crate) fn deallocate_children_of(&mut self, node: usize) {
+        if !self.nodes.key_is_valid(node) {
+            return;
+        }
         let mut to_deallocate = Vec::new();
-        if let Some(children) = self.node_children[node as usize].iter() {
+        if let Some(children) = self.node_children[node].iter() {
             for child in children {
                 if self.nodes.key_is_valid(*child as usize) {
                     to_deallocate.push(*child);
                 }
             }
             for child in to_deallocate {
-                self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
+                self.deallocate_children_of(child as usize); // Recursion should be fine as depth is not expceted to be more, than 32
                 self.nodes.free(child as usize);
             }
         }
-        self.node_children[node as usize].content = NodeChildrenArray::NoChildren;
+        self.node_children[node].content = NodeChildrenArray::NoChildren;
     }
 
     /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;
@@ -429,7 +516,8 @@ where
                     NodeChildrenArray::Children(children) => {
                         debug_assert!(
                             false,
-                            "Expected Leaf[{node_key}] nodes to not have children. Children values: {:?}",
+                            "Expected node[{node_key}] to not have children.\nnode:{:?}\nchildren: {:?}",
+                            self.nodes.get(node_key),
                             children
                         );
                         0

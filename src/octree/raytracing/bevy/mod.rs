@@ -6,24 +6,44 @@ pub mod types;
 pub use crate::octree::raytracing::bevy::types::{
     OctreeGPUHost, OctreeGPUView, OctreeSpyGlass, RenderBevyPlugin, SvxViewSet, Viewport,
 };
-
 use crate::octree::{
     raytracing::bevy::{
         data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
         pipeline::prepare_bind_groups,
         types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
     },
-    VoxelData,
+    Albedo, VoxelData,
 };
-
 use bevy::{
     app::{App, Plugin},
-    prelude::{ExtractSchedule, IntoSystemConfigs},
+    prelude::{ExtractSchedule, IntoSystemConfigs, Vec4},
     render::{
         extract_resource::ExtractResourcePlugin, render_graph::RenderGraph, Render, RenderApp,
         RenderSet,
     },
 };
+use std::hash::Hash;
+
+impl From<Vec4> for Albedo {
+    fn from(vec: Vec4) -> Self {
+        Albedo::default()
+            .with_red((vec.x * 255.).min(255.) as u8)
+            .with_green((vec.y * 255.).min(255.) as u8)
+            .with_blue((vec.z * 255.).min(255.) as u8)
+            .with_alpha((vec.w * 255.).min(255.) as u8)
+    }
+}
+
+impl From<Albedo> for Vec4 {
+    fn from(color: Albedo) -> Self {
+        Vec4::new(
+            color.r as f32 / 255.,
+            color.g as f32 / 255.,
+            color.b as f32 / 255.,
+            color.a as f32 / 255.,
+        )
+    }
+}
 
 impl<T> RenderBevyPlugin<T>
 where
@@ -39,7 +59,7 @@ where
 
 impl<T> Plugin for RenderBevyPlugin<T>
 where
-    T: Default + Clone + Copy + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + Copy + PartialEq + Send + Sync + Hash + VoxelData + 'static,
 {
     fn build(&self, app: &mut App) {
         app.add_plugins((

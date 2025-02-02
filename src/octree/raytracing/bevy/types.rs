@@ -1,4 +1,4 @@
-use crate::octree::{Albedo, Octree, V3cf32, VoxelData};
+use crate::octree::{types::PaletteIndexValues, Octree, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -17,14 +17,9 @@ use bevy::{
 use bimap::BiHashMap;
 use std::{
     collections::HashMap,
+    hash::Hash,
     sync::{Arc, Mutex},
 };
-
-#[derive(Clone, ShaderType)]
-pub(crate) struct Voxelement {
-    pub(crate) albedo_index: u32, // in color palette
-    pub(crate) content: u32,
-}
 
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
@@ -41,7 +36,7 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct RenderBevyPlugin<T>
+pub struct RenderBevyPlugin<T = u32>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
@@ -51,9 +46,9 @@ where
 
 #[derive(Resource, Clone, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUHost"]
-pub struct OctreeGPUHost<T>
+pub struct OctreeGPUHost<T = u32>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + PartialEq + VoxelData + Send + Sync + Hash + 'static,
 {
     pub tree: Octree<T>,
 }
@@ -91,7 +86,6 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
-    pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) brick_ownership: Vec<BrickOwnedBy>,
     pub(crate) map_to_brick_maybe_owned_by_node: HashMap<(usize, u8), usize>,
     pub(crate) uploaded_color_palette_size: usize,
@@ -100,21 +94,32 @@ pub struct OctreeGPUDataHandler {
 #[derive(Clone)]
 pub(crate) struct OctreeRenderDataResources {
     // Spyglass group
+    // --{
     pub(crate) spyglass_bind_group: BindGroup,
     pub(crate) viewport_buffer: Buffer,
     pub(crate) node_requests_buffer: Buffer,
+    // }--
 
     // Octree render data group
+    // --{
     pub(crate) tree_bind_group: BindGroup,
     pub(crate) metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,
+
+    /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
+    /// which is stored in 2 * u32 values. only available in GPU, to eliminate needles redundancy
     pub(crate) node_ocbits_buffer: Buffer,
+
+    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
+    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
+    /// Only available in GPU, to eliminate needles redundancy
     pub(crate) voxels_buffer: Buffer,
     pub(crate) color_palette_buffer: Buffer,
 
     // Staging buffers for data reads
     pub(crate) readable_node_requests_buffer: Buffer,
     pub(crate) readable_metadata_buffer: Buffer,
+    // }--
 }
 
 #[derive(Clone)]
@@ -122,6 +127,11 @@ pub struct OctreeSpyGlass {
     pub output_texture: Handle<Image>,
     pub viewport: Viewport,
     pub(crate) node_requests: Vec<u32>,
+}
+
+pub(crate) struct BrickUpdate<'a> {
+    pub(crate) brick_index: usize,
+    pub(crate) data: Option<&'a [PaletteIndexValues]>,
 }
 
 #[derive(Clone, TypePath)]
@@ -155,7 +165,7 @@ pub struct OctreeRenderData {
     /// |=====================================================================|
     /// | Byte 3  | Voxel Bricks used *(3)                                    |
     /// |---------------------------------------------------------------------|
-    /// | each bit is 1 if brick is used (do not delete please)               |
+    /// | each bit is 1 if brick is used (it means do not delete please)      |
     /// `=====================================================================`
     /// *(1) Only first bit is used in case uniform leaf nodes
     /// *(2) The same bit is used for node_children and node_occupied_bits
@@ -180,10 +190,6 @@ pub struct OctreeRenderData {
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
     pub(crate) node_ocbits: Vec<u32>,
-
-    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
-    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
-    pub(crate) voxels: Vec<Voxelement>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )
@@ -213,13 +219,12 @@ pub(crate) struct SvxRenderNode {
 
 #[cfg(test)]
 mod types_wgpu_byte_compatibility_tests {
-    use super::{OctreeMetaData, Viewport, Voxelement};
+    use super::{OctreeMetaData, Viewport};
     use bevy::render::render_resource::encase::ShaderType;
 
     #[test]
     fn test_wgpu_compatibility() {
         Viewport::assert_uniform_compat();
         OctreeMetaData::assert_uniform_compat();
-        Voxelement::assert_uniform_compat();
     }
 }

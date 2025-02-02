@@ -14,7 +14,7 @@ use iyes_perf_ui::{
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
-    Albedo, V3c, V3cf32,
+    Albedo, Octree, V3c, V3cf32,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -32,7 +32,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::octree::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -52,7 +52,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
 
     // fill octree with data
-    let mut tree = shocovox_rs::octree::Octree::<Albedo>::new(TREE_SIZE, BRICK_DIMENSION)
+    let mut tree: Octree = shocovox_rs::octree::Octree::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
 
@@ -81,7 +81,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     // println!("Inserting at: {:?}", (x, y, z));
                     tree.insert(
                         &V3c::new(x, y, z),
-                        Albedo::default()
+                        &Albedo::default()
                             .with_red(r as u8)
                             .with_green(g as u8)
                             .with_blue(b as u8)
@@ -99,7 +99,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        45,
+        100,
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),
@@ -122,16 +122,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         },
     ));
     commands.spawn(Camera2d::default());
-    commands.spawn((
-        Camera {
-            is_active: false,
-            ..default()
-        },
-        PanOrbitCamera {
-            focus: Vec3::new(0., TREE_SIZE as f32 * 1.2, 0.),
-            ..default()
-        },
-    ));
     commands.spawn((
         PerfUiRoot::default(),
         PerfUiEntryFPS {
@@ -180,7 +170,7 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    tree: ResMut<OctreeGPUHost<Albedo>>,
+    tree: ResMut<OctreeGPUHost>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
 ) {
@@ -234,9 +224,9 @@ fn handle_zoom(
                         x,
                         actual_y_in_image,
                         Rgb([
-                            (data.r as f32 * diffuse_light_strength) as u8,
-                            (data.g as f32 * diffuse_light_strength) as u8,
-                            (data.b as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().r as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().g as f32 * diffuse_light_strength) as u8,
+                            (data.albedo().unwrap().b as f32 * diffuse_light_strength) as u8,
                         ]),
                     );
                 } else {
