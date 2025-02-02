@@ -257,21 +257,21 @@ pub(crate) fn handle_gpu_readback(
 /// and schedules it to be written to the given buffer in the GPU
 fn write_range_to_buffer<U>(
     array: &[U],
-    range: std::ops::Range<usize>,
+    index_range: std::ops::Range<usize>,
     buffer: &Buffer,
     render_queue: &RenderQueue,
 ) where
     U: Send + Sync + 'static + ShaderSize + WriteInto,
 {
-    if !range.is_empty() {
+    if !index_range.is_empty() {
         let element_size = std::mem::size_of_val(&array[0]);
-        let byte_offset = (range.start * element_size) as u64;
-        let slice = array.get(range.clone()).unwrap_or_else(|| {
+        let byte_offset = (index_range.start * element_size) as u64;
+        let slice = array.get(index_range.clone()).unwrap_or_else(|| {
             panic!(
                 "{}",
                 format!(
                     "Expected range {:?} to be in bounds of {:?}",
-                    range,
+                    index_range,
                     array.len(),
                 )
                 .to_owned()
@@ -322,13 +322,9 @@ pub(crate) fn write_to_gpu<T>(
                 start: view.data_handler.render_data.node_children.len(),
                 end: 0,
             };
-            let mut voxels_updated = std::ops::Range {
-                start: view.data_handler.render_data.voxels.len(),
-                end: 0,
-            };
             let mut node_requests = view.spyglass.node_requests.clone();
             let mut modified_nodes = HashSet::<usize>::new();
-            let mut modified_bricks = HashSet::<usize>::new();
+            let mut modified_bricks = HashMap::<usize, Option<&[PaletteIndexValues]>>::new();
             let victim_node_loop_count = view.data_handler.victim_node.get_loop_count();
             for node_request in &mut node_requests {
                 if *node_request == empty_marker::<u32>() {
@@ -375,7 +371,7 @@ pub(crate) fn write_to_gpu<T>(
                             .node_key_vs_meta_index
                             .contains_left(&requested_child_node_key)
                         {
-                            let (child_index, currently_modified_nodes, currently_modified_bricks) =
+                            let (child_index, currently_modified_bricks, currently_modified_nodes) =
                                 view.data_handler
                                 .add_node(tree, requested_child_node_key, false)
                                 .expect("Expected to succeed adding a node into the GPU cache through data_handler");
@@ -403,6 +399,12 @@ pub(crate) fn write_to_gpu<T>(
                             "Requester parent erased while adding its child node to meta"
                         );
 
+                        node_children_updated.start = node_children_updated
+                            .start
+                            .min(requested_parent_meta_index * 8 + requested_child_octant as usize);
+                        node_children_updated.end = node_children_updated.end.max(
+                            requested_parent_meta_index * 8 + requested_child_octant as usize + 1,
+                        );
                         ocbits_updated.start = ocbits_updated.start.min(child_index * 2);
                         ocbits_updated.end = ocbits_updated.end.max(child_index * 2 + 2);
                     }
@@ -413,28 +415,14 @@ pub(crate) fn write_to_gpu<T>(
                                 [requested_parent_meta_index * 8]
                                 == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_nodes, currently_modified_bricks) =
+                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
                                 view.data_handler
                                     .add_brick(tree, requested_parent_node_key, 0);
                             view.data_handler.render_data.node_children
-                                [requested_parent_meta_index * 8] = brick_index;
+                                [requested_parent_meta_index * 8] = brick_index as u32;
 
                             modified_nodes.extend(currently_modified_nodes);
                             modified_bricks.extend(currently_modified_bricks);
-
-                            if let BrickData::Parted(_) = brick {
-                                voxels_updated.start = voxels_updated.start.min(
-                                    (brick_index
-                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim))
-                                        as usize,
-                                );
-                                voxels_updated.end = voxels_updated.end.max(
-                                    (brick_index
-                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim)
-                                        + (tree.brick_dim * tree.brick_dim * tree.brick_dim))
-                                        as usize,
-                                );
-                            }
                         }
                     }
                     NodeContent::Leaf(bricks) => {
@@ -446,7 +434,7 @@ pub(crate) fn write_to_gpu<T>(
                             [requested_parent_meta_index * 8 + requested_child_octant as usize]
                             == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_nodes, currently_modified_bricks) =
+                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
                                 view.data_handler.add_brick(
                                     tree,
                                     requested_parent_node_key,
@@ -454,24 +442,10 @@ pub(crate) fn write_to_gpu<T>(
                                 );
                             view.data_handler.render_data.node_children[requested_parent_meta_index
                                 * 8
-                                + requested_child_octant as usize] = brick_index;
+                                + requested_child_octant as usize] = brick_index as u32;
 
                             modified_nodes.extend(currently_modified_nodes);
                             modified_bricks.extend(currently_modified_bricks);
-
-                            if let BrickData::Parted(_) = bricks[requested_child_octant as usize] {
-                                voxels_updated.start = voxels_updated.start.min(
-                                    (brick_index
-                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim))
-                                        as usize,
-                                );
-                                voxels_updated.end = voxels_updated.end.max(
-                                    (brick_index
-                                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim)
-                                        + (tree.brick_dim * tree.brick_dim * tree.brick_dim))
-                                        as usize,
-                                );
-                            }
                         }
                     }
                 }
@@ -510,9 +484,9 @@ pub(crate) fn write_to_gpu<T>(
                     node_children_updated.end.max(modified_node_index * 8 + 8);
             }
 
-            for modified_brick_index in &modified_bricks {
-                meta_updated.start = meta_updated.start.min(modified_brick_index / 8);
-                meta_updated.end = meta_updated.end.max(modified_brick_index / 8 + 1);
+            for modified_brick_data in &modified_bricks {
+                meta_updated.start = meta_updated.start.min(modified_brick_data.0 / 8);
+                meta_updated.end = meta_updated.end.max(modified_brick_data.0 / 8 + 1);
             }
 
             // write back updated data
@@ -569,12 +543,29 @@ pub(crate) fn write_to_gpu<T>(
                 &resources.node_ocbits_buffer,
                 render_queue,
             );
-            write_range_to_buffer(
-                &view.data_handler.render_data.voxels,
-                voxels_updated,
-                &resources.voxels_buffer,
-                render_queue,
-            );
+
+            // Upload Voxel data
+            for modified_brick_data in &modified_bricks {
+                if let Some(new_brick_data) = modified_brick_data.1 {
+                    let brick_element_count =
+                        (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize;
+                    let brick_start_index = *modified_brick_data.0 * brick_element_count;
+                    let element_size = std::mem::size_of_val(&new_brick_data[0]);
+                    let byte_offset = (brick_start_index * element_size) as u64;
+                    debug_assert_eq!(
+                        brick_element_count,
+                        new_brick_data.len(),
+                        "Expected Brick slice to align to tree brick dimension"
+                    );
+                    unsafe {
+                        render_queue.write_buffer(
+                            &resources.voxels_buffer,
+                            byte_offset,
+                            new_brick_data.align_to::<u8>().1,
+                        );
+                    }
+                }
+            }
         }
     }
 }

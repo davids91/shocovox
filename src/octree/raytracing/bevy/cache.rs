@@ -1,5 +1,6 @@
 use crate::object_pool::empty_marker;
 use crate::octree::raytracing::bevy::types::BrickOwnedBy;
+use crate::octree::types::PaletteIndexValues;
 use crate::{
     octree::{
         raytracing::bevy::types::{OctreeGPUDataHandler, OctreeRenderData, VictimPointer},
@@ -168,9 +169,9 @@ impl OctreeGPUDataHandler {
         V: Default + Clone + PartialEq,
     {
         match brick {
-            BrickData::Empty => {} // Child structure properties already set to NIL
+            BrickData::Empty => {} // Child structure properties should already be set to NIL
             BrickData::Solid(_voxel) => {
-                // set child Occupied bits, child Structure bits already set to NIL
+                // set child Occupied bits, child Structure bits should already be set to NIL
                 *sized_node_meta |= 0x01 << (8 + brick_octant);
             }
             BrickData::Parted(_brick) => {
@@ -237,13 +238,13 @@ impl OctreeGPUDataHandler {
     //   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░
     //##############################################################################
     /// Erases the child node pointed by the given victim pointer
-    /// returns with the vector of node index values and brick index values modified
-    fn erase_node_child<T>(
+    /// returns with the vector of bricks and node index values modified
+    fn erase_node_child<'a, T>(
         &mut self,
         meta_index: usize,
         child_octant: usize,
-        tree: &Octree<T>,
-    ) -> (Vec<usize>, Vec<usize>)
+        tree: &'a Octree<T>,
+    ) -> (Vec<(usize, Option<&'a [PaletteIndexValues]>)>, Vec<usize>)
     where
         T: Default + Clone + PartialEq + VoxelData + Hash,
     {
@@ -309,7 +310,7 @@ impl OctreeGPUDataHandler {
                             self.render_data.node_children[child_index * 8 + octant] =
                                 empty_marker::<u32>();
 
-                            modified_bricks.push(brick_index);
+                            modified_bricks.push((brick_index, None));
                         }
                     }
                 }
@@ -324,7 +325,7 @@ impl OctreeGPUDataHandler {
                 );
                 if child_index != empty_marker::<u32>() as usize {
                     self.brick_ownership[child_index] = BrickOwnedBy::NotOwned;
-                    modified_bricks.push(child_index);
+                    modified_bricks.push((child_index, None));
 
                     // mark brick as unused
                     self.render_data.metadata[child_index / 8] &=
@@ -334,7 +335,7 @@ impl OctreeGPUDataHandler {
         }
 
         //return with updated ranges in voxels and metadata
-        (modified_nodes, modified_bricks)
+        (modified_bricks, modified_nodes)
     }
 
     //##############################################################################
@@ -358,13 +359,17 @@ impl OctreeGPUDataHandler {
     /// Writes the data of the node to the first available index
     /// Upon success, returns the index in metadata where the node is added
     /// and vectors of modified nodes, bricks:
-    /// (meta_index, modified_nodes, modified_bricks)
-    pub(crate) fn add_node<T>(
+    /// (meta_index, modified_bricks, modified_nodes)
+    pub(crate) fn add_node<'a, T>(
         &mut self,
-        tree: &Octree<T>,
+        tree: &'a Octree<T>,
         node_key: usize,
         try_add_children: bool,
-    ) -> Option<(usize, Vec<usize>, Vec<usize>)>
+    ) -> Option<(
+        usize,
+        Vec<(usize, Option<&'a [PaletteIndexValues]>)>,
+        Vec<usize>,
+    )>
     where
         T: Default + Copy + Clone + PartialEq + Send + Sync + Hash + VoxelData + 'static,
     {
@@ -376,17 +381,18 @@ impl OctreeGPUDataHandler {
         // Determine the index in meta, overwrite a currently present node if needed
         let (node_element_index, robbed_parent) =
             self.victim_node.first_available_node(&mut self.render_data);
-        let (mut modified_nodes, mut modified_bricks) = if let Some(robbed_parent) = robbed_parent {
+        let (mut modified_bricks, mut modified_nodes) = if let Some(robbed_parent) = robbed_parent {
             self.erase_node_child(robbed_parent.0, robbed_parent.1 as usize, tree)
         } else {
-            (vec![node_element_index], Vec::new())
+            (Vec::new(), vec![node_element_index])
         };
 
         self.node_key_vs_meta_index
             .insert(node_key, node_element_index);
 
         // Add node properties to metadata
-        self.render_data.metadata[node_element_index] =
+        self.render_data.metadata[node_element_index] &= 0xFF000000;
+        self.render_data.metadata[node_element_index] |=
             Self::create_node_properties(tree.nodes.get(node_key));
 
         // Update occupancy in ocbits
@@ -409,13 +415,12 @@ impl OctreeGPUDataHandler {
                 );
 
                 if try_add_children {
-                    let (brick_index, mut current_modified_nodes, mut current_modified_bricks) =
+                    let (brick_index, mut current_modified_bricks, mut current_modified_nodes) =
                         self.add_brick(tree, node_key, 0);
-                    modified_bricks.push(brick_index as usize);
                     modified_nodes.append(&mut current_modified_nodes);
                     modified_bricks.append(&mut current_modified_bricks);
 
-                    self.render_data.node_children[node_element_index * 8] = brick_index;
+                    self.render_data.node_children[node_element_index * 8] = brick_index as u32;
                 } else {
                     self.render_data.node_children[node_element_index * 8] = empty_marker::<u32>();
                 }
@@ -448,16 +453,22 @@ impl OctreeGPUDataHandler {
                     "Expected Leaf to have OccupancyBitmaps(_) instead of {:?}",
                     tree.node_children[node_key].content
                 );
+                debug_assert_ne!(
+                    0,
+                    Self::NODE_LEAF_MASK & self.render_data.metadata[node_element_index]
+                );
+
                 if try_add_children {
                     for octant in 0..8 {
-                        let (brick_index, mut current_modified_nodes, mut current_modified_bricks) =
+                        let (brick_index, mut current_modified_bricks, mut current_modified_nodes) =
                             self.add_brick(tree, node_key, octant);
-                        modified_bricks.push(brick_index as usize);
+
+                        self.render_data.node_children[node_element_index * 8 + octant] =
+                            brick_index as u32;
+
                         modified_nodes.append(&mut current_modified_nodes);
                         modified_bricks.append(&mut current_modified_bricks);
 
-                        self.render_data.node_children[node_element_index * 8 + octant] =
-                            brick_index;
                         #[cfg(debug_assertions)]
                         {
                             if let BrickData::Solid(_) | BrickData::Empty = bricks[octant] {
@@ -518,7 +529,7 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
-        Some((node_element_index, modified_nodes, modified_bricks))
+        Some((node_element_index, modified_bricks, modified_nodes))
     }
 
     //##############################################################################
@@ -567,13 +578,17 @@ impl OctreeGPUDataHandler {
     /// Loads a brick into the provided voxels vector and color palette
     /// * `brick` - The brick to upload
     /// * `tree` - The octree where the brick is found
-    /// * `returns` - the index where the brick is found and potentially a list of nodes and bricks modified during insertion
-    pub(crate) fn add_brick<T>(
+    /// * `returns` - index to set for brick content, and a list of modified bricks and nodes during insertion, the first brick(if any) being the target for the new data
+    pub(crate) fn add_brick<'a, T>(
         &mut self,
-        tree: &Octree<T>,
+        tree: &'a Octree<T>,
         node_key: usize,
         target_octant: usize,
-    ) -> (u32, Vec<usize>, Vec<usize>)
+    ) -> (
+        usize,
+        Vec<(usize, Option<&'a [PaletteIndexValues]>)>,
+        Vec<usize>,
+    )
     where
         T: Default + Clone + PartialEq + Send + Sync + Hash + VoxelData + 'static,
     {
@@ -590,13 +605,13 @@ impl OctreeGPUDataHandler {
             NodeContent::UniformLeaf(brick) => brick,
             NodeContent::Leaf(bricks) => &bricks[target_octant],
             NodeContent::Nothing | NodeContent::Internal(_) => {
-                panic!("Expected to add brick of Internal or empty node!")
+                panic!("Trying to add brick from Internal or empty node!")
             }
         };
 
         match brick {
-            BrickData::Empty => (empty_marker::<u32>(), Vec::new(), Vec::new()),
-            BrickData::Solid(voxel) => (*voxel, Vec::new(), Vec::new()),
+            BrickData::Empty => (empty_marker::<u32>() as usize, Vec::new(), Vec::new()),
+            BrickData::Solid(voxel) => (*voxel as usize, Vec::new(), Vec::new()),
             BrickData::Parted(brick) => {
                 if let Some(brick_index) = self
                     .map_to_brick_maybe_owned_by_node
@@ -605,7 +620,7 @@ impl OctreeGPUDataHandler {
                     if self.brick_ownership[*brick_index] == BrickOwnedBy::NotOwned {
                         self.brick_ownership[*brick_index] =
                             BrickOwnedBy::Node(node_key as u32, target_octant as u8);
-                        return (*brick_index as u32, Vec::new(), Vec::new());
+                        return (*brick_index, vec![(*brick_index, Some(brick))], Vec::new());
                     } else {
                         // remove from index if it is owned by another node already
                         self.map_to_brick_maybe_owned_by_node
@@ -614,7 +629,7 @@ impl OctreeGPUDataHandler {
                 }
 
                 let brick_index = self.first_available_brick();
-                let (modified_nodes, modified_bricks) =
+                let (mut modified_bricks, modified_nodes) =
                     if let BrickOwnedBy::Node(key, octant) = self.brick_ownership[brick_index] {
                         debug_assert!(
                             self.node_key_vs_meta_index.contains_left(&(key as usize)),
@@ -636,13 +651,14 @@ impl OctreeGPUDataHandler {
                 self.brick_ownership[brick_index] =
                     BrickOwnedBy::Node(node_key as u32, target_octant as u8);
 
-                for voxel_flat_index in 0..brick.len() {
-                    self.render_data.voxels[(brick_index
-                        * (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize)
-                        + voxel_flat_index] = brick[voxel_flat_index];
-                }
+                debug_assert_eq!(
+                    (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
+                    brick.len(),
+                    "Expected Brick slice to align to tree brick dimension"
+                );
+                modified_bricks.splice(..0, vec![(brick_index, Some(&brick[..]))].into_iter());
 
-                (brick_index as u32, modified_nodes, modified_bricks)
+                (brick_index, modified_bricks, modified_nodes)
             }
         }
     }

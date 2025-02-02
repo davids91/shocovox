@@ -149,7 +149,7 @@ pub struct OctreeRenderData {
     /// |=====================================================================|
     /// | Byte 3  | Voxel Bricks used *(3)                                    |
     /// |---------------------------------------------------------------------|
-    /// | each bit is 1 if brick is used (do not delete please)               |
+    /// | each bit is 1 if brick is used (it means do not delete please)      |
     /// `=====================================================================`
     /// *(1) Only first bit is used in case uniform leaf nodes
     /// *(2) The same bit is used for node_children and node_occupied_bits
