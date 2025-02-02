@@ -25,9 +25,14 @@ use crate::{
         Cube,
     },
 };
-use bendy::{decoding::FromBencode, encoding::ToBencode};
 use num_traits::Zero;
 use std::{collections::HashMap, hash::Hash};
+
+#[cfg(feature = "serialization")]
+use serde::{de::DeserializeOwned, Serialize};
+
+#[cfg(feature = "bytecode")]
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 #[cfg(debug_assertions)]
 use crate::spatial::math::position_in_bitmap_64bits;
@@ -115,22 +120,36 @@ impl<'a, T: VoxelData> OctreeEntry<'a, T> {
 //  ░░░███████░   ░░█████████     █████    █████   █████ ██████████ ██████████
 //    ░░░░░░░      ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░
 //####################################################################################
-impl<T> Octree<T>
-where
-    T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > Octree<T>
 {
     /// converts the data structure to a byte representation
+    #[cfg(feature = "bytecode")]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.to_bencode()
             .expect("Failed to serialize Octree to Bytes")
     }
 
     /// parses the data structure from a byte string
+    #[cfg(feature = "bytecode")]
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
         Self::from_bencode(&bytes).expect("Failed to serialize Octree from Bytes")
     }
 
     /// saves the data structure to the given file path
+    #[cfg(feature = "bytecode")]
     pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
         use std::fs::File;
         use std::io::Write;
@@ -140,6 +159,7 @@ where
     }
 
     /// loads the data structure from the given file path
+    #[cfg(feature = "bytecode")]
     pub fn load(path: &str) -> Result<Self, std::io::Error> {
         use std::fs::File;
         use std::io::Read;

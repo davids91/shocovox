@@ -15,7 +15,13 @@ pub fn empty_marker<T: num_traits::Bounded>() -> T {
     T::max_value()
 }
 
-use bendy::encoding::{Error as BencodeError, SingleItemEncoder, ToBencode};
+#[cfg(feature = "bytecode")]
+use bendy::{
+    decoding::{FromBencode, Object},
+    encoding::{Error as BencodeError, SingleItemEncoder, ToBencode},
+};
+
+#[cfg(feature = "bytecode")]
 impl<T> ToBencode for ReusableItem<T>
 where
     T: Clone + ToBencode,
@@ -29,7 +35,7 @@ where
     }
 }
 
-use bendy::decoding::{FromBencode, Object};
+#[cfg(feature = "bytecode")]
 impl<T> FromBencode for ReusableItem<T>
 where
     T: Clone + FromBencode,
@@ -87,6 +93,7 @@ pub(crate) struct ObjectPool<T> {
     first_available: usize,       // the index of the first available item
 }
 
+#[cfg(feature = "bytecode")]
 impl<T> ToBencode for ObjectPool<T>
 where
     T: ToBencode + Default + Clone,
@@ -100,6 +107,7 @@ where
     }
 }
 
+#[cfg(feature = "bytecode")]
 impl<T> FromBencode for ObjectPool<T>
 where
     T: FromBencode + Default + Clone,
@@ -128,7 +136,7 @@ where
     }
 }
 
-#[allow(dead_code)] // Object implemented for universal usage
+#[allow(dead_code)]
 impl<T> ObjectPool<T>
 where
     T: Default + Clone,

@@ -127,11 +127,6 @@ fn main() {
     let _custom_octree: Octree<MyAwesomeData> = Octree::new(8, 2).ok().unwrap();
 }
 
-#[derive(Default, Clone, Eq, PartialEq, Hash)]
-struct MyAwesomeData {
-    data_field: i64,
-}
-
 // The trait VoxelData is required in order to differentiate between empty and non-empty contents of a voxel
 impl VoxelData for MyAwesomeData {
     fn is_empty(&self) -> bool {
@@ -139,12 +134,21 @@ impl VoxelData for MyAwesomeData {
     }
 }
 
-// To be able to save and load the data in the octree the crate bendy is used for now
-// So the traits below need to be implementd for bytecode serialization
+// To serialize the tree the serde traits are needed
+#[cfg(feature = "serialization")]
+use serde::{Deserialize, Serialize};
+
+// ..And to be able to save and load the data in the octree, the bendy crate is used.
+// The traits below need to be implemented for bytecode serialization
+// This is used instead of serde, as the contents are much more thightly packed,
+// and there a significant difference in performance
+#[cfg(feature = "bytecode")]
 use bendy::{
     decoding::{FromBencode, Object},
     encoding::{SingleItemEncoder, ToBencode},
 };
+
+#[cfg(feature = "bytecode")]
 impl ToBencode for MyAwesomeData {
     const MAX_DEPTH: usize = 1;
     fn encode(&self, encoder: SingleItemEncoder<'_>) -> Result<(), bendy::encoding::Error> {
@@ -152,6 +156,7 @@ impl ToBencode for MyAwesomeData {
     }
 }
 
+#[cfg(feature = "bytecode")]
 impl FromBencode for MyAwesomeData {
     fn decode_bencode_object(object: Object<'_, '_>) -> Result<Self, bendy::decoding::Error> {
         match object {
@@ -163,4 +168,10 @@ impl FromBencode for MyAwesomeData {
             )),
         }
     }
+}
+
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
+#[derive(Default, Clone, Eq, PartialEq, Hash)]
+struct MyAwesomeData {
+    data_field: i64,
 }

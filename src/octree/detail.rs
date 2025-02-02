@@ -132,7 +132,7 @@ impl Zero for Albedo {
 //####################################################################################
 impl<T> Octree<T>
 where
-    T: Default + Clone + PartialEq + Hash + VoxelData,
+    T: Default + Clone + Eq + Hash + VoxelData,
 {
     /// The root node is always the first item
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
@@ -140,7 +140,7 @@ where
 
 impl<T> Octree<T>
 where
-    T: Default + Clone + PartialEq + Hash + VoxelData,
+    T: Default + Clone + Eq + Hash + VoxelData,
 {
     /// Checks the content of the content of the node if it is empty at the given index,
     /// so the corresponding part of the occupied bits of the node can be set. The check targets

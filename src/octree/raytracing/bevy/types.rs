@@ -38,7 +38,7 @@ pub struct Viewport {
 
 pub struct RenderBevyPlugin<T = u32>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
 {
     pub(crate) dummy: std::marker::PhantomData<T>,
     pub(crate) resolution: [u32; 2],
@@ -48,7 +48,7 @@ where
 #[type_path = "shocovox::gpu::OctreeGPUHost"]
 pub struct OctreeGPUHost<T = u32>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + Hash + 'static,
+    T: Default + Clone + Eq + VoxelData + Send + Sync + Hash + 'static,
 {
     pub tree: Octree<T>,
 }

@@ -22,7 +22,7 @@ use std::hash::Hash;
 
 impl<T> Octree<T>
 where
-    T: Default + Eq + Clone + Hash + Zero + VoxelData,
+    T: Default + Eq + Clone + Hash + VoxelData,
 {
     /// Updates the stored palette by adding the new colors and data in the given entry
     /// Since unused colors are not removed from the palette, possible "pollution" is possible,

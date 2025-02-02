@@ -47,7 +47,7 @@ impl From<Albedo> for Vec4 {
 
 impl<T> RenderBevyPlugin<T>
 where
-    T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
+    T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
 {
     pub fn new(resolution: [u32; 2]) -> Self {
         RenderBevyPlugin {
@@ -59,7 +59,7 @@ where
 
 impl<T> Plugin for RenderBevyPlugin<T>
 where
-    T: Default + Clone + Copy + PartialEq + Send + Sync + Hash + VoxelData + 'static,
+    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
 {
     fn build(&self, app: &mut App) {
         app.add_plugins((

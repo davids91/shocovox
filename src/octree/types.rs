@@ -73,6 +73,7 @@ pub trait VoxelData {
 }
 
 /// Color properties of a voxel
+#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Albedo {
     pub r: u8,
@@ -94,7 +95,7 @@ pub(crate) type NodeConnection = NodeChildren<u32>;
 #[derive(Clone)]
 pub struct Octree<T = u32>
 where
-    T: Default + Clone + PartialEq + Hash,
+    T: Default + Clone + Eq + Hash,
 {
     pub auto_simplify: bool,
     pub(crate) brick_dim: u32,   // Size of one brick in a leaf node (dim^3)
@@ -107,6 +108,10 @@ where
     /// are stored on 2 Bytes
     pub(crate) voxel_color_palette: Vec<Albedo>, // referenced by @nodes
     pub(crate) voxel_data_palette: Vec<T>, // referenced by @nodes
+
+    #[cfg_attr(feature = "serialization", serde(skip_serializing, skip_deserializing))]
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
+
+    #[cfg_attr(feature = "serialization", serde(skip_serializing, skip_deserializing))]
     pub(crate) map_to_data_index_in_palette: HashMap<T, usize>,
 }

@@ -9,7 +9,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]
     {
         let tree_size = 512;
-        let mut tree = Octree::<Albedo>::new(tree_size, 8).ok().unwrap();
+        let mut tree: Octree = Octree::new(tree_size, 8).ok().unwrap();
         for x in 0..100 {
             for y in 0..100 {
                 for z in 0..100 {
@@ -18,7 +18,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
                         || z < (tree_size / 4)
                         || ((tree_size / 2) <= x && (tree_size / 2) <= y && (tree_size / 2) <= z)
                     {
-                        tree.insert(&V3c::new(x, y, z), 0x00ABCDEF.into())
+                        tree.insert(&V3c::new(x, y, z), &Albedo::from(0x00ABCDEF))
                             .ok()
                             .unwrap();
                     }
@@ -71,10 +71,18 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let tree_size = 64;
-        let mut tree = shocovox_rs::octree::Octree::<Albedo>::new(tree_size)
-            .ok()
-            .unwrap();
-
+        let mut tree: Octree = Octree::new(tree_size, 8).ok().unwrap();
+        for _i in 0..50000000 {
+            tree.insert(
+                &V3c::new(
+                    rng.gen_range(0..tree_size),
+                    rng.gen_range(0..tree_size),
+                    rng.gen_range(0..tree_size),
+                ),
+                &Albedo::from(rng.gen_range(0..50000)),
+            )
+            .expect("Octree insert to suceeed");
+        }
         c.bench_function("octree insert", |b| {
             b.iter(|| {
                 tree.insert(
@@ -83,7 +91,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
                         rng.gen_range(0..tree_size),
                         rng.gen_range(0..tree_size),
                     ),
-                    rng.gen_range(0..500).into(),
+                    &Albedo::from(rng.gen_range(0..50000)),
                 )
                 .ok()
             });
@@ -110,18 +118,20 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
                 ));
             });
         });
-
-        c.bench_function("octree save", |b| {
-            b.iter(|| {
-                tree.save("test_junk_octree").ok().unwrap();
+        #[cfg(feature = "bytecode")]
+        {
+            c.bench_function("octree save", |b| {
+                b.iter(|| {
+                    tree.save("test_junk_octree").ok().unwrap();
+                });
             });
-        });
 
-        c.bench_function("octree load", |b| {
-            b.iter(|| {
-                let _tree_copy = Octree::<Albedo>::load("test_junk_octree").ok().unwrap();
+            c.bench_function("octree load", |b| {
+                b.iter(|| {
+                    let _tree_copy = Octree::<Albedo>::load("test_junk_octree").ok().unwrap();
+                });
             });
-        });
+        }
     }
 }
 

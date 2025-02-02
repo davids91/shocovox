@@ -2,11 +2,16 @@ use crate::{
     octree::{Albedo, Octree, OctreeEntry, V3c, VoxelData},
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
-use bendy::{decoding::FromBencode, encoding::ToBencode};
 use dot_vox::{Color, DotVoxData, Model, SceneNode, Size, Voxel};
 use nalgebra::Matrix3;
-use num_traits::{Num, Zero};
+use num_traits::Num;
 use std::{convert::From, hash::Hash};
+
+#[cfg(feature = "serialization")]
+use serde::{de::DeserializeOwned, Serialize};
+
+#[cfg(feature = "bytecode")]
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 
 impl From<Albedo> for Color {
     fn from(color: Albedo) -> Self {
@@ -178,9 +183,20 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
     }
 }
 
-impl<T> Octree<T>
-where
-    T: FromBencode + ToBencode + Default + Eq + Clone + Hash + Zero + VoxelData,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > Octree<T>
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let vox_tree = dot_vox::load(filename)?;

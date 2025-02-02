@@ -258,7 +258,7 @@ impl OctreeGPUDataHandler {
         tree: &'a Octree<T>,
     ) -> (Vec<BrickUpdate<'a>>, Vec<usize>)
     where
-        T: Default + Clone + PartialEq + VoxelData + Hash,
+        T: Default + Clone + Eq + VoxelData + Hash,
     {
         let mut modified_bricks = Vec::new();
         let mut modified_nodes = vec![meta_index];
@@ -380,7 +380,7 @@ impl OctreeGPUDataHandler {
         node_key: usize,
     ) -> Option<(usize, Vec<BrickUpdate<'a>>, Vec<usize>)>
     where
-        T: Default + Copy + Clone + PartialEq + Send + Sync + Hash + VoxelData + 'static,
+        T: Default + Copy + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
     {
         debug_assert!(
             !self.node_key_vs_meta_index.contains_left(&node_key),
@@ -503,7 +503,7 @@ impl OctreeGPUDataHandler {
         target_octant: usize,
     ) -> (usize, Vec<BrickUpdate<'a>>, Vec<usize>)
     where
-        T: Default + Clone + PartialEq + Send + Sync + Hash + VoxelData + 'static,
+        T: Default + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
     {
         let brick = match tree.nodes.get(node_key) {
             NodeContent::UniformLeaf(brick) => brick,

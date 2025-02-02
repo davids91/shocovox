@@ -30,7 +30,7 @@ use std::{
 
 impl<T> OctreeGPUHost<T>
 where
-    T: Default + Clone + Copy + PartialEq + Send + Sync + Hash + VoxelData + 'static,
+    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
 {
     //##############################################################################
     //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
@@ -305,7 +305,7 @@ pub(crate) fn write_to_gpu<T>(
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
     svx_view_set: ResMut<SvxViewSet>,
 ) where
-    T: Default + Clone + Copy + PartialEq + Send + Sync + Hash + VoxelData + 'static,
+    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
 {
     if let (Some(pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
         let render_queue = &pipeline.render_queue;
