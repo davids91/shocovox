@@ -16,6 +16,8 @@ struct Cube {
 
 const FLOAT_ERROR_TOLERANCE = 0.00001;
 const OOB_OCTANT = 8u;
+const COLOR_FOR_NODE_REQUEST_SENT = vec3f(0.5,0.3,0.0);
+const COLOR_FOR_NODE_REQUEST_FAIL = vec3f(0.7,0.2,0.0);
 
 //crate::spatial::math::hash_region
 fn hash_region(offset: vec3f, size_half: f32) -> u32 {
@@ -467,9 +469,9 @@ fn traverse_node_for_ocbits(
     );
 
     var current_index = vec3i(vec3f(
-        clamp( (position.x * 4. / (*node_bounds).size), 0.5, 3.5),
-        clamp( (position.y * 4. / (*node_bounds).size), 0.5, 3.5),
-        clamp( (position.z * 4. / (*node_bounds).size), 0.5, 3.5),
+        clamp( (position.x * 4. / (*node_bounds).size), 0.01, 3.99),
+        clamp( (position.y * 4. / (*node_bounds).size), 0.01, 3.99),
+        clamp( (position.z * 4. / (*node_bounds).size), 0.01, 3.99),
     ));
 
     var current_bounds = Cube(
@@ -609,8 +611,8 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             ){
                 if request_node(current_node_key, target_octant) {
                     missing_data_color += (
-                        vec3f(0.5,0.3,0.0) *
-                        vec3f(traverse_node_for_ocbits(
+                        COLOR_FOR_NODE_REQUEST_SENT
+                        * vec3f(traverse_node_for_ocbits(
                             ray,
                             &ray_current_distance,
                             current_node_key,
@@ -620,8 +622,8 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     );
                 } else {
                     missing_data_color += (
-                        vec3f(0.7,0.2,0.0) *
-                        vec3f(traverse_node_for_ocbits(
+                        COLOR_FOR_NODE_REQUEST_FAIL
+                        * vec3f(traverse_node_for_ocbits(
                             ray,
                             &ray_current_distance,
                             current_node_key,
@@ -817,6 +819,43 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         target_bounds = child_bounds_for(&current_bounds, target_octant);
                         target_child_key = node_children[(current_node_key * 8) + target_octant];
                         bitmap_pos_in_node += step_vec * 4. / current_bounds.size;
+                        if(
+                            target_child_key == EMPTY_MARKER // target child key is invalid
+                            && ( // node is occupied at target octant
+                                0 != (
+                                    BITMAP_MASK_FOR_OCTANT_LUT[target_octant][0]
+                                    & node_occupied_bits[current_node_key * 2]
+                                )
+                                || 0 != (
+                                    BITMAP_MASK_FOR_OCTANT_LUT[target_octant][1]
+                                    & node_occupied_bits[current_node_key * 2 + 1]
+                                )
+                            )
+                        ){
+                            if request_node(current_node_key, target_octant) {
+                                missing_data_color += (
+                                    COLOR_FOR_NODE_REQUEST_SENT
+                                    * vec3f(traverse_node_for_ocbits(
+                                        ray,
+                                        &ray_current_distance,
+                                        current_node_key,
+                                        &current_bounds,
+                                        &ray_scale_factors
+                                    ))
+                                );
+                            } else {
+                                missing_data_color += (
+                                    COLOR_FOR_NODE_REQUEST_FAIL
+                                    * vec3f(traverse_node_for_ocbits(
+                                        ray,
+                                        &ray_current_distance,
+                                        current_node_key,
+                                        &current_bounds,
+                                        &ray_scale_factors
+                                    ))
+                                );
+                            }
+                        }
                     }
                     if (
                         target_octant == OOB_OCTANT
@@ -884,10 +923,10 @@ fn is_empty(e: Voxelement) -> bool {
     return (
         (0x0000FFFF == (0x0000FFFF & e))
         ||(
-            0. == color_palette[e & 0x0000FFFF].r
+            0. == color_palette[e & 0x0000FFFF].a
+            && 0. == color_palette[e & 0x0000FFFF].r
             && 0. == color_palette[e & 0x0000FFFF].g
             && 0. == color_palette[e & 0x0000FFFF].b
-            && 0. == color_palette[e & 0x0000FFFF].a
         )
     );
 }

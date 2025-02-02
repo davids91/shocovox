@@ -36,7 +36,7 @@ pub struct Viewport {
     pub w_h_fov: V3cf32,
 }
 
-pub struct RenderBevyPlugin<T>
+pub struct RenderBevyPlugin<T = u32>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + 'static,
 {
@@ -46,7 +46,7 @@ where
 
 #[derive(Resource, Clone, TypePath, ExtractResource)]
 #[type_path = "shocovox::gpu::OctreeGPUHost"]
-pub struct OctreeGPUHost<T>
+pub struct OctreeGPUHost<T = u32>
 where
     T: Default + Clone + PartialEq + VoxelData + Send + Sync + Hash + 'static,
 {
@@ -94,21 +94,32 @@ pub struct OctreeGPUDataHandler {
 #[derive(Clone)]
 pub(crate) struct OctreeRenderDataResources {
     // Spyglass group
+    // --{
     pub(crate) spyglass_bind_group: BindGroup,
     pub(crate) viewport_buffer: Buffer,
     pub(crate) node_requests_buffer: Buffer,
+    // }--
 
     // Octree render data group
+    // --{
     pub(crate) tree_bind_group: BindGroup,
     pub(crate) metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,
+
+    /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
+    /// which is stored in 2 * u32 values. only available in GPU, to eliminate needles redundancy
     pub(crate) node_ocbits_buffer: Buffer,
+
+    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
+    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
+    /// Only available in GPU, to eliminate needles redundancy
     pub(crate) voxels_buffer: Buffer,
     pub(crate) color_palette_buffer: Buffer,
 
     // Staging buffers for data reads
     pub(crate) readable_node_requests_buffer: Buffer,
     pub(crate) readable_metadata_buffer: Buffer,
+    // }--
 }
 
 #[derive(Clone)]
@@ -116,6 +127,11 @@ pub struct OctreeSpyGlass {
     pub output_texture: Handle<Image>,
     pub viewport: Viewport,
     pub(crate) node_requests: Vec<u32>,
+}
+
+pub(crate) struct BrickUpdate<'a> {
+    pub(crate) brick_index: usize,
+    pub(crate) data: Option<&'a [PaletteIndexValues]>,
 }
 
 #[derive(Clone, TypePath)]
@@ -174,10 +190,6 @@ pub struct OctreeRenderData {
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values
     pub(crate) node_ocbits: Vec<u32>,
-
-    /// Buffer of Voxel Bricks. Each brick contains voxel_brick_dim^3 elements.
-    /// Each Brick has a corresponding 64 bit occupancy bitmap in the @voxel_maps buffer.
-    pub(crate) voxels: Vec<PaletteIndexValues>,
 
     /// Stores each unique color, it is references in @voxels
     /// and in @children_buffer as well( in case of solid bricks )

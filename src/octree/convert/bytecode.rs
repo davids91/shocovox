@@ -31,10 +31,10 @@ impl ToBencode for Albedo {
     const MAX_DEPTH: usize = 2;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
-            e.emit(&self.r)?;
-            e.emit(&self.g)?;
-            e.emit(&self.b)?;
-            e.emit(&self.a)
+            e.emit(self.r)?;
+            e.emit(self.g)?;
+            e.emit(self.b)?;
+            e.emit(self.a)
         })
     }
 }

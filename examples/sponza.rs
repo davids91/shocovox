@@ -7,7 +7,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::octree::{
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
-    Albedo, Octree, V3c, V3cf32,
+    Octree, V3c, V3cf32,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -36,7 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::octree::raytracing::RenderBevyPlugin::<Albedo>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::octree::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -50,12 +50,12 @@ fn main() {
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // fill octree with data
-    let tree;
+    let tree: Octree;
     let tree_path = "example_junk_sponza";
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::<Albedo>::load(&tree_path).ok().unwrap();
+        tree = Octree::load(&tree_path).ok().unwrap();
     } else {
-        tree = match shocovox_rs::octree::Octree::<Albedo>::load_vox_file(
+        tree = match shocovox_rs::octree::Octree::load_vox_file(
             "assets/models/sponza.vox",
             BRICK_DIMENSION,
         ) {
@@ -148,7 +148,7 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    tree: ResMut<OctreeGPUHost<Albedo>>,
+    tree: ResMut<OctreeGPUHost>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
 ) {

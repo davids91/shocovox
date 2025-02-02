@@ -253,11 +253,11 @@ where
         }
     }
 
-    fn probe_brick<'a>(
+    fn probe_brick(
         &self,
         ray: &Ray,
         ray_current_distance: &mut f32,
-        brick: &'a BrickData<PaletteIndexValues>,
+        brick: &BrickData<PaletteIndexValues>,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
     ) -> Option<(OctreeEntry<T>, V3c<f32>, V3c<f32>)> {

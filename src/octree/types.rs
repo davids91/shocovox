@@ -101,8 +101,12 @@ where
     pub(crate) octree_size: u32, // Extent of the octree
     pub(crate) nodes: ObjectPool<NodeData>, // Storing data at each position through palette index values
     pub(crate) node_children: Vec<NodeConnection>, // Node Connections
+
+    /// The albedo colors used by the octree. Maximum 65535 colors can be used at once
+    /// because of a limitation on GPU raytracing, to spare space index values refering the palettes
+    /// are stored on 2 Bytes
     pub(crate) voxel_color_palette: Vec<Albedo>, // referenced by @nodes
-    pub(crate) voxel_data_palette: Vec<T>,  // referenced by @nodes
+    pub(crate) voxel_data_palette: Vec<T>, // referenced by @nodes
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
     pub(crate) map_to_data_index_in_palette: HashMap<T, usize>,
 }

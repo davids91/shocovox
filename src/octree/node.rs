@@ -51,15 +51,6 @@ impl<T> NodeChildren<T>
 where
     T: Default + Clone + Eq,
 {
-    /// Returns with true if empty
-    pub(crate) fn is_empty(&self) -> bool {
-        match &self.content {
-            NodeChildrenArray::NoChildren => true,
-            NodeChildrenArray::Children(_) => false,
-            NodeChildrenArray::OccupancyBitmap(mask) => 0 == *mask,
-        }
-    }
-
     /// Creates a new default element, with the given empty_marker
     pub(crate) fn new(empty_marker: T) -> Self {
         Self {
@@ -353,7 +344,7 @@ impl BrickData<PaletteIndexValues> {
             if NodeContent::pix_points_to_empty(homogeneous_type, color_palette, data_palette) {
                 *self = BrickData::Empty;
             } else {
-                *self = BrickData::Solid(homogeneous_type.clone());
+                *self = BrickData::Solid(*homogeneous_type);
             }
             true
         } else {
@@ -491,10 +482,10 @@ impl NodeContent<PaletteIndexValues> {
             Self::pix_data_index(index),
             data_palette.len()
         );
-        return OctreeEntry::Complex(
+        OctreeEntry::Complex(
             &color_palette[Self::pix_color_index(index)],
             &data_palette[Self::pix_data_index(index)],
-        );
+        )
     }
 
     /// Returns with true if content doesn't have any data

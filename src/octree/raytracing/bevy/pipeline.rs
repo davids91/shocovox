@@ -308,12 +308,6 @@ pub(crate) fn prepare_bind_groups(
             .write_buffer(&resources.node_ocbits_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.voxels).unwrap();
-        pipeline
-            .render_queue
-            .write_buffer(&resources.voxels_buffer, 0, &buffer.into_inner());
-
-        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.color_palette).unwrap();
         pipeline
             .render_queue
@@ -377,11 +371,16 @@ pub(crate) fn prepare_bind_groups(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         });
 
-        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-        buffer.write(&render_data.voxels).unwrap();
-        let voxels_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        // One element in the metadata holds 8 bricks. See @OctreeRenderData
+        let brick_size = render_data.octree_meta.voxel_brick_dim
+            * render_data.octree_meta.voxel_brick_dim
+            * render_data.octree_meta.voxel_brick_dim;
+        let brick_element_count = (render_data.metadata.len() * 8 * brick_size as usize) as u64;
+        let one_voxel_byte_size = std::mem::size_of::<PaletteIndexValues>() as u64;
+        let voxels_buffer = render_device.create_buffer(&BufferDescriptor {
+            mapped_at_creation: false,
+            size: one_voxel_byte_size * brick_element_count,
             label: Some("Octree Voxels Buffer"),
-            contents: &buffer.into_inner(),
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         });
 

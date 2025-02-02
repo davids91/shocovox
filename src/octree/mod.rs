@@ -122,15 +122,12 @@ where
     /// converts the data structure to a byte representation
     pub fn to_bytes(&self) -> Vec<u8> {
         self.to_bencode()
-            .ok()
             .expect("Failed to serialize Octree to Bytes")
     }
 
     /// parses the data structure from a byte string
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
-        Self::from_bencode(&bytes)
-            .ok()
-            .expect("Failed to serialize Octree from Bytes")
+        Self::from_bencode(&bytes).expect("Failed to serialize Octree from Bytes")
     }
 
     /// saves the data structure to the given file path

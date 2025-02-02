@@ -1,8 +1,9 @@
 use crate::object_pool::empty_marker;
 use crate::octree::{
     raytracing::bevy::types::{
-        BrickOwnedBy, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView, OctreeMetaData,
-        OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet, VictimPointer, Viewport,
+        BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
+        OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
+        VictimPointer, Viewport,
     },
     types::PaletteIndexValues,
     BrickData, NodeContent, Octree, V3c, VoxelData,
@@ -82,12 +83,6 @@ where
                 node_ocbits: vec![0; size * 2],
                 node_children: vec![empty_marker(); size * 8],
                 color_palette: vec![Vec4::ZERO; u16::MAX as usize],
-                voxels: vec![
-                    empty_marker::<PaletteIndexValues>();
-                    size * 8
-                        * (self.tree.brick_dim * self.tree.brick_dim * self.tree.brick_dim)
-                            as usize
-                ],
             },
             victim_node: VictimPointer::new(size),
             victim_brick: 0,
@@ -97,7 +92,7 @@ where
             uploaded_color_palette_size: 0,
         };
 
-        gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize, true);
+        gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
 
         let mut output_texture = Image::new_fill(
             Extent3d {
@@ -283,6 +278,27 @@ fn write_range_to_buffer<U>(
     }
 }
 
+/// Extend the given HashMap with a list of brick updates, except avoid overwriting available data with None value
+fn extend_brick_updates<'a>(
+    brick_updates: &mut HashMap<usize, Option<&'a [PaletteIndexValues]>>,
+    addition: Vec<BrickUpdate<'a>>,
+) {
+    for brick_update in addition {
+        brick_updates
+            .entry(brick_update.brick_index)
+            .and_modify(|current_brick_data| {
+                match (*current_brick_data, brick_update.data) {
+                    (None, None) | (Some(_), None) => {} // Keep the current brick data if there is already something
+                    (Some(_), Some(_)) | (None, Some(_)) => {
+                        // Overwrite the current brick request
+                        *current_brick_data = brick_update.data
+                    }
+                }
+            })
+            .or_insert(brick_update.data);
+    }
+}
+
 /// Handles Data Streaming to the GPU based on incoming requests from the view(s)
 pub(crate) fn write_to_gpu<T>(
     tree_gpu_host: Option<ResMut<OctreeGPUHost<T>>>,
@@ -342,6 +358,7 @@ pub(crate) fn write_to_gpu<T>(
                     .data_handler
                     .node_key_vs_meta_index
                     .contains_right(&requested_parent_meta_index));
+
                 let requested_parent_node_key = *view
                     .data_handler
                     .node_key_vs_meta_index
@@ -355,6 +372,8 @@ pub(crate) fn write_to_gpu<T>(
                 );
 
                 modified_nodes.insert(requested_parent_meta_index);
+                ocbits_updated.start = ocbits_updated.start.min(requested_parent_meta_index * 2);
+                ocbits_updated.end = ocbits_updated.end.max(requested_parent_meta_index * 2 + 2);
                 match tree.nodes.get(requested_parent_node_key) {
                     NodeContent::Nothing => {} // parent is empty, nothing to do
                     NodeContent::Internal(_) => {
@@ -373,10 +392,10 @@ pub(crate) fn write_to_gpu<T>(
                         {
                             let (child_index, currently_modified_bricks, currently_modified_nodes) =
                                 view.data_handler
-                                .add_node(tree, requested_child_node_key, false)
+                                .add_node(tree, requested_child_node_key)
                                 .expect("Expected to succeed adding a node into the GPU cache through data_handler");
                             modified_nodes.extend(currently_modified_nodes);
-                            modified_bricks.extend(currently_modified_bricks);
+                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
 
                             child_index
                         } else {
@@ -399,12 +418,6 @@ pub(crate) fn write_to_gpu<T>(
                             "Requester parent erased while adding its child node to meta"
                         );
 
-                        node_children_updated.start = node_children_updated
-                            .start
-                            .min(requested_parent_meta_index * 8 + requested_child_octant as usize);
-                        node_children_updated.end = node_children_updated.end.max(
-                            requested_parent_meta_index * 8 + requested_child_octant as usize + 1,
-                        );
                         ocbits_updated.start = ocbits_updated.start.min(child_index * 2);
                         ocbits_updated.end = ocbits_updated.end.max(child_index * 2 + 2);
                     }
@@ -422,11 +435,11 @@ pub(crate) fn write_to_gpu<T>(
                                 [requested_parent_meta_index * 8] = brick_index as u32;
 
                             modified_nodes.extend(currently_modified_nodes);
-                            modified_bricks.extend(currently_modified_bricks);
+                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
                         }
                     }
                     NodeContent::Leaf(bricks) => {
-                        // Only upload brick if it's not already available
+                        // Only upload brick if it's not empty and not already available
                         if matches!(
                             bricks[requested_child_octant as usize],
                             BrickData::Parted(_) | BrickData::Solid(_)
@@ -445,7 +458,7 @@ pub(crate) fn write_to_gpu<T>(
                                 + requested_child_octant as usize] = brick_index as u32;
 
                             modified_nodes.extend(currently_modified_nodes);
-                            modified_bricks.extend(currently_modified_bricks);
+                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
                         }
                     }
                 }
@@ -547,20 +560,16 @@ pub(crate) fn write_to_gpu<T>(
             // Upload Voxel data
             for modified_brick_data in &modified_bricks {
                 if let Some(new_brick_data) = modified_brick_data.1 {
-                    let brick_element_count =
-                        (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize;
-                    let brick_start_index = *modified_brick_data.0 * brick_element_count;
-                    let element_size = std::mem::size_of_val(&new_brick_data[0]);
-                    let byte_offset = (brick_start_index * element_size) as u64;
+                    let brick_start_index = *modified_brick_data.0 * new_brick_data.len();
                     debug_assert_eq!(
-                        brick_element_count,
                         new_brick_data.len(),
+                        (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
                         "Expected Brick slice to align to tree brick dimension"
                     );
                     unsafe {
                         render_queue.write_buffer(
                             &resources.voxels_buffer,
-                            byte_offset,
+                            (brick_start_index * std::mem::size_of_val(&new_brick_data[0])) as u64,
                             new_brick_data.align_to::<u8>().1,
                         );
                     }

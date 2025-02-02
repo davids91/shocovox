@@ -25,6 +25,8 @@ where
     T: Default + Eq + Clone + Hash + Zero + VoxelData,
 {
     /// Updates the stored palette by adding the new colors and data in the given entry
+    /// Since unused colors are not removed from the palette, possible "pollution" is possible,
+    /// where unused colors remain in the palette.
     /// * Returns with the resulting PaletteIndexValues Entry
     fn add_to_palette(&mut self, entry: &OctreeEntry<T>) -> PaletteIndexValues {
         match entry {
@@ -41,7 +43,7 @@ where
                     self.voxel_color_palette.push(**albedo);
                     potential_new_albedo_index
                 } else {
-                    self.map_to_color_index_in_palette[&albedo]
+                    self.map_to_color_index_in_palette[albedo]
                 };
                 debug_assert!(
                     albedo_index < u16::MAX as usize,
@@ -61,7 +63,7 @@ where
                     self.voxel_data_palette.push((*data).clone());
                     potential_new_data_index
                 } else {
-                    self.map_to_data_index_in_palette[&data]
+                    self.map_to_data_index_in_palette[data]
                 };
                 debug_assert!(
                     data_index < u16::MAX as usize,
@@ -73,7 +75,7 @@ where
                 if **albedo == Albedo::zero() {
                     return self.add_to_palette(&OctreeEntry::Informative(*data));
                 } else if data.is_empty() {
-                    return self.add_to_palette(&OctreeEntry::Visual(*albedo));
+                    return self.add_to_palette(&OctreeEntry::Visual(albedo));
                 }
                 let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
                 let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
@@ -83,7 +85,7 @@ where
                     self.voxel_color_palette.push(**albedo);
                     potential_new_albedo_index
                 } else {
-                    self.map_to_color_index_in_palette[&albedo]
+                    self.map_to_color_index_in_palette[albedo]
                 };
                 let potential_new_data_index = self.map_to_data_index_in_palette.keys().len();
                 let data_index = if let std::collections::hash_map::Entry::Vacant(e) =
@@ -93,7 +95,7 @@ where
                     self.voxel_data_palette.push((*data).clone());
                     potential_new_data_index
                 } else {
-                    self.map_to_data_index_in_palette[&data]
+                    self.map_to_data_index_in_palette[data]
                 };
                 debug_assert!(
                     albedo_index < u16::MAX as usize,
@@ -630,7 +632,7 @@ where
 
             if insert_size > 1
                 && target_bounds.size <= insert_size as f32
-                && position <= target_bounds.min_position.into()
+                && position <= target_bounds.min_position
             {
                 // Whole child node to be overwritten with data
                 // Occupied bits are correctly set in post-processing
@@ -951,7 +953,7 @@ where
                             NodeContent::UniformLeaf(brick) => match brick {
                                 BrickData::Empty => true,
                                 BrickData::Solid(voxel) => NodeContent::pix_points_to_empty(
-                                    &voxel,
+                                    voxel,
                                     &self.voxel_color_palette,
                                     &self.voxel_data_palette,
                                 ),
@@ -975,7 +977,7 @@ where
                                 match &bricks[target_child_octant as usize] {
                                     BrickData::Empty => true,
                                     BrickData::Solid(voxel) => NodeContent::pix_points_to_empty(
-                                        &voxel,
+                                        voxel,
                                         &self.voxel_color_palette,
                                         &self.voxel_data_palette,
                                     ),
@@ -1174,6 +1176,26 @@ where
     /// Returns with true if the given node was simplified
     pub(crate) fn simplify(&mut self, node_key: usize) -> bool {
         if self.nodes.key_is_valid(node_key) {
+            #[cfg(debug_assertions)]
+            {
+                if let NodeContent::Internal(ocbits) = self.nodes.get(node_key) {
+                    for octant in 1..8 {
+                        if self
+                            .nodes
+                            .key_is_valid(self.node_children[node_key][octant] as usize)
+                        {
+                            debug_assert_ne!(
+                                0,
+                                *ocbits & BITMAP_MASK_FOR_OCTANT_LUT[octant as usize],
+                                "Expected ocbits({:#10X}) to represent child at octant[{:?}]",
+                                ocbits,
+                                octant
+                            )
+                        }
+                    }
+                }
+            }
+
             match self.nodes.get_mut(node_key) {
                 NodeContent::Nothing => true,
                 NodeContent::UniformLeaf(brick) => {
@@ -1189,7 +1211,7 @@ where
                         BrickData::Empty => true,
                         BrickData::Solid(voxel) => {
                             if NodeContent::pix_points_to_empty(
-                                &voxel,
+                                voxel,
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             ) {
@@ -1359,7 +1381,7 @@ where
                             || !self
                                 .nodes
                                 .get(child_keys[0] as usize)
-                                .compare(&self.nodes.get(child_keys[octant] as usize))
+                                .compare(self.nodes.get(child_keys[octant] as usize))
                         {
                             return false;
                         }
