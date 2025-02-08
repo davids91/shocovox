@@ -59,6 +59,14 @@ pub struct SvxViewSet {
     pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
 }
 
+#[derive(Clone)]
+pub struct OctreeSpyGlass {
+    pub output_texture: Handle<Image>,
+    pub(crate) viewport_changed: bool,
+    pub(crate) viewport: Viewport,
+    pub(crate) node_requests: Vec<u32>,
+}
+
 #[derive(Resource, Clone)]
 pub struct OctreeGPUView {
     pub spyglass: OctreeSpyGlass,
@@ -120,13 +128,6 @@ pub(crate) struct OctreeRenderDataResources {
     pub(crate) readable_node_requests_buffer: Buffer,
     pub(crate) readable_metadata_buffer: Buffer,
     // }--
-}
-
-#[derive(Clone)]
-pub struct OctreeSpyGlass {
-    pub output_texture: Handle<Image>,
-    pub viewport: Viewport,
-    pub(crate) node_requests: Vec<u32>,
 }
 
 pub(crate) struct BrickUpdate<'a> {

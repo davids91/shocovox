@@ -115,6 +115,7 @@ where
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
             data_handler: gpu_data_handler,
             spyglass: OctreeSpyGlass {
+                viewport_changed: true,
                 node_requests: vec![empty_marker(); 4],
                 output_texture: output_texture.clone(),
                 viewport,
@@ -321,9 +322,12 @@ pub(crate) fn write_to_gpu<T>(
         let mut view = svx_view_set.views[0].lock().unwrap();
 
         // Data updates for spyglass viewport
-        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&view.spyglass.viewport).unwrap();
-        render_queue.write_buffer(&resources.viewport_buffer, 0, &buffer.into_inner());
+        if view.spyglass.viewport_changed {
+            let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+            buffer.write(&view.spyglass.viewport).unwrap();
+            render_queue.write_buffer(&resources.viewport_buffer, 0, &buffer.into_inner());
+            view.spyglass.viewport_changed = false;
+        }
 
         // Handle node requests, update cache
         let tree = &tree_host.tree;

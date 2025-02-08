@@ -162,8 +162,8 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
     let cam = camera_query.single();
     if let Some(_) = cam.radius {
         let mut tree_view = view_set.views[0].lock().unwrap();
-        tree_view.spyglass.viewport.origin = V3c::new(cam.focus.x, cam.focus.y, cam.focus.z);
-        tree_view.spyglass.viewport.direction = direction_from_cam(cam).unwrap();
+        tree_view.spyglass.viewport_mut().origin = V3c::new(cam.focus.x, cam.focus.y, cam.focus.z);
+        tree_view.spyglass.viewport_mut().direction = direction_from_cam(cam).unwrap();
     }
 }
 
@@ -180,16 +180,16 @@ fn handle_zoom(
         // Render the current view with CPU
         let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction
-            .cross(tree_view.spyglass.viewport.direction)
+            .cross(tree_view.spyglass.viewport().direction)
             .normalized();
         let pixel_width =
-            tree_view.spyglass.viewport.w_h_fov.x as f32 / DISPLAY_RESOLUTION[0] as f32;
+            tree_view.spyglass.viewport().w_h_fov.x as f32 / DISPLAY_RESOLUTION[0] as f32;
         let pixel_height =
-            tree_view.spyglass.viewport.w_h_fov.y as f32 / DISPLAY_RESOLUTION[1] as f32;
-        let viewport_bottom_left = tree_view.spyglass.viewport.origin
-            + (tree_view.spyglass.viewport.direction * tree_view.spyglass.viewport.w_h_fov.z)
-            - (viewport_up_direction * (tree_view.spyglass.viewport.w_h_fov.y / 2.))
-            - (viewport_right_direction * (tree_view.spyglass.viewport.w_h_fov.x / 2.));
+            tree_view.spyglass.viewport().w_h_fov.y as f32 / DISPLAY_RESOLUTION[1] as f32;
+        let viewport_bottom_left = tree_view.spyglass.viewport().origin
+            + (tree_view.spyglass.viewport().direction * tree_view.spyglass.viewport().w_h_fov.z)
+            - (viewport_up_direction * (tree_view.spyglass.viewport().w_h_fov.y / 2.))
+            - (viewport_right_direction * (tree_view.spyglass.viewport().w_h_fov.x / 2.));
 
         // define light
         let diffuse_light_normal = V3c::new(0., -1., 1.).normalized();
@@ -207,8 +207,8 @@ fn handle_zoom(
                     + viewport_right_direction * x as f32 * pixel_width
                     + viewport_up_direction * y as f32 * pixel_height;
                 let ray = Ray {
-                    origin: tree_view.spyglass.viewport.origin,
-                    direction: (glass_point - tree_view.spyglass.viewport.origin).normalized(),
+                    origin: tree_view.spyglass.viewport().origin,
+                    direction: (glass_point - tree_view.spyglass.viewport().origin).normalized(),
                 };
 
                 use std::io::Write;
@@ -239,10 +239,10 @@ fn handle_zoom(
     }
 
     if keys.pressed(KeyCode::Home) {
-        tree_view.spyglass.viewport.w_h_fov.z *= 1. + 0.09;
+        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. + 0.09;
     }
     if keys.pressed(KeyCode::End) {
-        tree_view.spyglass.viewport.w_h_fov.z *= 1. - 0.09;
+        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. - 0.09;
     }
 
     let mut cam = camera_query.single_mut();

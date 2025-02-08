@@ -45,6 +45,17 @@ impl From<Albedo> for Vec4 {
     }
 }
 
+impl OctreeSpyGlass {
+    pub fn viewport(&self) -> &Viewport {
+        &self.viewport
+    }
+
+    pub fn viewport_mut(&mut self) -> &mut Viewport {
+        self.viewport_changed = true;
+        &mut self.viewport
+    }
+}
+
 impl<T> RenderBevyPlugin<T>
 where
     T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
