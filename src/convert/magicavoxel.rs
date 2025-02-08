@@ -98,7 +98,11 @@ where
     }
 }
 
-fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVoxData, mut fun: F) {
+fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(
+    vox_tree: &DotVoxData,
+    frame: usize,
+    mut fun: F,
+) {
     let mut node_stack: Vec<(u32, V3c<i32>, Matrix3<i8>, u32)> = Vec::new();
 
     match &vox_tree.scenes[0] {
@@ -124,7 +128,8 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
                 child,
                 layer_id: _,
             } => {
-                let translation = if let Some(t) = frames[0].attributes.get("_t") {
+                let used_frame = if frame < frames.len() { frame } else { 0 };
+                let translation = if let Some(t) = frames[used_frame].attributes.get("_t") {
                     translation
                         + t.split(" ")
                             .map(|x| x.parse().expect("Not an integer!"))
@@ -133,7 +138,7 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
                 } else {
                     translation
                 };
-                let orientation = if let Some(r) = frames[0].attributes.get("_r") {
+                let orientation = if let Some(r) = frames[used_frame].attributes.get("_r") {
                     rotation
                         * parse_rotation_matrix(
                             r.parse()
@@ -168,11 +173,20 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(vox_tree: &DotVox
                 models,
             } => {
                 for model in models {
-                    fun(
-                        &vox_tree.models[model.model_id as usize],
-                        &translation,
-                        &rotation,
-                    );
+                    if model
+                        .attributes
+                        .get("_f")
+                        .unwrap_or(&"0".to_string())
+                        .parse::<usize>()
+                        .expect("Expected frame attribute of Voxel Model to be a parsable integer")
+                        == frame
+                    {
+                        fun(
+                            &vox_tree.models[model.model_id as usize],
+                            &translation,
+                            &rotation,
+                        );
+                    }
                 }
                 node_stack.pop();
                 if let Some(parent) = node_stack.last_mut() {
@@ -203,7 +217,7 @@ impl<
 
         let mut min_position_lyup = V3c::<i32>::new(0, 0, 0);
         let mut max_position_lyup = V3c::<i32>::new(0, 0, 0);
-        iterate_vox_tree(&vox_tree, |model, position, orientation| {
+        iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
             let model_size_half_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
                 CoordinateSystemType::Rzup,
@@ -256,10 +270,15 @@ impl<
             .max(max_position_lyup.z);
         let max_dimension = (max_dimension as f32).log2().ceil() as u32;
         let max_dimension = 2_u32.pow(max_dimension);
-        let mut shocovox_octree = Octree::<T>::new(max_dimension, brick_dimension)
-            .ok()
-            .unwrap();
-        iterate_vox_tree(&vox_tree, |model, position, orientation| {
+        let mut shocovox_octree = Octree::<T>::new(max_dimension, brick_dimension).expect(
+            &format!(
+                "Expected to build a valid cotree with dimension {:?} and brick dimension {:?}",
+                max_dimension, brick_dimension
+            )
+            .to_owned(),
+        );
+
+        iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
                 CoordinateSystemType::Rzup,
