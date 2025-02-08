@@ -1,15 +1,11 @@
 pub mod types;
 pub mod update;
 
-mod convert;
 mod detail;
 mod node;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(feature = "raytracing")]
-pub mod raytracing;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{Albedo, Octree, OctreeEntry, VoxelData};

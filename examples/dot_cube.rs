@@ -12,9 +12,9 @@ use iyes_perf_ui::{
 };
 
 #[cfg(feature = "bevy_wgpu")]
-use shocovox_rs::octree::{
+use shocovox_rs::{
+    octree::{Albedo, Octree, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
-    Albedo, Octree, V3c, V3cf32,
 };
 
 #[cfg(feature = "bevy_wgpu")]
@@ -32,7 +32,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            shocovox_rs::octree::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,

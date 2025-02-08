@@ -113,16 +113,16 @@ fn cube_impact_normal(cube: Cube, impact_point: vec3f) -> vec3f{
 }
 
 
-//crate::octree::raytracing::NodeStack
+//crate::raytracing::NodeStack
 const NODE_STACK_SIZE: u32 = 4;
 const EMPTY_MARKER: u32 = 0xFFFFFFFFu;
 
-//crate::octree::raytracing::NodeStack::is_empty
+//crate::raytracing::NodeStack::is_empty
 fn node_stack_is_empty(node_stack_meta: u32) -> bool {
     return 0 == (node_stack_meta & 0x000000FFu);
 }
 
-//crate::octree::raytracing::NodeStack::push
+//crate::raytracing::NodeStack::push
 fn node_stack_push(
     node_stack: ptr<function,array<u32, NODE_STACK_SIZE>>,
     node_stack_meta: ptr<function, u32>,
@@ -140,7 +140,7 @@ fn node_stack_push(
 }
 
 
-//crate::octree::raytracing::NodeStack::pop
+//crate::raytracing::NodeStack::pop
 fn node_stack_pop(
     node_stack: ptr<function,array<u32, NODE_STACK_SIZE>>,
     node_stack_meta: ptr<function, u32>,
@@ -169,7 +169,7 @@ fn node_stack_pop(
     return result;
 }
 
-//crate::octree::raytracing::NodeStack::last/last_mut
+//crate::raytracing::NodeStack::last/last_mut
 fn node_stack_last(node_stack_meta: u32) -> u32 { // returns either with index or EMPTY_MARKER
     if 0 == (node_stack_meta & 0x000000FFu) {
         return EMPTY_MARKER;
@@ -198,7 +198,7 @@ fn get_dda_scale_factors(ray: ptr<function, Line>) -> vec3f {
     );
 }
 
-//crate::octree::raytracing::dda_step_to_next_sibling
+//crate::raytracing::dda_step_to_next_sibling
 fn dda_step_to_next_sibling(
     ray: ptr<function, Line>,
     ray_current_distance: ptr<function,f32>,

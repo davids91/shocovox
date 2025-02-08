@@ -1,6 +1,6 @@
-use crate::octree::{
+use crate::{
+    octree::types::PaletteIndexValues,
     raytracing::bevy::types::{OctreeMetaData, SvxRenderNode, SvxRenderPipeline, Viewport},
-    types::PaletteIndexValues,
 };
 use bevy::{
     asset::AssetServer,

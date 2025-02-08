@@ -1,9 +1,12 @@
 use crate::object_pool::empty_marker;
-use crate::octree::raytracing::bevy::types::BrickOwnedBy;
-use crate::octree::{
-    raytracing::bevy::types::{BrickUpdate, OctreeGPUDataHandler, OctreeRenderData, VictimPointer},
-    types::NodeContent,
-    BrickData, Octree, VoxelData,
+use crate::{
+    octree::{
+        types::{BrickData, NodeContent},
+        Octree, VoxelData,
+    },
+    raytracing::bevy::types::{
+        BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeRenderData, VictimPointer,
+    },
 };
 use std::hash::Hash;
 

@@ -3,16 +3,16 @@ mod data;
 mod pipeline;
 pub mod types;
 
-pub use crate::octree::raytracing::bevy::types::{
+pub use crate::raytracing::bevy::types::{
     OctreeGPUHost, OctreeGPUView, OctreeSpyGlass, RenderBevyPlugin, SvxViewSet, Viewport,
 };
-use crate::octree::{
+use crate::{
+    octree::{Albedo, VoxelData},
     raytracing::bevy::{
         data::{handle_gpu_readback, sync_with_main_world, write_to_gpu},
         pipeline::prepare_bind_groups,
         types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
     },
-    Albedo, VoxelData,
 };
 use bevy::{
     app::{App, Plugin},

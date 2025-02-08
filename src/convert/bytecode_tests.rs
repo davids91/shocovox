@@ -1,6 +1,6 @@
 use crate::octree::{
-    types::{Albedo, BrickData, NodeContent, PaletteIndexValues},
-    NodeChildren, Octree, OctreeEntry, V3c,
+    types::{Albedo, BrickData, NodeChildren, NodeContent, PaletteIndexValues},
+    Octree, OctreeEntry, V3c,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 

@@ -1,12 +1,12 @@
 [package]
 name = "shocovox-rs"
-version = "0.8.1"
+version = "0.8.3"
 edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["bytecode", "dot_vox_support"]
+default = ["bevy_wgpu","bytecode", "dot_vox_support"]
 raytracing = ["dep:image", "dep:show-image"]
 bytecode = ["dep:bendy"]
 serialization = ["dep:serde"]

@@ -1,12 +1,14 @@
 use crate::object_pool::empty_marker;
-use crate::octree::{
+use crate::{
+    octree::{
+        types::{BrickData, NodeContent, PaletteIndexValues},
+        Octree, V3c, VoxelData,
+    },
     raytracing::bevy::types::{
         BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
         OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
         VictimPointer, Viewport,
     },
-    types::PaletteIndexValues,
-    BrickData, NodeContent, Octree, V3c, VoxelData,
 };
 use bevy::{
     ecs::system::{Res, ResMut},

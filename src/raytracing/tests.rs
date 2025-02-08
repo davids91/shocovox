@@ -1,6 +1,12 @@
-use crate::octree::{Cube, V3c};
-use crate::spatial::raytracing::Ray;
-use crate::spatial::raytracing::{plane_line_intersection, FLOAT_ERROR_TOLERANCE};
+use crate::{
+    octree::V3c,
+    spatial::{
+        raytracing::{
+            Ray, {plane_line_intersection, FLOAT_ERROR_TOLERANCE},
+        },
+        Cube,
+    },
+};
 
 /// Reference implementation to decide step to sibling boundary
 #[allow(dead_code)]
@@ -69,11 +75,15 @@ mod wgpu_tests {
 
 #[cfg(test)]
 mod octree_raytracing_tests {
-    use crate::octree::{
-        raytracing::tests::get_step_to_next_sibling, Albedo, Cube, Octree, OctreeEntry, V3c,
+    use crate::{
+        octree::{Albedo, Octree, OctreeEntry, V3c},
+        raytracing::tests::get_step_to_next_sibling,
+        spatial::{
+            raytracing::{Ray, FLOAT_ERROR_TOLERANCE},
+            Cube,
+        },
+        voxel_data,
     };
-    use crate::spatial::raytracing::{Ray, FLOAT_ERROR_TOLERANCE};
-    use crate::voxel_data;
 
     use rand::{rngs::ThreadRng, Rng};
 
@@ -804,7 +814,7 @@ mod octree_raytracing_tests {
 
 #[cfg(test)]
 mod node_stack_tests {
-    use crate::octree::raytracing::raytracing_on_cpu::NodeStack;
+    use crate::raytracing::raytracing_on_cpu::NodeStack;
 
     #[test]
     fn test_stack_is_empty() {

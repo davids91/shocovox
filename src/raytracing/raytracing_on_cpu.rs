@@ -1,7 +1,7 @@
 use crate::{
     octree::{
-        types::{NodeChildren, NodeContent, PaletteIndexValues},
-        BrickData, Cube, Octree, OctreeEntry, V3c, VoxelData,
+        types::{BrickData, NodeChildren, NodeContent, PaletteIndexValues},
+        Octree, OctreeEntry, V3c, VoxelData,
     },
     spatial::{
         lut::{
@@ -10,6 +10,7 @@ use crate::{
         },
         math::{flat_projection, hash_direction, hash_region, BITMAP_DIMENSION},
         raytracing::{cube_impact_normal, step_octant, Ray, FLOAT_ERROR_TOLERANCE},
+        Cube,
     },
 };
 use std::hash::Hash;

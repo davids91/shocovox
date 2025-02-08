@@ -2,7 +2,7 @@
 use rand::Rng;
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::octree::{raytracing::Ray, V3c};
+use shocovox_rs::{octree::V3c, raytracing::Ray};
 
 #[cfg(feature = "raytracing")]
 #[show_image::main]
