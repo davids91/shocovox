@@ -190,7 +190,7 @@ impl<
         let node_count_estimation = (size / brick_dimension).pow(3);
         let mut nodes = ObjectPool::with_capacity(node_count_estimation.min(1024) as usize);
         let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
-        node_children.push(NodeChildren::new(empty_marker()));
+        node_children.push(NodeChildren::default());
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
@@ -311,7 +311,7 @@ impl<
                     // Hash the position to the target child
                     let child_octant_at_position = child_octant_for(&current_bounds, &position);
                     let child_at_position =
-                        self.node_children[current_node_key][child_octant_at_position as u32];
+                        self.node_children[current_node_key].child(child_octant_at_position);
 
                     // There is a valid child at the given position inside the node, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
@@ -339,12 +339,12 @@ impl<
                                   "Node[{:?}] under {:?} \n has a child(node[{:?}]) in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X};\nbecause: (should be empty: {} <> is empty: {})\n child node: {:?}; child node children: {:?};",
                                   current_node_key,
                                   current_bounds,
-                                  self.node_children[current_node_key][child_octant_at_position as u32],
+                                  self.node_children[current_node_key].child(child_octant_at_position),
                                   child_octant_at_position,
                                   position, occupied_bits,
                                   should_bit_be_empty, is_bit_empty,
-                                  self.nodes.get(self.node_children[current_node_key][child_octant_at_position as u32] as usize),
-                                  self.node_children[self.node_children[current_node_key][child_octant_at_position as u32] as usize].content
+                                  self.nodes.get(self.node_children[current_node_key].child(child_octant_at_position)),
+                                  self.node_children[self.node_children[current_node_key].child(child_octant_at_position)]
                             );
                         }
                         current_node_key = child_at_position as usize;

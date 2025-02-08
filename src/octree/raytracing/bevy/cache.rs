@@ -431,7 +431,7 @@ impl OctreeGPUDataHandler {
             NodeContent::Nothing => {}
             NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) | NodeContent::Internal(_) => {
                 for octant in 0..8 {
-                    let child_key = tree.node_children[node_key][octant] as usize;
+                    let child_key = tree.node_children[node_key].child(octant);
                     if child_key != empty_marker::<u32>() as usize {
                         self.render_data.node_children[node_element_index * 8 + octant as usize] =
                             *self

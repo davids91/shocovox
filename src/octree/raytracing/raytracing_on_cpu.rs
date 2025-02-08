@@ -1,6 +1,6 @@
 use crate::{
     octree::{
-        types::{NodeChildrenArray, NodeContent, PaletteIndexValues},
+        types::{NodeChildren, NodeContent, PaletteIndexValues},
         BrickData, Cube, Octree, OctreeEntry, V3c, VoxelData,
     },
     spatial::{
@@ -352,8 +352,8 @@ where
                     match self.nodes.get(current_node_key) {
                         NodeContent::UniformLeaf(brick) => {
                             debug_assert!(matches!(
-                                self.node_children[current_node_key].content,
-                                NodeChildrenArray::OccupancyBitmap(_)
+                                self.node_children[current_node_key],
+                                NodeChildren::OccupancyBitmap(_)
                             ));
                             if let Some(hit) = self.probe_brick(
                                 ray,
@@ -368,8 +368,8 @@ where
                         }
                         NodeContent::Leaf(bricks) => {
                             debug_assert!(matches!(
-                                self.node_children[current_node_key].content,
-                                NodeChildrenArray::OccupancyBitmap(_)
+                                self.node_children[current_node_key],
+                                NodeChildren::OccupancyBitmap(_)
                             ));
                             if let Some(hit) = self.probe_brick(
                                 ray,
@@ -441,7 +441,7 @@ where
 
                 let mut target_bounds = current_bounds.child_bounds_for(target_octant);
                 let mut target_child_key =
-                    self.node_children[current_node_key][target_octant as u32];
+                    self.node_children[current_node_key].child(target_octant) as u32;
                 if self.nodes.key_is_valid(target_child_key as usize)
                     && 0 != (current_node_occupied_bits
                         & BITMAP_MASK_FOR_OCTANT_LUT[target_octant as usize])
@@ -470,7 +470,7 @@ where
                         if OOB_OCTANT != target_octant {
                             target_bounds = current_bounds.child_bounds_for(target_octant);
                             target_child_key =
-                                self.node_children[current_node_key][target_octant as u32];
+                                self.node_children[current_node_key].child(target_octant) as u32;
                             bitmap_pos_in_node += step_vec * 4. / current_bounds.size;
                             flat_pos_in_bitmap = BITMAP_INDEX_LUT
                                 [bitmap_pos_in_node.x.floor() as usize]

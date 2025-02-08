@@ -1,9 +1,6 @@
-use crate::{
-    object_pool::empty_marker,
-    octree::{
-        types::{Albedo, BrickData, NodeChildrenArray, NodeContent, PaletteIndexValues},
-        NodeChildren, Octree, OctreeEntry, V3c,
-    },
+use crate::octree::{
+    types::{Albedo, BrickData, NodeContent, PaletteIndexValues},
+    NodeChildren, Octree, OctreeEntry, V3c,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
@@ -102,15 +99,9 @@ fn test_nodecontent_serialization() {
 
 #[test]
 fn test_node_children_serialization() {
-    let node_children_empty = NodeChildren::new(empty_marker());
-    let node_children_filled = NodeChildren {
-        empty_marker: empty_marker(),
-        content: NodeChildrenArray::Children([1, 2, 3, 4, 5, 6, 7, 8]),
-    };
-    let node_children_bitmap = NodeChildren {
-        empty_marker: empty_marker(),
-        content: NodeChildrenArray::OccupancyBitmap(666),
-    };
+    let node_children_empty = NodeChildren::default();
+    let node_children_filled = NodeChildren::Children([1, 2, 3, 4, 5, 6, 7, 8]);
+    let node_children_bitmap = NodeChildren::OccupancyBitmap(666);
 
     let serialized_node_children_empty = node_children_empty.to_bencode();
     let serialized_node_children_filled = node_children_filled.to_bencode();

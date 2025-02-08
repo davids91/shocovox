@@ -45,25 +45,13 @@ where
     UniformLeaf(BrickData<T>),
 }
 
-#[derive(Default, Copy, Clone, PartialEq)]
-#[cfg_attr(test, derive(Eq))]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) enum NodeChildrenArray<T: Default> {
+pub(crate) enum NodeChildren<T: Default> {
     #[default]
     NoChildren,
     Children([T; 8]),
     OccupancyBitmap(u64), // In case of leaf nodes
-}
-
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(test, derive(PartialEq, Eq))]
-#[cfg_attr(feature = "serialization", derive(Serialize, Deserialize))]
-pub(crate) struct NodeChildren<T: Default> {
-    /// The key value to signify "no child" at a given slot
-    pub(crate) empty_marker: T,
-
-    /// The contained child key values
-    pub(crate) content: NodeChildrenArray<T>,
 }
 
 /// Trait for User Defined Voxel Data

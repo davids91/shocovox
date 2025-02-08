@@ -47,9 +47,10 @@ mod brick_tests {
         assert!(!data.is_empty_throughout(7, 2, &color_palette, &data_palette),);
 
         // Erase an octant worth of data, it should be empty!
-        let target_octant = 5;
+        let target_octant: u8 = 5;
         if let BrickData::Parted(ref mut brick) = data {
-            let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant]);
+            let octant_offset =
+                V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant as usize]);
             let octant_flat_offset =
                 flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
             brick[octant_flat_offset] = empty_marker::<PaletteIndexValues>();
@@ -76,10 +77,11 @@ mod brick_tests {
         assert!(!data.is_empty_throughout(6, 4, &color_palette, &data_palette),);
         assert!(!data.is_empty_throughout(7, 4, &color_palette, &data_palette),);
 
-        let target_octant = 5;
+        let target_octant: u8 = 5;
         // offset by half of the brick dimension, as half of the dim 4x4x4 translates to 2x2x2
         // which is the resolution of OCTANT_OFFSET_REGION_LUT
-        let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant] * 2.);
+        let octant_offset =
+            V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant as usize] * 2.);
 
         // Erase part of the octant, it should still not be empty
         if let BrickData::Parted(ref mut brick) = data {
@@ -127,10 +129,11 @@ mod brick_tests {
             }
         }
 
-        let target_octant = 5;
+        let target_octant: u8 = 5;
         // offset by half of the brick dimension, as half of the dim 4x4x4 translates to 2x2x2
         // which is the resolution of OCTANT_OFFSET_REGION_LUT
-        let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant] * 2.);
+        let octant_offset =
+            V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[target_octant as usize] * 2.);
 
         // Erase part of the octant, the relevant part should be empty, while others should not be
         if let BrickData::Parted(ref mut brick) = data {

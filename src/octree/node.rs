@@ -1,8 +1,7 @@
 use crate::octree::{
     empty_marker,
     types::{
-        Albedo, BrickData, NodeChildren, NodeChildrenArray, NodeContent, PaletteIndexValues,
-        VoxelData,
+        Albedo, BrickData, NodeChildren, NodeConnection, NodeContent, PaletteIndexValues, VoxelData,
     },
     OctreeEntry, V3c,
 };
@@ -13,7 +12,6 @@ use crate::spatial::{
 use std::{
     fmt::{Debug, Error, Formatter},
     matches,
-    ops::{Index, IndexMut},
 };
 
 //####################################################################################
@@ -34,35 +32,41 @@ use std::{
 //  ░░█████████  █████   █████ █████ ███████████ ██████████   █████   █████ ██████████ █████  ░░█████
 //   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░   ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░    ░░░░░
 //####################################################################################
-impl<T: Default + Debug> Debug for NodeChildrenArray<T> {
+impl<T: Default + Debug> Debug for NodeChildren<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match &self {
-            NodeChildrenArray::NoChildren => write!(f, "NodeChildrenArray::NoChildren"),
-            NodeChildrenArray::Children(array) => {
-                write!(f, "NodeChildrenArray::Children({:?})", array)
+            NodeChildren::NoChildren => write!(f, "NodeChildren::NoChildren"),
+            NodeChildren::Children(array) => {
+                write!(f, "NodeChildren::Children({:?})", array)
             }
-            NodeChildrenArray::OccupancyBitmap(mask) => {
-                write!(f, "NodeChildrenArray::OccupancyBitmap({:#10X})", mask)
+            NodeChildren::OccupancyBitmap(mask) => {
+                write!(f, "NodeChildren::OccupancyBitmap({:#10X})", mask)
             }
         }
     }
 }
-impl<T> NodeChildren<T>
-where
-    T: Default + Clone + Eq,
-{
-    /// Creates a new default element, with the given empty_marker
-    pub(crate) fn new(empty_marker: T) -> Self {
-        Self {
-            empty_marker,
-            content: NodeChildrenArray::default(),
+impl NodeConnection {
+    pub(crate) fn child(&self, octant: u8) -> usize {
+        match &self {
+            NodeChildren::Children(c) => c[octant as usize] as usize,
+            _ => empty_marker(),
+        }
+    }
+
+    pub(crate) fn child_mut(&mut self, index: usize) -> Option<&mut u32> {
+        if let NodeChildren::NoChildren = self {
+            *self = NodeChildren::Children([empty_marker(); 8]);
+        }
+        match self {
+            NodeChildren::Children(c) => Some(&mut c[index]),
+            _ => panic!("Attempted to modify NodeChild[{:?}] of {:?}", index, self),
         }
     }
 
     /// Provides a slice for iteration, if there are children to iterate on
-    pub(crate) fn iter(&self) -> Option<std::slice::Iter<T>> {
-        match &self.content {
-            NodeChildrenArray::Children(c) => Some(c.iter()),
+    pub(crate) fn iter(&self) -> Option<std::slice::Iter<u32>> {
+        match &self {
+            NodeChildren::Children(c) => Some(c.iter()),
             _ => None,
         }
     }
@@ -70,39 +74,11 @@ where
     /// Erases content, if any
     pub(crate) fn clear(&mut self, child_index: usize) {
         debug_assert!(child_index < 8);
-        if let NodeChildrenArray::Children(c) = &mut self.content {
-            c[child_index] = self.empty_marker.clone();
-            if 8 == c.iter().filter(|e| **e == self.empty_marker).count() {
-                self.content = NodeChildrenArray::NoChildren;
+        if let NodeChildren::Children(c) = self {
+            c[child_index] = empty_marker();
+            if 8 == c.iter().filter(|e| **e == empty_marker::<u32>()).count() {
+                *self = NodeChildren::NoChildren;
             }
-        }
-    }
-}
-
-impl<T> Index<u32> for NodeChildren<T>
-where
-    T: Default + Copy + Clone,
-{
-    type Output = T;
-    fn index(&self, index: u32) -> &T {
-        match &self.content {
-            NodeChildrenArray::Children(c) => &c[index as usize],
-            _ => &self.empty_marker,
-        }
-    }
-}
-
-impl<T> IndexMut<u32> for NodeChildren<T>
-where
-    T: Default + Copy + Clone,
-{
-    fn index_mut(&mut self, index: u32) -> &mut T {
-        if let NodeChildrenArray::NoChildren = &mut self.content {
-            self.content = NodeChildrenArray::Children([self.empty_marker; 8]);
-        }
-        match &mut self.content {
-            NodeChildrenArray::Children(c) => &mut c[index as usize],
-            _ => unreachable!(),
         }
     }
 }
@@ -130,7 +106,7 @@ impl BrickData<PaletteIndexValues> {
     /// to the given octant based on the contents of the brick
     pub(crate) fn is_empty_throughout<V: VoxelData>(
         &self,
-        octant: usize,
+        octant: u8,
         brick_dim: usize,
         color_palette: &[Albedo],
         data_palette: &[V],
@@ -162,7 +138,8 @@ impl BrickData<PaletteIndexValues> {
                         brick.len(),
                         brick_dim
                     );
-                    let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]);
+                    let octant_offset =
+                        V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant as usize]);
                     let octant_flat_offset =
                         flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
                     return NodeContent::pix_points_to_empty(
@@ -180,7 +157,7 @@ impl BrickData<PaletteIndexValues> {
                 );
                 let octant_extent = brick_dim / 2usize;
                 let octant_offset =
-                    V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * octant_extent;
+                    V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant as usize]) * octant_extent;
                 for x in octant_offset.x..(octant_offset.x + octant_extent) {
                     for y in octant_offset.y..(octant_offset.y + octant_extent) {
                         for z in octant_offset.z..(octant_offset.z + octant_extent) {
@@ -206,8 +183,8 @@ impl BrickData<PaletteIndexValues> {
     /// is set by @target_octant
     pub(crate) fn is_part_empty_throughout<V: VoxelData>(
         &self,
-        part_octant: usize,
-        target_octant: usize,
+        part_octant: u8,
+        target_octant: u8,
         brick_dim: usize,
         color_palette: &[Albedo],
         data_palette: &[V],
@@ -221,7 +198,8 @@ impl BrickData<PaletteIndexValues> {
                 if 1 == brick_dim {
                     NodeContent::pix_points_to_empty(&brick[0], color_palette, data_palette)
                 } else if 2 == brick_dim {
-                    let octant_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant]);
+                    let octant_offset =
+                        V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant as usize]);
                     let octant_flat_offset =
                         flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
                     NodeContent::pix_points_to_empty(
@@ -233,8 +211,8 @@ impl BrickData<PaletteIndexValues> {
                     let outer_extent = brick_dim as f32 / 2.;
                     let inner_extent = brick_dim as f32 / 4.;
                     let octant_offset = V3c::<usize>::from(
-                        OCTANT_OFFSET_REGION_LUT[part_octant] * outer_extent
-                            + OCTANT_OFFSET_REGION_LUT[target_octant] * inner_extent,
+                        OCTANT_OFFSET_REGION_LUT[part_octant as usize] * outer_extent
+                            + OCTANT_OFFSET_REGION_LUT[target_octant as usize] * inner_extent,
                     );
 
                     for x in 0..inner_extent as usize {

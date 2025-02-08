@@ -347,7 +347,7 @@ pub(crate) fn write_to_gpu<T>(
                     continue;
                 }
                 let requested_parent_meta_index = (*node_request & 0x00FFFFFF) as usize;
-                let requested_child_octant = (*node_request & 0xFF000000) >> 24;
+                let requested_child_octant = ((*node_request & 0xFF000000) >> 24) as u8;
 
                 if modified_nodes.contains(&requested_parent_meta_index) {
                     // Do not accept a request if the requester meta is already overwritten
@@ -378,8 +378,8 @@ pub(crate) fn write_to_gpu<T>(
                     NodeContent::Nothing => {} // parent is empty, nothing to do
                     NodeContent::Internal(_) => {
                         let requested_child_node_key = tree_host.tree.node_children
-                            [requested_parent_node_key][requested_child_octant]
-                            as usize;
+                            [requested_parent_node_key]
+                            .child(requested_child_octant);
                         debug_assert!(
                             tree.nodes.key_is_valid(requested_child_node_key),
                             "Expected key({:?}, child of node[{:?}][{:?}] in meta[{:?}]) to be valid in GPU request.",

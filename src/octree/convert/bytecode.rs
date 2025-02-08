@@ -1,6 +1,6 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::{
-    types::{BrickData, NodeChildren, NodeChildrenArray, NodeContent},
+    types::{BrickData, NodeChildren, NodeContent},
     Albedo, Octree,
 };
 use bendy::{
@@ -352,8 +352,8 @@ where
 impl ToBencode for NodeChildren<u32> {
     const MAX_DEPTH: usize = 2;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
-        match &self.content {
-            NodeChildrenArray::Children(c) => encoder.emit_list(|e| {
+        match &self {
+            NodeChildren::Children(c) => encoder.emit_list(|e| {
                 e.emit_str("##c##")?;
                 e.emit(c[0])?;
                 e.emit(c[1])?;
@@ -364,8 +364,8 @@ impl ToBencode for NodeChildren<u32> {
                 e.emit(c[6])?;
                 e.emit(c[7])
             }),
-            NodeChildrenArray::NoChildren => encoder.emit_str("##x##"),
-            NodeChildrenArray::OccupancyBitmap(map) => encoder.emit_list(|e| {
+            NodeChildren::NoChildren => encoder.emit_str("##x##"),
+            NodeChildren::OccupancyBitmap(map) => encoder.emit_list(|e| {
                 e.emit_str("##b##")?;
                 e.emit(map)
             }),
@@ -375,7 +375,6 @@ impl ToBencode for NodeChildren<u32> {
 
 impl FromBencode for NodeChildren<u32> {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
-        use crate::object_pool::empty_marker;
         match data {
             Object::List(mut list) => {
                 let marker = String::decode_bencode_object(list.next_object()?.unwrap())?;
@@ -389,17 +388,11 @@ impl FromBencode for NodeChildren<u32> {
                                     .unwrap(),
                             );
                         }
-                        Ok(NodeChildren {
-                            empty_marker: empty_marker(),
-                            content: NodeChildrenArray::Children(c.try_into().ok().unwrap()),
-                        })
+                        Ok(NodeChildren::Children(c.try_into().ok().unwrap()))
                     }
-                    "##b##" => Ok(NodeChildren {
-                        empty_marker: empty_marker(),
-                        content: NodeChildrenArray::OccupancyBitmap(u64::decode_bencode_object(
-                            list.next_object()?.unwrap(),
-                        )?),
-                    }),
+                    "##b##" => Ok(NodeChildren::OccupancyBitmap(u64::decode_bencode_object(
+                        list.next_object()?.unwrap(),
+                    )?)),
                     s => Err(bendy::decoding::Error::unexpected_token(
                         "A NodeChildren marker, either ##b##, ##bs## or ##c##",
                         s,
@@ -413,7 +406,7 @@ impl FromBencode for NodeChildren<u32> {
                         .as_str(),
                     "##x##"
                 );
-                Ok(NodeChildren::new(empty_marker()))
+                Ok(NodeChildren::default())
             }
             _ => Err(bendy::decoding::Error::unexpected_token(
                 "A NodeChildren Object, Either a List or a ByteString",
