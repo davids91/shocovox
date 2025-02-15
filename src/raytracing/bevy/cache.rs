@@ -432,7 +432,7 @@ impl OctreeGPUDataHandler {
         // Add child nodes if any is available
         match tree.nodes.get(node_key) {
             NodeContent::Nothing => {}
-            NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) | NodeContent::Internal(_) => {
+            NodeContent::Internal(_) => {
                 for octant in 0..8 {
                     let child_key = tree.node_children[node_key].child(octant);
                     if child_key != empty_marker::<u32>() as usize {
@@ -442,6 +442,23 @@ impl OctreeGPUDataHandler {
                                 .get_by_left(&child_key)
                                 .unwrap_or(&(empty_marker::<u32>() as usize))
                                 as u32;
+                    } else {
+                        self.render_data.node_children[node_element_index * 8 + octant as usize] =
+                            empty_marker::<u32>();
+                    }
+                }
+            }
+            NodeContent::UniformLeaf(brick) => {
+                if let BrickData::Solid(voxel) = brick {
+                    self.render_data.node_children[node_element_index * 8] = *voxel;
+                } else {
+                    self.render_data.node_children[node_element_index * 8] = empty_marker::<u32>();
+                }
+            }
+            NodeContent::Leaf(bricks) => {
+                for octant in 0..8 {
+                    if let BrickData::Solid(voxel) = bricks[octant] {
+                        self.render_data.node_children[node_element_index * 8 + octant] = voxel;
                     } else {
                         self.render_data.node_children[node_element_index * 8 + octant as usize] =
                             empty_marker::<u32>();

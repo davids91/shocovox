@@ -150,6 +150,8 @@ impl FromWorld for SvxRenderPipeline {
         SvxRenderPipeline {
             render_queue: world.resource::<RenderQueue>().clone(),
             update_tree: true,
+            init_data_sent: false,
+            data_ready: false,
             spyglass_bind_group_layout,
             render_data_bind_group_layout,
             update_pipeline,

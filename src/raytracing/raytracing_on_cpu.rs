@@ -348,7 +348,10 @@ where
                     .nodes
                     .key_is_valid(*node_stack.last().unwrap() as usize));
 
-                let mut do_backtrack_after_leaf_miss = false;
+                let mut do_backtrack_after_leaf_miss = matches!(
+                    self.nodes.get(current_node_key),
+                    NodeContent::UniformLeaf(_)
+                );
                 if target_octant != OOB_OCTANT {
                     match self.nodes.get(current_node_key) {
                         NodeContent::UniformLeaf(brick) => {

@@ -201,6 +201,8 @@ pub struct OctreeRenderData {
 pub(crate) struct SvxRenderPipeline {
     pub update_tree: bool,
 
+    pub data_ready: bool,
+    pub init_data_sent: bool,
     pub(crate) render_queue: RenderQueue,
     pub(crate) update_pipeline: CachedComputePipelineId,
 

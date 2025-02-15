@@ -178,14 +178,15 @@ fn handle_zoom(
 
     if keys.pressed(KeyCode::Tab) {
         // Render the current view with CPU
+        const CPU_DISPLAY_RESOLUTION: [u32; 2] = [64, 64];
         let viewport_up_direction = V3c::new(0., 1., 0.);
         let viewport_right_direction = viewport_up_direction
             .cross(tree_view.spyglass.viewport().direction)
             .normalized();
         let pixel_width =
-            tree_view.spyglass.viewport().w_h_fov.x as f32 / DISPLAY_RESOLUTION[0] as f32;
+            tree_view.spyglass.viewport().w_h_fov.x as f32 / CPU_DISPLAY_RESOLUTION[0] as f32;
         let pixel_height =
-            tree_view.spyglass.viewport().w_h_fov.y as f32 / DISPLAY_RESOLUTION[1] as f32;
+            tree_view.spyglass.viewport().w_h_fov.y as f32 / CPU_DISPLAY_RESOLUTION[1] as f32;
         let viewport_bottom_left = tree_view.spyglass.viewport().origin
             + (tree_view.spyglass.viewport().direction * tree_view.spyglass.viewport().w_h_fov.z)
             - (viewport_up_direction * (tree_view.spyglass.viewport().w_h_fov.y / 2.))
@@ -196,12 +197,12 @@ fn handle_zoom(
 
         use image::ImageBuffer;
         use image::Rgb;
-        let mut img = ImageBuffer::new(DISPLAY_RESOLUTION[0], DISPLAY_RESOLUTION[1]);
+        let mut img = ImageBuffer::new(CPU_DISPLAY_RESOLUTION[0], CPU_DISPLAY_RESOLUTION[1]);
 
         // cast each ray for a hit
-        for x in 0..DISPLAY_RESOLUTION[0] {
-            for y in 0..DISPLAY_RESOLUTION[1] {
-                let actual_y_in_image = DISPLAY_RESOLUTION[1] - y - 1;
+        for x in 0..CPU_DISPLAY_RESOLUTION[0] {
+            for y in 0..CPU_DISPLAY_RESOLUTION[1] {
+                let actual_y_in_image = CPU_DISPLAY_RESOLUTION[1] - y - 1;
                 //from the origin of the camera to the current point of the viewport
                 let glass_point = viewport_bottom_left
                     + viewport_right_direction * x as f32 * pixel_width
@@ -239,35 +240,36 @@ fn handle_zoom(
     }
 
     if keys.pressed(KeyCode::Home) {
-        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. + 0.09;
+        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. + 0.0009;
     }
     if keys.pressed(KeyCode::End) {
-        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. - 0.09;
+        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. - 0.0009;
     }
 
+    const MOVEMENT_MODIF: f32 = 0.15;
     let mut cam = camera_query.single_mut();
     if keys.pressed(KeyCode::ShiftLeft) {
-        cam.target_focus.y += 1.;
+        cam.target_focus.y += MOVEMENT_MODIF;
     }
     if keys.pressed(KeyCode::ControlLeft) {
-        cam.target_focus.y -= 1.;
+        cam.target_focus.y -= MOVEMENT_MODIF;
     }
 
     if let Some(_) = cam.radius {
         let dir = direction_from_cam(&cam).unwrap();
         let dir = Vec3::new(dir.x, dir.y, dir.z);
-        let right = dir.cross(Vec3::new(0., 1., 0.));
+        let right = dir.cross(Vec3::new(0., 1., 0.)) * 0.1;
         if keys.pressed(KeyCode::KeyW) {
-            cam.target_focus += dir;
+            cam.target_focus += dir * MOVEMENT_MODIF;
         }
         if keys.pressed(KeyCode::KeyS) {
-            cam.target_focus -= dir;
+            cam.target_focus -= dir * MOVEMENT_MODIF;
         }
         if keys.pressed(KeyCode::KeyA) {
-            cam.target_focus += right;
+            cam.target_focus += right * MOVEMENT_MODIF;
         }
         if keys.pressed(KeyCode::KeyD) {
-            cam.target_focus -= right;
+            cam.target_focus -= right * MOVEMENT_MODIF;
         }
     }
 }

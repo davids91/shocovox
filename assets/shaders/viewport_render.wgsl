@@ -18,6 +18,8 @@ const FLOAT_ERROR_TOLERANCE = 0.00001;
 const OOB_OCTANT = 8u;
 const COLOR_FOR_NODE_REQUEST_SENT = vec3f(0.5,0.3,0.0);
 const COLOR_FOR_NODE_REQUEST_FAIL = vec3f(0.7,0.2,0.0);
+const COLOR_FOR_BRICK_REQUEST_SENT = vec3f(0.3,0.1,0.0);
+const COLOR_FOR_BRICK_REQUEST_FAIL = vec3f(0.6,0.0,0.0);
 
 //crate::spatial::math::hash_region
 fn hash_region(offset: vec3f, size_half: f32) -> u32 {
@@ -579,7 +581,8 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 );
             }
             */// --- DEBUG ---
-            var do_backtrack_after_leaf_miss = false;
+            // backtrack by default after miss, in case node is a uniform leaf
+            var do_backtrack_after_leaf_miss = (0x0000000C == (0x0000000C & current_node_meta));
             var target_child_key = node_children[(current_node_key * 8) + target_octant];
             var target_bounds = child_bounds_for(&current_bounds, target_octant);
             var bitmap_pos_in_node = clamp(
@@ -637,16 +640,24 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             if (target_octant != OOB_OCTANT) {
                 if(0 != (0x00000004 & current_node_meta)) { // node is leaf
                     var hit: OctreeRayIntersection;
-
-                    if // node not empty at target octant, while the brick is marked unavailable
-                        (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
-                        && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
-                    {
+                    if( // node not empty at target octant, while the brick is parted and marked unavailable
+                        ( // uniform leaf nodes: check octant 0
+                            (0 != (0x00000008 & current_node_meta)) // node is uniform
+                            && (0 != ((0x01u << 8) & current_node_meta)) // contained brick is not empty
+                            && (0 != ((0x01u << 16) & current_node_meta)) // contained brick is parted
+                            && EMPTY_MARKER == node_children[current_node_key * 8]
+                        )||( // leaf nodes: check target octant
+                            (0 == (0x00000008 & current_node_meta)) // node is not uniform
+                            && (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
+                            && (0 != ((0x01u << (16 + target_octant)) & current_node_meta))
+                            && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
+                        )
+                    ){
                         // child brick is not yet uploaded to GPU
                         if request_node(current_node_key, target_octant) {
-                            missing_data_color += vec3f(0.3,0.1,0.0);
+                            missing_data_color += COLOR_FOR_BRICK_REQUEST_SENT;
                         } else {
-                            missing_data_color += vec3f(0.7,0.0,0.0);
+                            missing_data_color += COLOR_FOR_BRICK_REQUEST_FAIL;
                         }
                         do_backtrack_after_leaf_miss = true;
                     } else {
@@ -688,7 +699,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                                 hit.albedo += 0.5;
                             }*/
                             */// --- DEBUG ---
-
                             return hit;
                         }
                     }

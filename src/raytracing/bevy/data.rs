@@ -155,6 +155,40 @@ pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
 //  █████   █████ ██████████ █████   █████ ██████████
 // ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░   ░░░░░ ░░░░░░░░░░
 //##############################################################################
+fn read_buffer(
+    render_device: &RenderDevice,
+    buffer: &Buffer,
+    index_range: std::ops::Range<usize>,
+    target: &mut Vec<u32>,
+) {
+    let byte_start = (index_range.start * std::mem::size_of::<u32>()) as u64;
+    let byte_end = (index_range.end * std::mem::size_of::<u32>()) as u64;
+    let metadata_buffer_slice = buffer.slice(byte_start..byte_end);
+    let (s, metadata_recv) = crossbeam::channel::unbounded::<()>();
+    metadata_buffer_slice.map_async(
+        bevy::render::render_resource::MapMode::Read,
+        move |d| match d {
+            Ok(_) => s.send(()).expect("Failed to send map update"),
+            Err(err) => panic!("Couldn't map buffer!: {err}"),
+        },
+    );
+
+    render_device
+        .poll(bevy::render::render_resource::Maintain::wait())
+        .panic_on_timeout();
+    metadata_recv
+        .recv()
+        .expect("Failed to receive the map_async message");
+    {
+        let buffer_view = metadata_buffer_slice.get_mapped_range();
+        *target = buffer_view
+            .chunks(std::mem::size_of::<u32>())
+            .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
+            .collect::<Vec<u32>>();
+    }
+    buffer.unmap();
+}
+
 /// Handles data reads from GPU every loop, mainly data requests and usaage updates.
 /// Based on https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
 pub(crate) fn handle_gpu_readback(
@@ -163,34 +197,35 @@ pub(crate) fn handle_gpu_readback(
     mut svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
     if let Some(ref mut pipeline) = svx_pipeline {
+        let mut view = svx_view_set.views[0].lock().unwrap();
+
+        // init sequence: checking if data is written to the GPU yet
+        if pipeline.init_data_sent && !pipeline.data_ready {
+            let mut received_value = Vec::new();
+            read_buffer(
+                &render_device,
+                &pipeline
+                    .resources
+                    .as_ref()
+                    .unwrap()
+                    .readable_metadata_buffer,
+                0..1,
+                &mut received_value,
+            );
+            if view.data_handler.render_data.metadata[0] == received_value[0] {
+                pipeline.data_ready = true;
+            }
+        }
+
         let resources = pipeline.resources.as_ref().unwrap();
 
-        let node_requests_buffer_slice = resources.readable_node_requests_buffer.slice(..);
-        let (s, node_requests_recv) = crossbeam::channel::unbounded::<()>();
-        node_requests_buffer_slice.map_async(
-            bevy::render::render_resource::MapMode::Read,
-            move |d| match d {
-                Ok(_) => s.send(()).expect("Failed to send map update"),
-                Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
-            },
+        // Read node requests
+        read_buffer(
+            &render_device,
+            &resources.readable_node_requests_buffer,
+            0..view.spyglass.node_requests.len(),
+            &mut view.spyglass.node_requests,
         );
-
-        render_device
-            .poll(bevy::render::render_resource::Maintain::wait())
-            .panic_on_timeout();
-
-        let mut view = svx_view_set.views[0].lock().unwrap();
-        node_requests_recv
-            .recv()
-            .expect("Failed to receive the map_async message");
-        {
-            let buffer_view = node_requests_buffer_slice.get_mapped_range();
-            view.spyglass.node_requests = buffer_view
-                .chunks(std::mem::size_of::<u32>())
-                .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
-                .collect::<Vec<u32>>();
-        }
-        resources.readable_node_requests_buffer.unmap();
 
         let is_metadata_required_this_loop = {
             let mut is_metadata_required_this_loop = false;
@@ -202,31 +237,15 @@ pub(crate) fn handle_gpu_readback(
             }
             is_metadata_required_this_loop
         };
-        if is_metadata_required_this_loop {
-            let metadata_buffer_slice = resources.readable_metadata_buffer.slice(..);
-            let (s, metadata_recv) = crossbeam::channel::unbounded::<()>();
-            metadata_buffer_slice.map_async(
-                bevy::render::render_resource::MapMode::Read,
-                move |d| match d {
-                    Ok(_) => s.send(()).expect("Failed to send map update"),
-                    Err(err) => panic!("Couldn't map debug interface buffer!: {err}"),
-                },
-            );
 
-            render_device
-                .poll(bevy::render::render_resource::Maintain::wait())
-                .panic_on_timeout();
-            metadata_recv
-                .recv()
-                .expect("Failed to receive the map_async message");
-            {
-                let buffer_view = metadata_buffer_slice.get_mapped_range();
-                view.data_handler.render_data.metadata = buffer_view
-                    .chunks(std::mem::size_of::<u32>())
-                    .map(|chunk| u32::from_ne_bytes(chunk.try_into().expect("should be a u32")))
-                    .collect::<Vec<u32>>();
-            }
-            resources.readable_metadata_buffer.unmap();
+        // read metadata is requested
+        if is_metadata_required_this_loop && pipeline.data_ready {
+            read_buffer(
+                &render_device,
+                &resources.readable_metadata_buffer,
+                0..view.data_handler.render_data.metadata.len(),
+                &mut view.data_handler.render_data.metadata,
+            );
         }
     }
 }
@@ -310,15 +329,40 @@ pub(crate) fn write_to_gpu<T>(
 ) where
     T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
 {
-    if let (Some(pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
-        let render_queue = &pipeline.render_queue;
+    if let (Some(mut pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
+        // Initial octree data upload
+        if !pipeline.init_data_sent {
+            if let Some(resources) = &pipeline.resources {
+                //write data for root node
+                let view = svx_view_set.views[0].lock().unwrap();
+                write_range_to_buffer(
+                    &view.data_handler.render_data.metadata,
+                    0..1,
+                    &resources.metadata_buffer,
+                    &pipeline.render_queue,
+                );
+                write_range_to_buffer(
+                    &view.data_handler.render_data.node_children,
+                    0..8,
+                    &resources.node_children_buffer,
+                    &pipeline.render_queue,
+                );
+                write_range_to_buffer(
+                    &view.data_handler.render_data.node_ocbits,
+                    0..2,
+                    &resources.node_ocbits_buffer,
+                    &pipeline.render_queue,
+                );
+                pipeline.init_data_sent = true;
+            }
+        }
         let resources = if let Some(resources) = &pipeline.resources {
             resources
         } else {
             // No resources available yet, can't write to them
             return;
         };
-
+        let render_queue = &pipeline.render_queue;
         let mut view = svx_view_set.views[0].lock().unwrap();
 
         // Data updates for spyglass viewport
@@ -428,8 +472,8 @@ pub(crate) fn write_to_gpu<T>(
                         ocbits_updated.end = ocbits_updated.end.max(child_index * 2 + 2);
                     }
                     NodeContent::UniformLeaf(brick) => {
-                        // Only upload brick if it's not already available
-                        if matches!(brick, BrickData::Parted(_) | BrickData::Solid(_))
+                        // Only upload brick if it's a parted, not already available brick
+                        if matches!(brick, BrickData::Parted(_))
                             && view.data_handler.render_data.node_children
                                 [requested_parent_meta_index * 8]
                                 == empty_marker::<u32>()
@@ -445,10 +489,10 @@ pub(crate) fn write_to_gpu<T>(
                         }
                     }
                     NodeContent::Leaf(bricks) => {
-                        // Only upload brick if it's not empty and not already available
+                        // Only upload brick if it's a parted, not already available brick
                         if matches!(
                             bricks[requested_child_octant as usize],
-                            BrickData::Parted(_) | BrickData::Solid(_)
+                            BrickData::Parted(_)
                         ) && view.data_handler.render_data.node_children
                             [requested_parent_meta_index * 8 + requested_child_octant as usize]
                             == empty_marker::<u32>()
