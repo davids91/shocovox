@@ -596,8 +596,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
 
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
-                (0 == (0x00000004 & current_node_meta)) // node is not a leaf
-                && target_octant != OOB_OCTANT
+                target_octant != OOB_OCTANT
                 && target_child_key == EMPTY_MARKER // target child key is invalid
                 && ( // node is occupied at target octant
                     0 != (
@@ -635,74 +634,54 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         ))
                     );
                 }
-            }
+            }else
 
-            if (target_octant != OOB_OCTANT) {
-                if(0 != (0x00000004 & current_node_meta)) { // node is leaf
+            if(
+                (target_octant != OOB_OCTANT)
+                && (0 != (0x00000004 & current_node_meta)) // node is leaf
+            ){
                     var hit: OctreeRayIntersection;
-                    if( // node not empty at target octant, while the brick is parted and marked unavailable
-                        ( // uniform leaf nodes: check octant 0
-                            (0 != (0x00000008 & current_node_meta)) // node is uniform
-                            && (0 != ((0x01u << 8) & current_node_meta)) // contained brick is not empty
-                            && (0 != ((0x01u << 16) & current_node_meta)) // contained brick is parted
-                            && EMPTY_MARKER == node_children[current_node_key * 8]
-                        )||( // leaf nodes: check target octant
-                            (0 == (0x00000008 & current_node_meta)) // node is not uniform
-                            && (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
-                            && (0 != ((0x01u << (16 + target_octant)) & current_node_meta))
-                            && EMPTY_MARKER == node_children[(current_node_key * 8) + target_octant]
-                        )
-                    ){
-                        // child brick is not yet uploaded to GPU
-                        if request_node(current_node_key, target_octant) {
-                            missing_data_color += COLOR_FOR_BRICK_REQUEST_SENT;
-                        } else {
-                            missing_data_color += COLOR_FOR_BRICK_REQUEST_FAIL;
-                        }
+                    if(0 != (0x00000008 & current_node_meta)) { // node is a uniform leaf
+                        hit = probe_brick(
+                            ray, &ray_current_distance,
+                            current_node_key, 0u, &current_bounds,
+                            &ray_scale_factors, direction_lut_index
+                        );
                         do_backtrack_after_leaf_miss = true;
-                    } else {
-                        if(0 != (0x00000008 & current_node_meta)) { // node is a uniform leaf
-                            hit = probe_brick(
-                                ray, &ray_current_distance,
-                                current_node_key, 0u, &current_bounds,
-                                &ray_scale_factors, direction_lut_index
-                            );
-                            do_backtrack_after_leaf_miss = true;
-                        } else { // node is a non-uniform leaf
-                            target_bounds = child_bounds_for(&current_bounds, target_octant);
-                            hit = probe_brick(
-                                ray, &ray_current_distance,
-                                current_node_key, target_octant,
-                                &target_bounds,
-                                &ray_scale_factors, direction_lut_index
-                            );
-                        }
-                        if hit.hit == true {
-                            hit.albedo += vec4f(missing_data_color, 0.);
-
-                            /*// +++ DEBUG +++
-                            let current_point = point_in_ray_at_distance(ray, ray_current_distance);
-                            let bound_size_ratio = f32(current_bounds.size) / f32(octree_meta_data.octree_size) * 5.;
-                            if( // Display current bounds boundaries
-                                (abs(current_point.x - current_bounds.min_position.x) < bound_size_ratio)
-                                ||(abs(current_point.y - current_bounds.min_position.y) < bound_size_ratio)
-                                ||(abs(current_point.z - current_bounds.min_position.z) < bound_size_ratio)
-                            ){
-                                hit.albedo -= 0.5;
-                            }
-
-                            /*if( // Display current bounds center
-                                (abs(current_point.x - (current_bounds.min_position.x + (current_bounds.size / 2.))) < bound_size_ratio)
-                                ||(abs(current_point.y - (current_bounds.min_position.y + (current_bounds.size / 2.))) < bound_size_ratio)
-                                ||(abs(current_point.z - (current_bounds.min_position.z + (current_bounds.size / 2.))) < bound_size_ratio)
-                            ){
-                                hit.albedo += 0.5;
-                            }*/
-                            */// --- DEBUG ---
-                            return hit;
-                        }
+                    } else { // node is a non-uniform leaf
+                        target_bounds = child_bounds_for(&current_bounds, target_octant);
+                        hit = probe_brick(
+                            ray, &ray_current_distance,
+                            current_node_key, target_octant,
+                            &target_bounds,
+                            &ray_scale_factors, direction_lut_index
+                        );
                     }
-                }
+                    if hit.hit == true {
+                        hit.albedo += vec4f(missing_data_color, 0.);
+
+                        /*// +++ DEBUG +++
+                        let current_point = point_in_ray_at_distance(ray, ray_current_distance);
+                        let bound_size_ratio = f32(current_bounds.size) / f32(octree_meta_data.octree_size) * 5.;
+                        if( // Display current bounds boundaries
+                            (abs(current_point.x - current_bounds.min_position.x) < bound_size_ratio)
+                            ||(abs(current_point.y - current_bounds.min_position.y) < bound_size_ratio)
+                            ||(abs(current_point.z - current_bounds.min_position.z) < bound_size_ratio)
+                        ){
+                            hit.albedo -= 0.5;
+                        }
+
+                        /*if( // Display current bounds center
+                            (abs(current_point.x - (current_bounds.min_position.x + (current_bounds.size / 2.))) < bound_size_ratio)
+                            ||(abs(current_point.y - (current_bounds.min_position.y + (current_bounds.size / 2.))) < bound_size_ratio)
+                            ||(abs(current_point.z - (current_bounds.min_position.z + (current_bounds.size / 2.))) < bound_size_ratio)
+                        ){
+                            hit.albedo += 0.5;
+                        }*/
+                        */// --- DEBUG ---
+                        return hit;
+                    }
+                
             }
 
             if( do_backtrack_after_leaf_miss
