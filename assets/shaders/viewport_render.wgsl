@@ -413,7 +413,16 @@ fn probe_brick(
     ray_scale_factors: ptr<function, vec3f>,
     direction_lut_index: u32,
 ) -> OctreeRayIntersection {
-    if(0 != ((0x01u << (8 + brick_octant)) & metadata[leaf_node_key])) { // brick is not empty
+    if( // node is occupied at target octant, meaning: brick is not empty
+        0 != (
+            BITMAP_MASK_FOR_OCTANT_LUT[brick_octant][0]
+            & node_occupied_bits[leaf_node_key * 2]
+        )
+        || 0 != (
+            BITMAP_MASK_FOR_OCTANT_LUT[brick_octant][1]
+            & node_occupied_bits[leaf_node_key * 2 + 1]
+        )
+    ){
         let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
         set_brick_used(brick_index);
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
@@ -872,7 +881,16 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         )
                         || ( // In case the current node is leaf and its target brick is not empty
                             (0 != (0x00000004 & current_node_meta))
-                            && (0 != ((0x01u << (8 + target_octant)) & current_node_meta))
+                            && ( // node is occupied at target octant
+                                0 != (
+                                    BITMAP_MASK_FOR_OCTANT_LUT[target_octant][0]
+                                    & node_occupied_bits[current_node_key * 2]
+                                )
+                                || 0 != (
+                                    BITMAP_MASK_FOR_OCTANT_LUT[target_octant][1]
+                                    & node_occupied_bits[current_node_key * 2 + 1]
+                                )
+                            )
                         )
                     ) {
                         break;

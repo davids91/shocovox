@@ -169,36 +169,6 @@ impl OctreeGPUDataHandler {
         0x01 << (24 + (brick_index % 8))
     }
 
-    /// Updates the meta element value to store the brick structure of the given leaf node.
-    /// Does not erase anything in @sized_node_meta, it's expected to be cleared before
-    /// the first use of this function
-    /// for the given brick octant
-    /// * `sized_node_meta` - the bytes to update
-    /// * `brick` - the brick to describe into the bytes
-    /// * `brick_octant` - the octant to update in the bytes
-    fn meta_add_leaf_brick_structure<V>(
-        sized_node_meta: &mut u32,
-        brick: &BrickData<V>,
-        brick_octant: usize,
-    ) where
-        V: Default + Clone + PartialEq,
-    {
-        match brick {
-            BrickData::Empty => {} // Child structure properties should already be set to NIL
-            BrickData::Solid(_voxel) => {
-                // set child Occupied bits, child Structure bits should already be set to NIL
-                *sized_node_meta |= 0x01 << (8 + brick_octant);
-            }
-            BrickData::Parted(_brick) => {
-                // set child Occupied bits
-                *sized_node_meta |= 0x01 << (8 + brick_octant);
-
-                // set child Structure bits
-                *sized_node_meta |= 0x01 << (16 + brick_octant);
-            }
-        };
-    }
-
     /// Creates the descriptor bytes for the given node
     fn create_node_properties<V>(node: &NodeContent<V>) -> u32
     where
@@ -213,14 +183,28 @@ impl OctreeGPUDataHandler {
             NodeContent::Leaf(bricks) => {
                 meta |= Self::NODE_LEAF_MASK; // element is leaf
                 meta &= !Self::NODE_UNIFORM_MASK; // element is not uniform
+
+                // set child Structure bits
                 for octant in 0..8 {
-                    Self::meta_add_leaf_brick_structure(&mut meta, &bricks[octant], octant);
+                    match &bricks[octant] {
+                        BrickData::Empty | BrickData::Solid(_) => {} // Child structure properties should already be set to NIL
+                        BrickData::Parted(_brick) => {
+                            meta |= 0x01 << (16 + octant);
+                        }
+                    };
                 }
             }
             NodeContent::UniformLeaf(brick) => {
                 meta |= Self::NODE_LEAF_MASK; // element is leaf
                 meta |= Self::NODE_UNIFORM_MASK; // element is uniform
-                Self::meta_add_leaf_brick_structure(&mut meta, brick, 0);
+
+                // set child Structure bits
+                match brick {
+                    BrickData::Empty | BrickData::Solid(_) => {} // Child structure properties should already be set to NIL
+                    BrickData::Parted(_brick) => {
+                        meta |= 0x01 << 16;
+                    }
+                };
             }
         };
         meta

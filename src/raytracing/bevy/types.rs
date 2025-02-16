@@ -154,10 +154,7 @@ pub struct OctreeRenderData {
     /// |  bit 6  | unused - potentially: voxel brick size: 1, full or sparse |
     /// |  bit 7  | unused                                                    |
     /// |=====================================================================|
-    /// | Byte 1  | Node Child occupied                                       |
-    /// |---------------------------------------------------------------------|
-    /// | If Leaf | each bit is 0 if child brick is empty at octant *(1)      |
-    /// | If Node | unused                                                    |
+    /// | Byte 1  | unused - potentially: node used counter(for unload prio)  |
     /// |=====================================================================|
     /// | Byte 2  | Node Child structure                                      |
     /// |---------------------------------------------------------------------|
