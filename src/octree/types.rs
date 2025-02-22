@@ -86,10 +86,12 @@ where
     T: Default + Clone + Eq + Hash,
 {
     pub auto_simplify: bool,
+    pub(crate) albedo_mip_maps: bool,
     pub(crate) brick_dim: u32,   // Size of one brick in a leaf node (dim^3)
     pub(crate) octree_size: u32, // Extent of the octree
     pub(crate) nodes: ObjectPool<NodeData>, // Storing data at each position through palette index values
     pub(crate) node_children: Vec<NodeConnection>, // Node Connections
+    pub(crate) node_mips: Vec<BrickData<PaletteIndexValues>>,
 
     /// The albedo colors used by the octree. Maximum 65535 colors can be used at once
     /// because of a limitation on GPU raytracing, to spare space index values refering the palettes

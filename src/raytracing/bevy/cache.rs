@@ -444,7 +444,7 @@ impl OctreeGPUDataHandler {
                     if let BrickData::Solid(voxel) = bricks[octant] {
                         self.render_data.node_children[node_element_index * 8 + octant] = voxel;
                     } else {
-                        self.render_data.node_children[node_element_index * 8 + octant as usize] =
+                        self.render_data.node_children[node_element_index * 8 + octant] =
                             empty_marker::<u32>();
                     }
                 }
@@ -567,7 +567,7 @@ impl OctreeGPUDataHandler {
                     BrickOwnedBy::Node(node_key as u32, target_octant as u8);
 
                 debug_assert_eq!(
-                    (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
+                    tree.brick_dim.pow(3) as usize,
                     brick.len(),
                     "Expected Brick slice to align to tree brick dimension"
                 );

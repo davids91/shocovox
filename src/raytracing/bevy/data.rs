@@ -613,7 +613,7 @@ pub(crate) fn write_to_gpu<T>(
                     let brick_start_index = *modified_brick_data.0 * new_brick_data.len();
                     debug_assert_eq!(
                         new_brick_data.len(),
-                        (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
+                        tree.brick_dim.pow(3) as usize,
                         "Expected Brick slice to align to tree brick dimension"
                     );
                     unsafe {

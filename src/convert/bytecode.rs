@@ -434,10 +434,12 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
+            e.emit_int(self.albedo_mip_maps as u8)?;
             e.emit_int(self.octree_size)?;
             e.emit_int(self.brick_dim)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)?;
+            e.emit(&self.node_mips)?;
             e.emit(&self.voxel_color_palette)?;
             e.emit(&self.voxel_data_palette)
         })
@@ -464,6 +466,19 @@ where
                     )),
                 }?;
 
+                let albedo_mip_maps = match list.next_object()?.unwrap() {
+                    Object::Integer("0") => Ok(false),
+                    Object::Integer("1") => Ok(true),
+                    Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field albedo_mip_maps",
+                        format!("the number: {}", i),
+                    )),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field albedo_mip_maps",
+                        "Something else",
+                    )),
+                }?;
+
                 let octree_size = match list.next_object()?.unwrap() {
                     Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
@@ -482,6 +497,7 @@ where
 
                 let nodes = ObjectPool::decode_bencode_object(list.next_object()?.unwrap())?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
+                let node_mips = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
 
                 let voxel_color_palette =
                     Vec::<Albedo>::decode_bencode_object(list.next_object()?.unwrap())?;
@@ -499,10 +515,12 @@ where
 
                 Ok(Self {
                     auto_simplify,
+                    albedo_mip_maps,
                     octree_size,
                     brick_dim,
                     nodes,
                     node_children,
+                    node_mips,
                     voxel_color_palette,
                     voxel_data_palette,
                     map_to_color_index_in_palette,
