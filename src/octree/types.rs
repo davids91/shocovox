@@ -86,6 +86,7 @@ where
     T: Default + Clone + Eq + Hash,
 {
     pub auto_simplify: bool,
+    /// Feature flag for MIP maps, see @node_mips
     pub(crate) albedo_mip_maps: bool,
     pub(crate) brick_dim: u32,   // Size of one brick in a leaf node (dim^3)
     pub(crate) octree_size: u32, // Extent of the octree

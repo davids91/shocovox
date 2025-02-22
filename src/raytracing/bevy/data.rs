@@ -88,7 +88,7 @@ where
             },
             victim_node: VictimPointer::new(size),
             victim_brick: 0,
-            map_to_brick_maybe_owned_by_node: HashMap::new(),
+            map_brick_owner_hint_to_brick_index: HashMap::new(),
             node_key_vs_meta_index: BiHashMap::new(),
             brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
             uploaded_color_palette_size: 0,

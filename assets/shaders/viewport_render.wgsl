@@ -924,9 +924,9 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), vec3f(0.), vec3f(0., 0., 1.));
 }
 
-alias Voxelement = u32;
+alias PaletteIndexValues = u32;
 
-fn is_empty(e: Voxelement) -> bool {
+fn is_empty(e: PaletteIndexValues) -> bool {
     return (
         (0x0000FFFF == (0x0000FFFF & e))
         ||(
@@ -971,12 +971,15 @@ var<storage, read_write> metadata: array<atomic<u32>>;
 var<storage, read_write> node_children: array<u32>;
 
 @group(1) @binding(3)
-var<storage, read_write> node_occupied_bits: array<u32>;
+var<storage, read_write> node_mips: array<u32>;
 
 @group(1) @binding(4)
-var<storage, read_write> voxels: array<Voxelement>;
+var<storage, read_write> node_occupied_bits: array<u32>;
 
 @group(1) @binding(5)
+var<storage, read_write> voxels: array<PaletteIndexValues>;
+
+@group(1) @binding(6)
 var<storage, read_write> color_palette: array<vec4f>;
 
 
