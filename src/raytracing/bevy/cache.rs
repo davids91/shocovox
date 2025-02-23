@@ -1,6 +1,5 @@
-use crate::object_pool::empty_marker;
-use crate::spatial::lut::OOB_OCTANT;
 use crate::{
+    object_pool::empty_marker,
     octree::{
         types::{BrickData, NodeContent},
         Octree, VoxelData,
@@ -184,7 +183,7 @@ impl OctreeGPUDataHandler {
         let mut meta = 0;
 
         // set node MIP properties
-        if let BrickData::Empty | BrickData::Parted(_) = tree.node_mips[node_key] {
+        if let BrickData::Solid(_) | BrickData::Parted(_) = tree.node_mips[node_key] {
             meta |= Self::NODE_HAS_MIP_MASK;
             if let BrickData::Parted(_) = tree.node_mips[node_key] {
                 meta |= Self::NODE_MIP_PARTED_MASK;
@@ -374,7 +373,7 @@ impl OctreeGPUDataHandler {
         &mut self,
         tree: &'a Octree<T>,
         node_key: usize,
-    ) -> Option<(usize, Vec<BrickUpdate<'a>>, Vec<usize>)>
+    ) -> (usize, Vec<BrickUpdate<'a>>, Vec<usize>)
     where
         T: Default + Copy + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
     {
@@ -422,8 +421,11 @@ impl OctreeGPUDataHandler {
             vec![empty_marker::<u32>(); 8],
         );
 
-        // Add empty MIP entry
-        self.render_data.node_mips[node_element_index] = empty_marker();
+        // Add MIP entry
+        self.render_data.node_mips[node_element_index] = match tree.node_mips[node_key] {
+            BrickData::Solid(voxel) => voxel, // In case MIP is solid, it is pointing to the color palette
+            BrickData::Empty | BrickData::Parted(_) => empty_marker(), // parted bricks need to be uploaded; empty MIPS are stored with empty_marker
+        };
 
         // Add child nodes if any is available
         match tree.nodes.get(node_key) {
@@ -462,7 +464,7 @@ impl OctreeGPUDataHandler {
                 }
             }
         }
-        Some((node_element_index, modified_bricks, modified_nodes))
+        (node_element_index, modified_bricks, modified_nodes)
     }
 
     //##############################################################################
@@ -525,7 +527,7 @@ impl OctreeGPUDataHandler {
 
         match brick {
             BrickData::Empty => (empty_marker::<u32>() as usize, Vec::new(), Vec::new()),
-            BrickData::Solid(voxel) => (*voxel as usize, Vec::new(), Vec::new()),
+            BrickData::Solid(_voxel) => unreachable!("Shouldn't try to upload solid MIP bricks"),
             BrickData::Parted(brick) => {
                 // If the child of the given node is maybe already uploaded to the bricks
                 let node_child_entry =
@@ -542,7 +544,7 @@ impl OctreeGPUDataHandler {
                             *brick_index,
                             vec![BrickUpdate {
                                 brick_index: *brick_index,
-                                data: Some(brick),
+                                data: None,
                             }],
                             Vec::new(),
                         );
@@ -577,9 +579,14 @@ impl OctreeGPUDataHandler {
                             "Expected brick to be owned by a node used in cache"
                         );
 
+                        //TODO: there was an error here!!
                         // erase MIP from node
-                        self.render_data.node_mips[key as usize] = empty_marker();
-                        (Vec::new(), vec![key as usize])
+                        let robbed_meta_index = *self
+                            .node_key_vs_meta_index
+                            .get_by_left(&(key as usize))
+                            .unwrap() as usize;
+                        self.render_data.node_mips[robbed_meta_index] = empty_marker();
+                        (Vec::new(), vec![robbed_meta_index])
                     }
                     BrickOwnedBy::NotOwned => (Vec::new(), Vec::new()),
                 };
@@ -617,7 +624,7 @@ impl OctreeGPUDataHandler {
     {
         match &tree.node_mips[node_key] {
             BrickData::Empty => (empty_marker::<u32>() as usize, Vec::new(), Vec::new()),
-            BrickData::Solid(voxel) => (*voxel as usize, Vec::new(), Vec::new()),
+            BrickData::Solid(_voxel) => unreachable!("Shouldn't try to upload solid MIP bricks"),
             BrickData::Parted(brick) => {
                 // If the child of the given node is maybe already uploaded to the bricks
                 let node_mip_entry = BrickOwnedBy::NodeAsMIP(node_key as u32);
@@ -632,7 +639,7 @@ impl OctreeGPUDataHandler {
                             *brick_index,
                             vec![BrickUpdate {
                                 brick_index: *brick_index,
-                                data: Some(&brick),
+                                data: None,
                             }],
                             Vec::new(),
                         );
@@ -651,7 +658,6 @@ impl OctreeGPUDataHandler {
                             self.node_key_vs_meta_index.contains_left(&(key as usize)),
                             "Expected brick to be owned by a node used in cache"
                         );
-
                         self.erase_node_child(
                             *self
                                 .node_key_vs_meta_index
@@ -668,8 +674,12 @@ impl OctreeGPUDataHandler {
                         );
 
                         // erase MIP from node
-                        self.render_data.node_mips[key as usize] = empty_marker();
-                        (Vec::new(), vec![key as usize])
+                        let robbed_meta_index = *self
+                            .node_key_vs_meta_index
+                            .get_by_left(&(key as usize))
+                            .unwrap() as usize;
+                        self.render_data.node_mips[robbed_meta_index] = empty_marker();
+                        (Vec::new(), vec![robbed_meta_index])
                     }
                     BrickOwnedBy::NotOwned => (Vec::new(), Vec::new()),
                 };
@@ -687,7 +697,6 @@ impl OctreeGPUDataHandler {
                     brick_index,
                     data: Some(&brick[..]),
                 });
-
                 (brick_index, modified_bricks, modified_nodes)
             }
         }

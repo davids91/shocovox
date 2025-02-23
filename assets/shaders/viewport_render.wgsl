@@ -458,8 +458,67 @@ fn probe_brick(
             }
         }
     }
-
     return OctreeRayIntersection(false, vec4f(0.), vec3f(0.), vec3f(0., 0., 1.));
+}
+
+fn probe_MIP(
+    ray: ptr<function, Line>,
+    ray_current_distance: ptr<function,f32>,
+    node_key: u32,
+    brick_octant: u32,
+    brick_bounds: ptr<function, Cube>,
+    ray_scale_factors: ptr<function, vec3f>,
+    direction_lut_index: u32,
+) -> OctreeRayIntersection {
+    if( // node has MIP which is not uploaded
+        0 != (metadata[node_key] & 0x00000010)
+        && node_mips[node_key] == EMPTY_MARKER
+    ){
+        request_node(node_key, OOB_OCTANT);
+    }
+    else if( // there is a valid mip present
+        0 != (metadata[node_key] & 0x00000010) // node has MIP
+        && node_mips[node_key] != EMPTY_MARKER // which is uploaded
+    ) {
+        if(0 == (metadata[node_key] & 0x00000020)) { // MIP brick is solid
+            // Whole brick is solid, ray hits it at first connection
+            return OctreeRayIntersection(
+                true,
+                color_palette[node_mips[node_key] & 0x0000FFFF], // Albedo is in color_palette, it's not a brick index in this case
+                point_in_ray_at_distance(ray, *ray_current_distance),
+                cube_impact_normal((*brick_bounds), point_in_ray_at_distance(ray, *ray_current_distance))
+            );
+        } else { // brick is parted
+            set_brick_used(node_mips[node_key]);
+            let original_distance = *ray_current_distance;
+            let leaf_brick_hit = traverse_brick(
+                ray, ray_current_distance,
+                node_mips[node_key],
+                brick_bounds, ray_scale_factors, direction_lut_index
+            );
+            let final_distance = *ray_current_distance;
+            *ray_current_distance = original_distance;
+            if leaf_brick_hit.hit == true {
+                return OctreeRayIntersection(
+                    true,
+                    color_palette[voxels[leaf_brick_hit.flat_index] & 0x0000FFFF],
+                    point_in_ray_at_distance(ray, final_distance),
+                    cube_impact_normal(
+                        Cube(
+                            (*brick_bounds).min_position + (
+                                vec3f(leaf_brick_hit.index)
+                                * round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim))
+                            ),
+                            round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim)),
+                        ),
+                        point_in_ray_at_distance(ray, final_distance)
+                    )
+                );
+            }
+        }
+    }
+    return OctreeRayIntersection(false, vec4f(0.), vec3f(0.), vec3f(0., 0., 1.));
+
 }
 
 // Unique to this implementation, not adapted from rust code
@@ -541,6 +600,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     let direction_lut_index = ( //crate::spatial::math::hash_direction
         hash_region(vec3f(1.) + normalize((*ray).direction), 1.)
     );
+    let max_MIP_level = log2(f32(octree_meta_data.octree_size) / f32(octree_meta_data.voxel_brick_dim));
 
     var node_stack: array<u32, NODE_STACK_SIZE>;
     var node_stack_meta: u32 = 0;
@@ -551,6 +611,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var target_octant = OOB_OCTANT;
     var step_vec = vec3f(0.);
     var missing_data_color = vec3f(0.);
+    var MIP_level = max_MIP_level;
 
     let root_intersect = cube_intersect_ray(current_bounds, ray);
     if(root_intersect.hit){
@@ -603,6 +664,35 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 vec3f(4. - FLOAT_ERROR_TOLERANCE)
             );
 
+            /*// +++ DEBUG +++
+            if(current_bounds.size == f32(octree_meta_data.octree_size / debug_data)) {
+                missing_data_color += (
+                    vec3f(0.0,0.0,0.7)
+                    * vec3f(traverse_node_for_ocbits(
+                        ray,
+                        &ray_current_distance,
+                        current_node_key,
+                        &current_bounds,
+                        &ray_scale_factors
+                    ))
+                );
+            }
+            */// --- DEBUG ---
+
+            //TODO: try to make edges voxel-like
+            //TODO: provide reasoning ?!
+            let required_MIP_level = (ray_current_distance * 15. / f32(debug_data));
+            if(MIP_level < required_MIP_level){
+                let MIP_hit = probe_MIP(
+                    ray, &ray_current_distance,
+                    current_node_key, 0u, &current_bounds,
+                    &ray_scale_factors, direction_lut_index
+                );
+                if true == MIP_hit.hit {
+                    return MIP_hit;
+                }
+            }
+
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
                 target_octant != OOB_OCTANT
@@ -621,29 +711,42 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
             ){
                 if request_node(current_node_key, target_octant) {
-                    missing_data_color += (
-                        COLOR_FOR_NODE_REQUEST_SENT
-                        * vec3f(traverse_node_for_ocbits(
-                            ray,
-                            &ray_current_distance,
-                            current_node_key,
-                            &current_bounds,
-                            &ray_scale_factors
-                        ))
-                    );
+                    missing_data_color += COLOR_FOR_NODE_REQUEST_SENT;
                 } else {
-                    missing_data_color += (
-                        COLOR_FOR_NODE_REQUEST_FAIL
-                        * vec3f(traverse_node_for_ocbits(
-                            ray,
-                            &ray_current_distance,
-                            current_node_key,
-                            &current_bounds,
-                            &ray_scale_factors
-                        ))
-                    );
+                    missing_data_color += COLOR_FOR_NODE_REQUEST_FAIL;
                 }
-            }else
+                // Since a node have just been requested, request MIP for it as well, display MIP if available
+                let MIP_hit = probe_MIP(
+                    ray, &ray_current_distance,
+                    current_node_key, 0u, &current_bounds,
+                    &ray_scale_factors, direction_lut_index
+                );
+                if true == MIP_hit.hit {
+                    return MIP_hit;
+                }
+            } else
+            // +++ DEBUG +++
+            /*if(
+                0 != (current_node_meta & 0x00000010) // node has MIP
+                && node_mips[current_node_key] == EMPTY_MARKER // which is not uploaded
+            ){
+                request_node(current_node_key, OOB_OCTANT);
+            }
+            else if( // Debug interface selected this level and there is a valid mip present
+                (current_bounds.size == f32(octree_meta_data.octree_size / debug_data))
+                && 0 != (current_node_meta & 0x00000010) // node has MIP
+                && node_mips[current_node_key] != EMPTY_MARKER // which is uploaded
+            ) {
+                let MIP_hit = probe_MIP(
+                    ray, &ray_current_distance,
+                    current_node_key, 0u, &current_bounds,
+                    &ray_scale_factors, direction_lut_index
+                );
+                if true == MIP_hit.hit {
+                    return MIP_hit;
+                }
+            } else*/
+            // --- DEBUG ---
 
             if(
                 (target_octant != OOB_OCTANT)
@@ -722,6 +825,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     &current_bounds,
                     &ray_scale_factors
                 );
+                MIP_level += 1.;
                 if(EMPTY_MARKER != node_stack_last(node_stack_meta)){
                     current_node_key = node_stack[node_stack_last(node_stack_meta)];
                     current_node_meta = metadata[current_node_key];
@@ -786,6 +890,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     round(target_bounds.size / 2.)
                 );
                 node_stack_push(&node_stack, &node_stack_meta, target_child_key);
+                MIP_level -= 1.; //TODO: make sure this won't be below 0
             } else {
                 // ADVANCE
                 /*// +++ DEBUG +++
