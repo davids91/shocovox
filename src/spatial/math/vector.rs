@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, Mul, Rem, Sub, SubAssign};
 
 #[derive(Default, Clone, Copy, Debug, Eq, PartialEq, PartialOrd)]
 #[cfg_attr(
@@ -24,6 +24,13 @@ impl<T: Copy> V3c<T> {
             y: scale,
             z: scale,
         }
+    }
+}
+
+impl<T: Copy + Rem<N, Output = T>, N: Copy> Rem<N> for V3c<T> {
+    type Output = V3c<T>;
+    fn rem(self, rem: N) -> V3c<T> {
+        V3c::new(self.x % rem, self.y % rem, self.z % rem)
     }
 }
 

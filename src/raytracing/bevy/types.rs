@@ -82,10 +82,11 @@ pub(crate) struct VictimPointer {
     pub(crate) child: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum BrickOwnedBy {
     NotOwned,
-    Node(u32, u8),
+    NodeAsChild(u32, u8),
+    NodeAsMIP(u32),
 }
 
 #[derive(Resource, Clone)]
@@ -95,7 +96,9 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) brick_ownership: Vec<BrickOwnedBy>,
-    pub(crate) map_to_brick_maybe_owned_by_node: HashMap<(usize, u8), usize>,
+
+    /// Maps tree node child/MIP into brick index in cache
+    pub(crate) map_brick_owner_hint_to_brick_index: HashMap<BrickOwnedBy, usize>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
@@ -113,6 +116,7 @@ pub(crate) struct OctreeRenderDataResources {
     pub(crate) tree_bind_group: BindGroup,
     pub(crate) metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,
+    pub(crate) node_mips_buffer: Buffer,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values. only available in GPU, to eliminate needles redundancy
@@ -149,17 +153,17 @@ pub struct OctreeRenderData {
     /// |  bit 1  | unused                                                    |
     /// |  bit 2  | 1 in case node is a leaf                                  |
     /// |  bit 3  | 1 in case node is uniform                                 |
-    /// |  bit 4  | unused - potentially: 1 if node has voxels                |
-    /// |  bit 5  | unused - potentially: voxel brick size: 1, full or sparse |
+    /// |  bit 4  | 1 if node has MIP                                         |
+    /// |  bit 5  | 0 if MIP brick is solid, 1 if parted                      |
     /// |  bit 6  | unused - potentially: voxel brick size: 1, full or sparse |
     /// |  bit 7  | unused                                                    |
     /// |=====================================================================|
-    /// | Byte 1  | unused - potentially: node used counter(for unload prio)  |
+    /// | Byte 1  | unused - potentially: leaf child brick sizes *(5)         |
     /// |=====================================================================|
     /// | Byte 2  | Node Child structure                                      |
     /// |---------------------------------------------------------------------|
     /// | If Leaf | each bit is 0 if child brick is solid, 1 if parted *(1)   |
-    /// | If Node | unused                                                    |
+    /// | If Node | unused - potentially: node used counter(for unload prio)  |
     /// |=====================================================================|
     /// | Byte 3  | Voxel Bricks used *(3)                                    |
     /// |---------------------------------------------------------------------|
@@ -173,17 +177,22 @@ pub struct OctreeRenderData {
     ///      And only a fraction of them are visible in a render.
     /// *(4) Root node does not have this bit used, because it will never be overwritten
     ///      due to the victim pointer logic
+    /// *(5) That needs 8 bits tho, 1 bit for every child
     pub(crate) metadata: Vec<u32>,
 
     /// Index values for Nodes, 8 value per @SizedNode entry. Each value points to:
     /// In case of Internal Nodes
     /// -----------------------------------------
+    /// 8 children of the node, either pointing to a node in metadata, or marked empty
     ///
     /// In case of Leaf Nodes:
     /// -----------------------------------------
     /// index of where the voxel brick start inside the @voxels buffer.
-    /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta, while
+    /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta ( Uniform/Non-uniform )
     pub(crate) node_children: Vec<u32>,
+
+    /// Index values for node MIPs stored inside the bricks, each node has one MIP index, or marked empty
+    pub(crate) node_mips: Vec<u32>,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,
     /// which is stored in 2 * u32 values

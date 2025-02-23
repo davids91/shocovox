@@ -28,6 +28,33 @@ use std::borrow::Cow;
 use super::types::{OctreeRenderDataResources, SvxViewSet};
 
 impl FromWorld for SvxRenderPipeline {
+    //##############################################################################
+    // ███████████  █████ ██████   █████ ██████████
+    // ░░███░░░░░███░░███ ░░██████ ░░███ ░░███░░░░███
+    //  ░███    ░███ ░███  ░███░███ ░███  ░███   ░░███
+    //  ░██████████  ░███  ░███░░███░███  ░███    ░███
+    //  ░███░░░░░███ ░███  ░███ ░░██████  ░███    ░███
+    //  ░███    ░███ ░███  ░███  ░░█████  ░███    ███
+    //  ███████████  █████ █████  ░░█████ ██████████
+    // ░░░░░░░░░░░  ░░░░░ ░░░░░    ░░░░░ ░░░░░░░░░░
+    //    █████████  ███████████      ███████    █████  █████ ███████████
+    //   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███
+    //  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███
+    // ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████
+    // ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░
+    // ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███
+    //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
+    //   ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░░░      ░░░░░░░░   ░░░░░
+    //  █████         █████████   █████ █████    ███████    █████  █████ ███████████
+    // ░░███         ███░░░░░███ ░░███ ░░███   ███░░░░░███ ░░███  ░░███ ░█░░░███░░░█
+    //  ░███        ░███    ░███  ░░███ ███   ███     ░░███ ░███   ░███ ░   ░███  ░
+    //  ░███        ░███████████   ░░█████   ░███      ░███ ░███   ░███     ░███
+    //  ░███        ░███░░░░░███    ░░███    ░███      ░███ ░███   ░███     ░███
+    //  ░███      █ ░███    ░███     ░███    ░░███     ███  ░███   ░███     ░███
+    //  ███████████ █████   █████    █████    ░░░███████░   ░░████████      █████
+    // ░░░░░░░░░░░ ░░░░░   ░░░░░    ░░░░░       ░░░░░░░      ░░░░░░░░      ░░░░░
+    //##############################################################################
+
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
         let spyglass_bind_group_layout = render_device.create_bind_group_layout(
@@ -114,12 +141,22 @@ impl FromWorld for SvxRenderPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(<Vec<PaletteIndexValues> as ShaderType>::min_size()),
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
                     },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 5u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<PaletteIndexValues> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 6u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
@@ -304,6 +341,12 @@ pub(crate) fn prepare_bind_groups(
         );
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&render_data.node_mips).unwrap();
+        pipeline
+            .render_queue
+            .write_buffer(&resources.node_mips_buffer, 0, &buffer.into_inner());
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.node_ocbits).unwrap();
         pipeline
             .render_queue
@@ -366,6 +409,14 @@ pub(crate) fn prepare_bind_groups(
         });
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&render_data.node_mips).unwrap();
+        let node_mips_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Node MIPs Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.node_ocbits).unwrap();
         let node_ocbits_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Octree Node Occupied Bits Buffer"),
@@ -413,14 +464,18 @@ pub(crate) fn prepare_bind_groups(
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 3,
-                    resource: node_ocbits_buffer.as_entire_binding(),
+                    resource: node_mips_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 4,
-                    resource: voxels_buffer.as_entire_binding(),
+                    resource: node_ocbits_buffer.as_entire_binding(),
                 },
                 bevy::render::render_resource::BindGroupEntry {
                     binding: 5,
+                    resource: voxels_buffer.as_entire_binding(),
+                },
+                bevy::render::render_resource::BindGroupEntry {
+                    binding: 6,
                     resource: color_palette_buffer.as_entire_binding(),
                 },
             ],
@@ -511,6 +566,7 @@ pub(crate) fn prepare_bind_groups(
             viewport_buffer,
             metadata_buffer,
             node_children_buffer,
+            node_mips_buffer,
             node_ocbits_buffer,
             voxels_buffer,
             color_palette_buffer,

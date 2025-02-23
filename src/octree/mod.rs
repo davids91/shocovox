@@ -17,6 +17,7 @@ use crate::{
         types::{BrickData, NodeChildren, NodeContent, OctreeError},
     },
     spatial::{
+        lut::OOB_OCTANT,
         math::{flat_projection, matrix_index_for, BITMAP_DIMENSION},
         Cube,
     },
@@ -185,27 +186,41 @@ impl<
         }
         let node_count_estimation = (size / brick_dimension).pow(3);
         let mut nodes = ObjectPool::with_capacity(node_count_estimation.min(1024) as usize);
-        let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
-        node_children.push(NodeChildren::default());
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
+            albedo_mip_maps: false,
             octree_size: size,
             brick_dim: brick_dimension,
             nodes,
+            node_children: vec![NodeChildren::default()],
+            node_mips: vec![BrickData::Empty],
             voxel_color_palette: vec![],
             voxel_data_palette: vec![],
             map_to_color_index_in_palette: HashMap::new(),
             map_to_data_index_in_palette: HashMap::new(),
-            node_children,
         })
     }
 
-    /// Provides immutable reference to the data, if there is any at the given position
+    /// Getter function for the octree
+    /// * Returns immutable reference to the data at the given position, if there is any
     pub fn get(&self, position: &V3c<u32>) -> OctreeEntry<T> {
-        let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let mut current_node_key = Self::ROOT_NODE_KEY as usize;
+        self.get_internal(
+            Self::ROOT_NODE_KEY as usize,
+            Cube::root_bounds(self.octree_size as f32),
+            position,
+        )
+    }
+
+    /// Internal Getter function for the octree, to be able to call get from within the tree itself
+    /// * Returns immutable reference to the data of the given node at the given position, if there is any
+    fn get_internal(
+        &self,
+        mut current_node_key: usize,
+        mut current_bounds: Cube,
+        position: &V3c<u32>,
+    ) -> OctreeEntry<T> {
         let position = V3c::from(*position);
         if !bound_contains(&current_bounds, &position) {
             return OctreeEntry::Empty;
@@ -357,5 +372,119 @@ impl<
     /// Tells the radius of the area covered by the octree
     pub fn get_size(&self) -> u32 {
         self.octree_size
+    }
+
+    /// Enables or disables mipmap feature for albedo values
+    pub fn switch_albedo_mip_maps(&mut self, enabled: bool) {
+        let mips_on_previously = self.albedo_mip_maps;
+        self.albedo_mip_maps = enabled;
+
+        // go through every node and set its mip-maps in case the feature is just enabled
+        // and if there's anything to iterate into
+        if !self.albedo_mip_maps
+            || mips_on_previously == enabled
+            || *self.nodes.get(Self::ROOT_NODE_KEY as usize) == NodeContent::Nothing
+        {
+            return;
+        }
+
+        self.node_mips = vec![BrickData::Empty; self.nodes.len()];
+        // Generating MIPMAPs need to happen while traveling the graph in a DFS
+        // in order to generate MIPs for the leaf nodes first
+        let mut node_stack = vec![(
+            Self::ROOT_NODE_KEY as usize,
+            Cube::root_bounds(self.octree_size as f32),
+            0,
+        )];
+        while !node_stack.is_empty() {
+            let (current_node_key, current_bounds, target_octant) = node_stack.last().unwrap();
+
+            // evaluate current node and return to its parent node
+            if OOB_OCTANT == *target_octant {
+                self.recalculate_mip(*current_node_key, current_bounds);
+                node_stack.pop();
+                if let Some(parent) = node_stack.last_mut() {
+                    parent.2 += 1;
+                }
+                continue;
+            }
+
+            match self.nodes.get(*current_node_key) {
+                NodeContent::Nothing => unreachable!("BFS shouldn't evaluate empty children"),
+                NodeContent::Internal(_occupied_bits) => {
+                    let target_child_key =
+                        self.node_children[*current_node_key].child(*target_octant);
+                    if self.nodes.key_is_valid(target_child_key)
+                        && !matches!(self.nodes.get(target_child_key), NodeContent::Nothing)
+                    {
+                        debug_assert!(
+                            matches!(
+                                self.node_children[target_child_key],
+                                NodeChildren::OccupancyBitmap(_) | NodeChildren::Children(_)
+                            ),
+                            "Expected node[{}] child[{}] to have children or occupancy instead of: {:?}",
+                            current_node_key, target_octant, self.node_children[target_child_key]
+                        );
+                        node_stack.push((
+                            target_child_key,
+                            current_bounds.child_bounds_for(*target_octant),
+                            0,
+                        ));
+                    } else {
+                        node_stack.last_mut().unwrap().2 += 1;
+                    }
+                }
+                NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                    debug_assert!(
+                        matches!(
+                            self.node_children[*current_node_key],
+                            NodeChildren::OccupancyBitmap(_)
+                        ),
+                        "Expected node[{}] to have occupancy bitmaps instead of: {:?}",
+                        current_node_key,
+                        self.node_children[*current_node_key]
+                    );
+                    // Set current child iterator to OOB, to evaluate it and move on
+                    node_stack.last_mut().unwrap().2 = OOB_OCTANT;
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    /// Sample the MIP of the root node, or its children
+    /// * `octant` - the child to sample, in case `OOB_OCTANT` the root MIP is sampled
+    /// * `position` - the position inside the MIP, expected to be in range `0..self.brick_dim` for all components
+    pub(crate) fn sample_root_mip(&self, octant: u8, position: &V3c<u32>) -> OctreeEntry<T> {
+        let node_key = if OOB_OCTANT == octant {
+            Self::ROOT_NODE_KEY as usize
+        } else {
+            self.node_children[Self::ROOT_NODE_KEY as usize].child(octant) as usize
+        };
+
+        if !self.nodes.key_is_valid(node_key) {
+            return OctreeEntry::Empty;
+        }
+        match &self.node_mips[node_key] {
+            BrickData::Empty => OctreeEntry::Empty,
+            BrickData::Solid(voxel) => NodeContent::pix_get_ref(
+                &voxel,
+                &self.voxel_color_palette,
+                &self.voxel_data_palette,
+            ),
+            BrickData::Parted(brick) => {
+                let flat_index = flat_projection(
+                    position.x as usize,
+                    position.y as usize,
+                    position.z as usize,
+                    self.brick_dim as usize,
+                );
+                NodeContent::pix_get_ref(
+                    &brick[flat_index],
+                    &self.voxel_color_palette,
+                    &self.voxel_data_palette,
+                )
+            }
+        }
     }
 }
