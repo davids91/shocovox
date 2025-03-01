@@ -694,6 +694,23 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             }
 
             if(
+                current_bounds.size == f32(
+                    octree_meta_data.octree_size / debug_data
+                )
+            ){
+                missing_data_color += (
+                    vec3f(0.0,0.0,0.7)
+                    * vec3f(traverse_node_for_ocbits(
+                        ray,
+                        &ray_current_distance,
+                        current_node_key,
+                        &current_bounds,
+                        &ray_scale_factors
+                    ))
+                );
+            }
+
+            if(
                 // In case node doesn't yet have the target child node uploaded to GPU
                 target_octant != OOB_OCTANT
                 && target_child_key == EMPTY_MARKER // target child key is invalid
@@ -708,7 +725,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     )
                 )
                 // Request node only once per ray iteration to prioritize nodes in sight for cache
-                && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
+                //&& 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
             ){
                 if request_node(current_node_key, target_octant) {
                     missing_data_color += COLOR_FOR_NODE_REQUEST_SENT;
@@ -770,7 +787,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         );
                     }
                     if hit.hit == true {
-                        hit.albedo += vec4f(missing_data_color, 0.);
+                        hit.albedo -= vec4f(missing_data_color, 0.);
 
                         /*// +++ DEBUG +++
                         let current_point = point_in_ray_at_distance(ray, ray_current_distance);
@@ -1065,6 +1082,9 @@ var<uniform> viewport: Viewport;
 
 @group(0) @binding(2)
 var<storage, read_write> node_requests: array<atomic<u32>>;
+
+@group(0) @binding(3)
+var<uniform> debug_data: u32;
 
 @group(1) @binding(0)
 var<uniform> octree_meta_data: OctreeMetaData;

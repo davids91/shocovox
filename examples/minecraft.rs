@@ -82,11 +82,12 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                 y: 0.,
                 z: -1.,
             },
-            w_h_fov: V3c::new(10., 10., 3.),
+            w_h_fov: V3c::new(10., 10., 6.),
         },
         DISPLAY_RESOLUTION,
         images,
     );
+
     commands.insert_resource(host);
     commands.insert_resource(views);
     commands.spawn(Sprite::from_image(output_texture));

@@ -90,6 +90,16 @@ impl FromWorld for SvxRenderPipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 3u32,
+                    visibility: ShaderStages::all(),
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<u32>::min_size()),
+                    },
+                    count: None,
+                },
             ],
         );
         let render_data_bind_group_layout = render_device.create_bind_group_layout(
@@ -526,6 +536,14 @@ pub(crate) fn prepare_bind_groups(
             usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
         });
 
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&tree_view.spyglass.debug_data).unwrap();
+        let debug_data_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("Octree Node requests Buffer"),
+            contents: &buffer.into_inner(),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
         let readable_node_requests_buffer = render_device.create_buffer(&BufferDescriptor {
             mapped_at_creation: false,
             size: (tree_view.spyglass.node_requests.len()
@@ -556,6 +574,10 @@ pub(crate) fn prepare_bind_groups(
                     binding: 2,
                     resource: node_requests_buffer.as_entire_binding(),
                 },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: debug_data_buffer.as_entire_binding(),
+                },
             ],
         );
 
@@ -564,6 +586,7 @@ pub(crate) fn prepare_bind_groups(
             spyglass_bind_group,
             tree_bind_group,
             viewport_buffer,
+            debug_data_buffer,
             metadata_buffer,
             node_children_buffer,
             node_mips_buffer,

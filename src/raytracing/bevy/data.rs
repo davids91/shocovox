@@ -376,6 +376,10 @@ pub(crate) fn write_to_gpu<T>(
             view.spyglass.viewport_changed = false;
         }
 
+        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+        buffer.write(&view.spyglass.debug_data).unwrap();
+        render_queue.write_buffer(&resources.debug_data_buffer, 0, &buffer.into_inner());
+
         // Handle node requests, update cache
         let tree = &tree_host.tree;
         {
