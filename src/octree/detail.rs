@@ -10,7 +10,10 @@ use crate::{
     },
 };
 use num_traits::Zero;
-use std::{hash::Hash, ops::Add};
+use std::{
+    hash::Hash,
+    ops::{Add, Div},
+};
 
 /// Returns whether the given bound contains the given position.
 pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
@@ -99,6 +102,18 @@ impl Add for Albedo {
             g: self.g + other.g,
             b: self.b + other.b,
             a: self.a + other.a,
+        }
+    }
+}
+
+impl Div<f32> for Albedo {
+    type Output = Albedo;
+    fn div(self, divisor: f32) -> Albedo {
+        Albedo {
+            r: (self.r as f32 / divisor).round() as u8,
+            g: (self.g as f32 / divisor).round() as u8,
+            b: (self.b as f32 / divisor).round() as u8,
+            a: (self.a as f32 / divisor).round() as u8,
         }
     }
 }
@@ -317,6 +332,10 @@ where
                                         .max(node_new_children[octant] as usize + 1),
                                     NodeChildren::default(),
                                 );
+                                self.node_mips.resize(
+                                    self.node_mips.len().max(self.nodes.len()),
+                                    BrickData::Empty,
+                                );
                             }
                         }
                         BrickData::Solid(voxel) => {
@@ -330,6 +349,10 @@ where
                                     .len()
                                     .max(node_new_children[octant] as usize + 1),
                                 NodeChildren::default(),
+                            );
+                            self.node_mips.resize(
+                                self.node_mips.len().max(self.nodes.len()),
+                                BrickData::Empty,
                             );
 
                             // Set the occupancy bitmap for the new leaf child node
@@ -348,6 +371,10 @@ where
                                     .len()
                                     .max(node_new_children[octant] as usize + 1),
                                 NodeChildren::default(),
+                            );
+                            self.node_mips.resize(
+                                self.node_mips.len().max(self.nodes.len()),
+                                BrickData::Empty,
                             );
 
                             // Calculcate the occupancy bitmap for the new leaf child node
@@ -377,6 +404,8 @@ where
                                 .max(node_new_children[target_octant] as usize + 1),
                             NodeChildren::default(),
                         );
+                        self.node_mips
+                            .resize(self.node_mips.len().max(self.nodes.len()), BrickData::Empty);
                         self.node_children[node_new_children[target_octant] as usize] =
                             NodeChildren::OccupancyBitmap(0);
                     }
@@ -451,6 +480,10 @@ where
                                     .len()
                                     .max(node_new_children[octant] as usize + 1),
                                 NodeChildren::default(),
+                            );
+                            self.node_mips.resize(
+                                self.node_mips.len().max(self.nodes.len()),
+                                BrickData::Empty,
                             );
 
                             // Set the occupancy bitmap for the new leaf child node

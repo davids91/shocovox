@@ -21,10 +21,10 @@ use shocovox_rs::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const BRICK_DIMENSION: u32 = 16;
+const BRICK_DIMENSION: u32 = 32;
 
 #[cfg(feature = "bevy_wgpu")]
-const TREE_SIZE: u32 = 128;
+const TREE_SIZE: u32 = 512;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -55,6 +55,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut tree: Octree = shocovox_rs::octree::Octree::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
+    tree.switch_albedo_mip_maps(true);
 
     for x in 0..TREE_SIZE {
         for y in 0..TREE_SIZE {
@@ -89,7 +90,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     )
                     .ok()
                     .unwrap();
-                    assert!(tree.get(&V3c::new(x, y, z)).is_some());
+                    //assert!(tree.get(&V3c::new(x, y, z)).is_some());
                 }
             }
         }
@@ -99,11 +100,12 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        100,
+        500,
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),
-            w_h_fov: V3c::new(10., 10., 3.),
+            frustum: V3c::new(10., 10., 200.),
+            fov: 3.,
         },
         DISPLAY_RESOLUTION,
         images,
@@ -184,13 +186,13 @@ fn handle_zoom(
             .cross(tree_view.spyglass.viewport().direction)
             .normalized();
         let pixel_width =
-            tree_view.spyglass.viewport().w_h_fov.x as f32 / CPU_DISPLAY_RESOLUTION[0] as f32;
+            tree_view.spyglass.viewport().frustum.x as f32 / CPU_DISPLAY_RESOLUTION[0] as f32;
         let pixel_height =
-            tree_view.spyglass.viewport().w_h_fov.y as f32 / CPU_DISPLAY_RESOLUTION[1] as f32;
+            tree_view.spyglass.viewport().frustum.y as f32 / CPU_DISPLAY_RESOLUTION[1] as f32;
         let viewport_bottom_left = tree_view.spyglass.viewport().origin
-            + (tree_view.spyglass.viewport().direction * tree_view.spyglass.viewport().w_h_fov.z)
-            - (viewport_up_direction * (tree_view.spyglass.viewport().w_h_fov.y / 2.))
-            - (viewport_right_direction * (tree_view.spyglass.viewport().w_h_fov.x / 2.));
+            + (tree_view.spyglass.viewport().direction * tree_view.spyglass.viewport().frustum.z)
+            - (viewport_up_direction * (tree_view.spyglass.viewport().frustum.y / 2.))
+            - (viewport_right_direction * (tree_view.spyglass.viewport().frustum.x / 2.));
 
         // define light
         let diffuse_light_normal = V3c::new(0., -1., 1.).normalized();
@@ -240,19 +242,53 @@ fn handle_zoom(
     }
 
     if keys.pressed(KeyCode::Home) {
-        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. + 0.0009;
+        tree_view.spyglass.viewport_mut().fov *= 1. + 0.0009;
     }
     if keys.pressed(KeyCode::End) {
-        tree_view.spyglass.viewport_mut().w_h_fov.z *= 1. - 0.0009;
+        tree_view.spyglass.viewport_mut().fov *= 1. - 0.0009;
     }
 
-    const MOVEMENT_MODIF: f32 = 0.15;
+    const MOVEMENT_MODIF: f32 = 0.75;
     let mut cam = camera_query.single_mut();
     if keys.pressed(KeyCode::ShiftLeft) {
         cam.target_focus.y += MOVEMENT_MODIF;
     }
     if keys.pressed(KeyCode::ControlLeft) {
         cam.target_focus.y -= MOVEMENT_MODIF;
+    }
+
+    if keys.just_pressed(KeyCode::Digit1) {
+        tree_view.spyglass.debug_data = 1;
+    }
+    if keys.just_pressed(KeyCode::Digit2) {
+        tree_view.spyglass.debug_data = 2;
+    }
+    if keys.just_pressed(KeyCode::Digit3) {
+        tree_view.spyglass.debug_data = 4;
+    }
+    if keys.just_pressed(KeyCode::Digit4) {
+        tree_view.spyglass.debug_data = 8;
+    }
+    if keys.just_pressed(KeyCode::Digit5) {
+        tree_view.spyglass.debug_data = 16;
+    }
+    if keys.just_pressed(KeyCode::Digit6) {
+        tree_view.spyglass.debug_data = 32;
+    }
+    if keys.just_pressed(KeyCode::Digit7) {
+        tree_view.spyglass.debug_data = 64;
+    }
+    if keys.just_pressed(KeyCode::Digit8) {
+        tree_view.spyglass.debug_data = 128;
+    }
+    if keys.just_pressed(KeyCode::Digit9) {
+        tree_view.spyglass.debug_data = 256;
+    }
+    if keys.pressed(KeyCode::NumpadAdd) {
+        tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    }
+    if keys.pressed(KeyCode::NumpadSubtract) {
+        tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
     }
 
     if let Some(_) = cam.radius {

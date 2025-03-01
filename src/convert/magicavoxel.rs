@@ -270,13 +270,15 @@ impl<
             .max(max_position_lyup.z);
         let max_dimension = (max_dimension as f32).log2().ceil() as u32;
         let max_dimension = 2_u32.pow(max_dimension);
-        let mut shocovox_octree = Octree::<T>::new(max_dimension, brick_dimension).expect(
-            &format!(
-                "Expected to build a valid cotree with dimension {:?} and brick dimension {:?}",
-                max_dimension, brick_dimension
-            )
-            .to_owned(),
-        );
+        let mut shocovox_octree =
+            Octree::<T>::new(max_dimension, brick_dimension).unwrap_or_else(|err| {
+                panic!(
+                    "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
+                    max_dimension,
+                    brick_dimension.to_owned(),
+                    err
+                )
+            });
 
         iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
