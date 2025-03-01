@@ -269,7 +269,8 @@ fn handle_zoom(
     }
 
     if keys.pressed(KeyCode::F3) {
-        println!("{:?}", tree_view.spyglass.viewport());
+        // println!("{:?}", tree_view.spyglass.viewport());
+        println!("{:?}", tree_view.spyglass.debug_data);
     }
 
     if let Some(_) = cam.radius {

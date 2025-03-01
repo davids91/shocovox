@@ -28,6 +28,7 @@ use bimap::BiHashMap;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    ops::Range,
     sync::{Arc, Mutex},
 };
 
@@ -90,7 +91,6 @@ where
             },
             victim_node: VictimPointer::new(size),
             victim_brick: 0,
-            map_brick_owner_hint_to_brick_index: HashMap::new(),
             node_key_vs_meta_index: BiHashMap::new(),
             brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
             uploaded_color_palette_size: 0,
@@ -119,7 +119,7 @@ where
             spyglass: OctreeSpyGlass {
                 viewport_changed: true,
                 node_requests: vec![empty_marker(); 4],
-                debug_data: 2000,
+                debug_data: 200,
                 output_texture: output_texture.clone(),
                 viewport,
             },
@@ -277,7 +277,7 @@ pub(crate) fn handle_gpu_readback(
 /// and schedules it to be written to the given buffer in the GPU
 fn write_range_to_buffer<U>(
     array: &[U],
-    index_range: std::ops::Range<usize>,
+    index_range: Range<usize>,
     buffer: &Buffer,
     render_queue: &RenderQueue,
 ) where
@@ -383,19 +383,19 @@ pub(crate) fn write_to_gpu<T>(
         // Handle node requests, update cache
         let tree = &tree_host.tree;
         {
-            let mut meta_updated = std::ops::Range {
+            let mut meta_updated = Range {
                 start: view.data_handler.render_data.metadata.len(),
                 end: 0,
             };
-            let mut ocbits_updated = std::ops::Range {
+            let mut ocbits_updated = Range {
                 start: view.data_handler.render_data.node_ocbits.len(),
                 end: 0,
             };
-            let mut node_children_updated = std::ops::Range {
+            let mut node_children_updated = Range {
                 start: view.data_handler.render_data.node_children.len(),
                 end: 0,
             };
-            let mut node_mips_updated = std::ops::Range {
+            let mut node_mips_updated = Range {
                 start: view.data_handler.render_data.node_mips.len(),
                 end: 0,
             };
@@ -435,19 +435,21 @@ pub(crate) fn write_to_gpu<T>(
                 // In case MIP is requested, not node child
                 if OOB_OCTANT == requested_child_octant {
                     // Upload MIP to bricks
-                    let (brick_index, currently_modified_bricks, currently_modified_nodes) =
-                        view.data_handler.add_mip(tree, requested_parent_node_key);
-                    modified_nodes.extend(currently_modified_nodes);
-                    extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                    let (child_index, cache_update) =
+                        view.data_handler
+                            .add_brick(tree, requested_parent_node_key, OOB_OCTANT);
+
+                    meta_updated.start = meta_updated
+                        .start
+                        .min(cache_update.modified_usage_range.start);
+                    meta_updated.end = meta_updated.end.max(cache_update.modified_usage_range.end);
+
+                    modified_nodes.extend(cache_update.modified_nodes);
+                    extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
 
                     // Update mip index
                     view.data_handler.render_data.node_mips[requested_parent_meta_index] =
-                        brick_index as u32;
-
-                    node_mips_updated.start =
-                        node_mips_updated.start.min(requested_parent_meta_index);
-                    node_mips_updated.end =
-                        node_mips_updated.end.max(requested_parent_meta_index + 1);
+                        child_index as u32;
 
                     continue;
                 }
@@ -472,10 +474,16 @@ pub(crate) fn write_to_gpu<T>(
                             .node_key_vs_meta_index
                             .contains_left(&requested_child_node_key)
                         {
-                            let (child_index, currently_modified_bricks, currently_modified_nodes) =
+                            let (child_index, cache_update) =
                                 view.data_handler.add_node(tree, requested_child_node_key);
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
 
                             child_index
                         } else {
@@ -508,14 +516,20 @@ pub(crate) fn write_to_gpu<T>(
                                 [requested_parent_meta_index * 8]
                                 == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
+                            let (brick_index, cache_update) =
                                 view.data_handler
                                     .add_brick(tree, requested_parent_node_key, 0);
+
                             view.data_handler.render_data.node_children
                                 [requested_parent_meta_index * 8] = brick_index as u32;
 
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
                         }
                     }
                     NodeContent::Leaf(bricks) => {
@@ -527,18 +541,23 @@ pub(crate) fn write_to_gpu<T>(
                             [requested_parent_meta_index * 8 + requested_child_octant as usize]
                             == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
-                                view.data_handler.add_brick(
-                                    tree,
-                                    requested_parent_node_key,
-                                    requested_child_octant as usize,
-                                );
+                            let (brick_index, cache_update) = view.data_handler.add_brick(
+                                tree,
+                                requested_parent_node_key,
+                                requested_child_octant,
+                            );
+
                             view.data_handler.render_data.node_children[requested_parent_meta_index
                                 * 8
                                 + requested_child_octant as usize] = brick_index as u32;
 
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
                         }
                     }
                 }
@@ -575,6 +594,9 @@ pub(crate) fn write_to_gpu<T>(
                     node_children_updated.start.min(modified_node_index * 8);
                 node_children_updated.end =
                     node_children_updated.end.max(modified_node_index * 8 + 8);
+
+                node_mips_updated.start = node_mips_updated.start.min(*modified_node_index);
+                node_mips_updated.end = node_mips_updated.end.max(modified_node_index + 1);
             }
 
             for modified_brick_data in &modified_bricks {
@@ -638,7 +660,8 @@ pub(crate) fn write_to_gpu<T>(
             );
             write_range_to_buffer(
                 &view.data_handler.render_data.node_mips,
-                node_mips_updated,
+                0..view.data_handler.render_data.node_mips.len(),
+                // node_mips_updated,
                 &resources.node_mips_buffer,
                 render_queue,
             );

@@ -470,13 +470,7 @@ fn probe_MIP(
     ray_scale_factors: ptr<function, vec3f>,
     direction_lut_index: u32,
 ) -> OctreeRayIntersection {
-    if( // node has MIP which is not uploaded
-        0 != (metadata[node_key] & 0x00000010)
-        && node_mips[node_key] == EMPTY_MARKER
-    ){
-        request_node(node_key, OOB_OCTANT);
-    }
-    else if( // there is a valid mip present
+    if( // there is a valid mip present
         0 != (metadata[node_key] & 0x00000010) // node has MIP
         && node_mips[node_key] != EMPTY_MARKER // which is uploaded
     ) {
@@ -678,21 +672,44 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 );
             }
             */// --- DEBUG ---
+            if( // In case current node MIP level is smaller, than the required MIP level
+                MIP_level <
+                (
+                    /*length( // based on ray current travel distance
+                        viewport.origin - (
+                            round(point_in_ray_at_distance(ray, ray_current_distance) / f32(current_bounds.size))
+                            * f32(current_bounds.size) // rounded to bound border
+                        )
+                    )
+                    / f32(debug_data)*/
+                    length( // based on ray current travel distance
+                        viewport.origin - (
+                            round(point_in_ray_at_distance(ray, ray_current_distance) / f32(MIP_level * 2))
+                            * f32(MIP_level * 2) // aligned to nearest cube edges(based on current MIP level)
+                        )
+                    )
+                    / f32(debug_data)
 
-            //TODO: try to make edges voxel-like
-            //TODO: provide reasoning ?!
-            let required_MIP_level = (ray_current_distance * 15. / f32(debug_data));
-            if(MIP_level < required_MIP_level){
-                let MIP_hit = probe_MIP(
-                    ray, &ray_current_distance,
-                    current_node_key, 0u, &current_bounds,
-                    &ray_scale_factors, direction_lut_index
-                );
-                if true == MIP_hit.hit {
-                    return MIP_hit;
+                )
+            ){
+                if( // node has MIP which is not uploaded
+                    0 != (current_node_meta & 0x00000010)
+                    && node_mips[current_node_key] == EMPTY_MARKER
+                ){
+                    request_node(current_node_key, OOB_OCTANT);
+                } else {
+                    let MIP_hit = probe_MIP(
+                        ray, &ray_current_distance,
+                        current_node_key, 0u, &current_bounds,
+                        &ray_scale_factors, direction_lut_index
+                    );
+                    if true == MIP_hit.hit {
+                        return MIP_hit;
+                    }
                 }
             }
 
+            /*// +++ DEBUG +++
             if(
                 current_bounds.size == f32(
                     octree_meta_data.octree_size / debug_data
@@ -709,6 +726,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     ))
                 );
             }
+            */// --- DEBUG ---
 
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
@@ -732,7 +750,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 } else {
                     missing_data_color += COLOR_FOR_NODE_REQUEST_FAIL;
                 }
-                // Since a node have just been requested, request MIP for it as well, display MIP if available
+                // Since a node have just been requested, display MIP if available
                 let MIP_hit = probe_MIP(
                     ray, &ray_current_distance,
                     current_node_key, 0u, &current_bounds,
@@ -907,7 +925,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     round(target_bounds.size / 2.)
                 );
                 node_stack_push(&node_stack, &node_stack_meta, target_child_key);
-                MIP_level -= 1.; //TODO: make sure this won't be below 0
+                MIP_level -= 1.; 
             } else {
                 // ADVANCE
                 /*// +++ DEBUG +++

@@ -260,6 +260,17 @@ fn handle_zoom(
         tree_view.spyglass.debug_data = 256;
     }
 
+    if keys.just_pressed(KeyCode::NumpadAdd) {
+        tree_view.spyglass.debug_data = (tree_view.spyglass.debug_data as f32 * 1.2) as u32;
+    }
+    if keys.just_pressed(KeyCode::NumpadSubtract) {
+        tree_view.spyglass.debug_data = (tree_view.spyglass.debug_data as f32 * 0.8) as u32;
+    }
+    if keys.pressed(KeyCode::F3) {
+        // println!("{:?}", tree_view.spyglass.viewport());
+        println!("{:?}", tree_view.spyglass.debug_data);
+    }
+
     if let Some(_) = cam.radius {
         let dir = direction_from_cam(&cam).unwrap();
         let dir = Vec3::new(dir.x, dir.y, dir.z);
