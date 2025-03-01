@@ -16,7 +16,6 @@ use bevy::{
 };
 use bimap::BiHashMap;
 use std::{
-    collections::HashMap,
     hash::Hash,
     ops::Range,
     sync::{Arc, Mutex},
@@ -32,9 +31,20 @@ pub struct OctreeMetaData {
 
 #[derive(Debug, Clone, Copy, ShaderType)]
 pub struct Viewport {
+    /// The origin of the viewport, think of it as the position the eye
     pub origin: V3cf32,
+
+    /// The direction the raycasts are based upon, think of it as wherever the eye looks
     pub direction: V3cf32,
-    pub w_h_fov: V3cf32,
+
+    /// The volume the viewport reaches to
+    /// * `x` - looking glass width
+    /// * `y` - looking glass height
+    /// * `z` - the max depth of the viewport
+    pub frustum: V3cf32,
+
+    /// Field of View: how scattered will the rays in the viewport are
+    pub fov: f32,
 }
 
 pub struct RenderBevyPlugin<T = u32>

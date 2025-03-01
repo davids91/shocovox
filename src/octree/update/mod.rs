@@ -947,35 +947,36 @@ impl<
                 })
             }
             NodeContent::Internal(_occupied_bits) => {
-                //TODO: get the largest MIP level below the current one, fall back to LEAF logic if there isn't a MIP level active below
                 // determine the sampling range
-                let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
-                let child_octant = hash_region(&pos_in_bounds, node_bounds.size / 2.);
                 let sample_size = 2;
-                let sample_start = pos_in_bounds * 2. * self.brick_dim as f32 / node_bounds.size; // Transform into 2*DIM space
+                let sample_start = ((V3c::from(*position) - node_bounds.min_position)
+                    * 2.
+                    * self.brick_dim as f32)
+                    / node_bounds.size; // Transform into 2*DIM space
+                let child_octant = hash_region(&((*position).into()), self.brick_dim as f32);
                 let sample_start: V3c<u32> = (sample_start
                     - (OCTANT_OFFSET_REGION_LUT[child_octant as usize] * self.brick_dim as f32))
                     .floor()
-                    .into(); // start from octant start
-                let sample_start = sample_start - (sample_start % 2); // sample from grid of 2
+                    .into();
+                let sample_start = sample_start - (sample_start % self.brick_dim); // start from octant start
 
                 debug_assert!(
-                    sample_start.x + sample_size <= self.brick_dim,
-                    "Mipmap sampling out of bounds for x component: ({} + {}) > {}",
+                    sample_start.x + sample_size < 2 * self.brick_dim,
+                    "Mipmap sampling out of bounds for x component: ({} + {}) >= (2 * {})",
                     sample_start.x,
                     sample_size,
                     self.brick_dim
                 );
                 debug_assert!(
-                    sample_start.y + sample_size <= self.brick_dim,
-                    "Mipmap sampling out of bounds for y component: ({} + {}) > {}",
+                    sample_start.y + sample_size < 2 * self.brick_dim,
+                    "Mipmap sampling out of bounds for y component: ({} + {}) >= (2 * {})",
                     sample_start.y,
                     sample_size,
                     self.brick_dim
                 );
                 debug_assert!(
-                    sample_start.z + sample_size <= self.brick_dim,
-                    "Mipmap sampling out of bounds for z component: ({} + {}) > {}",
+                    sample_start.z + sample_size < 2 * self.brick_dim,
+                    "Mipmap sampling out of bounds for z component: ({} + {}) >= (2 * {})",
                     sample_start.z,
                     sample_size,
                     self.brick_dim
