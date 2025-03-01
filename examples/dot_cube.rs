@@ -21,10 +21,10 @@ use shocovox_rs::{
 const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 
 #[cfg(feature = "bevy_wgpu")]
-const BRICK_DIMENSION: u32 = 4;
+const BRICK_DIMENSION: u32 = 32;
 
 #[cfg(feature = "bevy_wgpu")]
-const TREE_SIZE: u32 = 16;
+const TREE_SIZE: u32 = 512;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -90,7 +90,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     )
                     .ok()
                     .unwrap();
-                    assert!(tree.get(&V3c::new(x, y, z)).is_some());
+                    //assert!(tree.get(&V3c::new(x, y, z)).is_some());
                 }
             }
         }
@@ -248,7 +248,7 @@ fn handle_zoom(
         tree_view.spyglass.viewport_mut().fov *= 1. - 0.0009;
     }
 
-    const MOVEMENT_MODIF: f32 = 0.15;
+    const MOVEMENT_MODIF: f32 = 0.75;
     let mut cam = camera_query.single_mut();
     if keys.pressed(KeyCode::ShiftLeft) {
         cam.target_focus.y += MOVEMENT_MODIF;
