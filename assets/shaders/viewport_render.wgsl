@@ -321,9 +321,9 @@ fn traverse_brick(
 ) -> BrickHit {
     let dimension = i32(octree_meta_data.voxel_brick_dim);
     var current_index = clamp(
-        vec3i(vec3f( // entry position in brick
-            point_in_ray_at_distance(ray, *ray_current_distance)
-            - (*brick_bounds).min_position
+        vec3i( // entry position in brick
+        (
+            point_in_ray_at_distance(ray, *ray_current_distance) - (*brick_bounds).min_position
         ) * f32(dimension) / (*brick_bounds).size),
         vec3i(0),
         vec3i(dimension - 1)
@@ -424,7 +424,6 @@ fn probe_brick(
         )
     ){
         let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
-        set_brick_used(brick_index);
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
@@ -434,6 +433,7 @@ fn probe_brick(
                 cube_impact_normal(*brick_bounds, point_in_ray_at_distance(ray, *ray_current_distance))
             );
         } else { // brick is parted
+            set_brick_used(brick_index);
             let leaf_brick_hit = traverse_brick(
                 ray, ray_current_distance,
                 brick_index,

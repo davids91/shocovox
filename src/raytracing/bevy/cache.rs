@@ -521,28 +521,6 @@ impl OctreeGPUDataHandler {
             BrickData::Empty => (empty_marker::<u32>() as usize, Vec::new(), Vec::new()),
             BrickData::Solid(voxel) => (*voxel as usize, Vec::new(), Vec::new()),
             BrickData::Parted(brick) => {
-                if let Some(brick_index) = self
-                    .map_to_brick_maybe_owned_by_node
-                    .get(&(node_key, target_octant as u8))
-                {
-                    if self.brick_ownership[*brick_index] == BrickOwnedBy::NotOwned {
-                        self.brick_ownership[*brick_index] =
-                            BrickOwnedBy::Node(node_key as u32, target_octant as u8);
-                        return (
-                            *brick_index,
-                            vec![BrickUpdate {
-                                brick_index: *brick_index,
-                                data: Some(brick),
-                            }],
-                            Vec::new(),
-                        );
-                    } else {
-                        // remove from index if it is owned by another node already
-                        self.map_to_brick_maybe_owned_by_node
-                            .remove(&(node_key, target_octant as u8));
-                    }
-                }
-
                 let brick_index = self.first_available_brick();
                 let (mut modified_bricks, modified_nodes) =
                     if let BrickOwnedBy::Node(key, octant) = self.brick_ownership[brick_index] {

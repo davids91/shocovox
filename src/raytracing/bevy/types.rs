@@ -95,7 +95,6 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) brick_ownership: Vec<BrickOwnedBy>,
-    pub(crate) map_to_brick_maybe_owned_by_node: HashMap<(usize, u8), usize>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
