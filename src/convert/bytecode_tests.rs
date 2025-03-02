@@ -1,6 +1,6 @@
 use crate::octree::{
     types::{Albedo, BrickData, NodeChildren, NodeContent, PaletteIndexValues},
-    Octree, OctreeEntry, V3c,
+    MIPResamplingMethods, Octree, OctreeEntry, V3c,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
@@ -95,6 +95,59 @@ fn test_nodecontent_serialization() {
             )
         }
     }
+}
+
+#[test]
+fn test_mip_resample_serialization() {
+    assert_eq!(
+        MIPResamplingMethods::BoxFilter,
+        MIPResamplingMethods::from_bencode(
+            &MIPResamplingMethods::BoxFilter
+                .to_bencode()
+                .expect("Expected encoding of object to succeed")
+        )
+        .expect("Expected decoding of object to succeed")
+    );
+
+    assert_eq!(
+        MIPResamplingMethods::PointFilter,
+        MIPResamplingMethods::from_bencode(
+            &MIPResamplingMethods::PointFilter
+                .to_bencode()
+                .expect("Expected encoding of object to succeed")
+        )
+        .expect("Expected decoding of object to succeed")
+    );
+
+    assert_eq!(
+        MIPResamplingMethods::PointFilterBD,
+        MIPResamplingMethods::from_bencode(
+            &MIPResamplingMethods::PointFilterBD
+                .to_bencode()
+                .expect("Expected encoding of object to succeed")
+        )
+        .expect("Expected decoding of object to succeed")
+    );
+
+    assert_eq!(
+        MIPResamplingMethods::Posterize(0.420),
+        MIPResamplingMethods::from_bencode(
+            &MIPResamplingMethods::Posterize(0.420)
+                .to_bencode()
+                .expect("Expected encoding of object to succeed")
+        )
+        .expect("Expected decoding of object to succeed")
+    );
+
+    assert_eq!(
+        MIPResamplingMethods::PosterizeBD(0.69),
+        MIPResamplingMethods::from_bencode(
+            &MIPResamplingMethods::PosterizeBD(0.69)
+                .to_bencode()
+                .expect("Expected encoding of object to succeed")
+        )
+        .expect("Expected decoding of object to succeed")
+    );
 }
 
 #[test]

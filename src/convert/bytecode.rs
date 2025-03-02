@@ -1,6 +1,6 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::{
-    types::{BrickData, NodeChildren, NodeContent},
+    types::{BrickData, MIPResamplingMethods, NodeChildren, NodeContent},
     Albedo, Octree,
 };
 use bendy::{
@@ -426,6 +426,54 @@ impl FromBencode for NodeChildren<u32> {
 //  ░░░███████░   ░░█████████     █████    █████   █████ ██████████ ██████████
 //    ░░░░░░░      ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░
 //####################################################################################
+
+impl ToBencode for MIPResamplingMethods {
+    const MAX_DEPTH: usize = 2;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        match self {
+            MIPResamplingMethods::BoxFilter => encoder.emit_int(0),
+            MIPResamplingMethods::PointFilter => encoder.emit_int(1),
+            MIPResamplingMethods::PointFilterBD => encoder.emit_int(2),
+            MIPResamplingMethods::Posterize(threshold) => {
+                encoder.emit_int(3 + (threshold * 1000.) as u32)
+            }
+            MIPResamplingMethods::PosterizeBD(threshold) => {
+                encoder.emit_int(1003 + (threshold * 1000.) as u32)
+            }
+        }
+    }
+}
+
+impl FromBencode for MIPResamplingMethods {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::Integer("0") => Ok(MIPResamplingMethods::BoxFilter),
+            Object::Integer("1") => Ok(MIPResamplingMethods::PointFilter),
+            Object::Integer("2") => Ok(MIPResamplingMethods::PointFilterBD),
+            Object::Integer(int) => match int
+                .parse::<u32>()
+                .expect(&format!("Expected to be able to parse: {:?} as u32", int).to_owned())
+            {
+                thr if (3..1002).contains(&thr) => {
+                    Ok(MIPResamplingMethods::Posterize((thr as f32 - 3.) / 1000.))
+                }
+
+                thr if (1003..2001).contains(&thr) => Ok(MIPResamplingMethods::PosterizeBD(
+                    (thr as f32 - 1003.) / 1000.,
+                )),
+                num => Err(bendy::decoding::Error::unexpected_token(
+                    "Integer of Posterized Enum type ranges",
+                    format!("the number: {num}").to_owned(),
+                )),
+            },
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "Integer of Enum type",
+                "not that",
+            )),
+        }
+    }
+}
+
 impl<T> ToBencode for Octree<T>
 where
     T: ToBencode + Default + Clone + Eq + Hash,
@@ -441,7 +489,18 @@ where
             e.emit(&self.node_children)?;
             e.emit(&self.node_mips)?;
             e.emit(&self.voxel_color_palette)?;
-            e.emit(&self.voxel_data_palette)
+            e.emit(&self.voxel_data_palette)?;
+            e.emit_int(self.mip_resampling_strategy.len())?;
+            for entry in self.mip_resampling_strategy.iter() {
+                e.emit(entry.0)?;
+                e.emit(entry.1)?;
+            }
+            e.emit_int(self.mip_resampling_color_matching_threshold.len())?;
+            for entry in self.mip_resampling_color_matching_threshold.iter() {
+                e.emit(entry.0)?;
+                e.emit_int((entry.1 * 1000.) as u32)?;
+            }
+            Ok(())
         })
     }
 }
@@ -513,6 +572,42 @@ where
                     map_to_data_index_in_palette.insert(voxel_data_palette[i].clone(), i);
                 }
 
+                let resampling_strategy_len = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse()?),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field MIP resampling strategy length",
+                        "Something else",
+                    )),
+                }?;
+                let mut mip_resampling_strategy = HashMap::new();
+                for _ in 0..resampling_strategy_len {
+                    let key = usize::decode_bencode_object(list.next_object()?.unwrap()).unwrap();
+                    let value =
+                        MIPResamplingMethods::decode_bencode_object(list.next_object()?.unwrap())
+                            .unwrap();
+                    mip_resampling_strategy.insert(key, value);
+                }
+
+                let resampling_strategy_len = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<usize>()?),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field MIP color matching strategy length",
+                        "Something else",
+                    )),
+                }?;
+                let mut mip_resampling_color_matching_threshold = HashMap::new();
+                for _ in 0..resampling_strategy_len {
+                    let key = usize::decode_bencode_object(list.next_object()?.unwrap()).unwrap();
+                    let value = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u32>()?),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field MIP color matching strategy length",
+                            "Something else",
+                        )),
+                    }?;
+                    mip_resampling_color_matching_threshold.insert(key, value as f32 / 1000.);
+                }
+
                 Ok(Self {
                     auto_simplify,
                     albedo_mip_maps,
@@ -525,6 +620,8 @@ where
                     voxel_data_palette,
                     map_to_color_index_in_palette,
                     map_to_data_index_in_palette,
+                    mip_resampling_strategy,
+                    mip_resampling_color_matching_threshold,
                 })
             }
             _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),

@@ -163,7 +163,8 @@ mod mipmap_tests {
 
         let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
         tree.auto_simplify = false;
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -178,12 +179,14 @@ mod mipmap_tests {
             .expect("octree insert");
 
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -196,7 +199,8 @@ mod mipmap_tests {
 
         let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
         tree.auto_simplify = false;
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &red)
@@ -211,41 +215,50 @@ mod mipmap_tests {
             .expect("octree insert");
 
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             red,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
         );
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 1, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 1, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 0, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 0, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 1, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 1, 1))
             .albedo()
             .is_none());
@@ -259,7 +272,8 @@ mod mipmap_tests {
 
         let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
         tree.auto_simplify = false;
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -274,41 +288,50 @@ mod mipmap_tests {
             .expect("octree insert");
 
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
         );
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 1, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 1, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 0, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 0, 1))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 1, 0))
             .albedo()
             .is_none());
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(1, 1, 1))
             .albedo()
             .is_none());
@@ -322,7 +345,8 @@ mod mipmap_tests {
 
         let mut tree: Octree = Octree::new(16, 4).ok().unwrap();
         tree.auto_simplify = false;
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -352,12 +376,14 @@ mod mipmap_tests {
         // For child position 0,0,0
         let rg_mix: Albedo = 0x7F7F00FF.into();
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(0, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rg_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(0, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -366,12 +392,14 @@ mod mipmap_tests {
         // For child position 8,0,0
         let rgb_mix: Albedo = 0x555555FF.into();
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(1, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(1, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -379,12 +407,14 @@ mod mipmap_tests {
 
         // root mip position 0,0,0
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rg_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -392,12 +422,14 @@ mod mipmap_tests {
 
         // root mip position 8,0,0
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(2, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(2, 0, 0))
                 .albedo()
                 .unwrap()
@@ -439,17 +471,20 @@ mod mipmap_tests {
             .expect("octree insert");
 
         // Switch MIP maps on, it should calculate the correct values
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
 
         // For child position 0,0,0
         let rg_mix: Albedo = 0x7F7F00FF.into();
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(0, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rg_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(0, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -458,12 +493,14 @@ mod mipmap_tests {
         // For child position 8,0,0
         let rgb_mix: Albedo = 0x555555FF.into();
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(1, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(1, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -471,12 +508,14 @@ mod mipmap_tests {
 
         // root mip position 0,0,0
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rg_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(0, 0, 0))
                 .albedo()
                 .unwrap()
@@ -484,12 +523,14 @@ mod mipmap_tests {
 
         // root mip position 8,0,0
         assert!(tree
+            .albedo_mip_map_resampling_strategy()
             .sample_root_mip(OOB_OCTANT, &V3c::new(2, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
+                .albedo_mip_map_resampling_strategy()
                 .sample_root_mip(OOB_OCTANT, &V3c::new(2, 0, 0))
                 .albedo()
                 .unwrap()

@@ -55,7 +55,8 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut tree: Octree = shocovox_rs::octree::Octree::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
-    tree.switch_albedo_mip_maps(true);
+    tree.albedo_mip_map_resampling_strategy()
+        .switch_albedo_mip_maps(true);
 
     for x in 0..TREE_SIZE {
         for y in 0..TREE_SIZE {

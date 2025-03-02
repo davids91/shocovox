@@ -77,6 +77,15 @@ impl Albedo {
     pub fn is_transparent(&self) -> bool {
         self.a == 0
     }
+
+    pub fn distance_from(&self, other: &Albedo) -> f32 {
+        let distance_r = self.r as f32 - other.r as f32;
+        let distance_g = self.g as f32 - other.g as f32;
+        let distance_b = self.b as f32 - other.b as f32;
+        let distance_a = self.a as f32 - other.a as f32;
+        (distance_r.powf(2.) + distance_g.powf(2.) + distance_b.powf(2.) + distance_a.powf(2.))
+            .sqrt()
+    }
 }
 
 impl From<u32> for Albedo {

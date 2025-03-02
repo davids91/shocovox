@@ -45,6 +45,12 @@ impl From<Albedo> for Vec4 {
     }
 }
 
+impl OctreeGPUView {
+    pub fn reload(&mut self) {
+        self.reload = true;
+    }
+}
+
 impl OctreeSpyGlass {
     pub fn viewport(&self) -> &Viewport {
         &self.viewport

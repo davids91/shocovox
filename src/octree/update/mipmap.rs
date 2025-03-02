@@ -1,11 +1,14 @@
 use crate::{
     object_pool::empty_marker,
     octree::{
-        types::{BrickData, NodeChildren, NodeContent, OctreeEntry, PaletteIndexValues},
+        types::{
+            BrickData, MIPMapsStrategy, MIPResamplingMethods, NodeChildren, NodeContent,
+            OctreeEntry, PaletteIndexValues,
+        },
         Albedo, Octree, VoxelData,
     },
     spatial::{
-        lut::OCTANT_OFFSET_REGION_LUT,
+        lut::{OCTANT_OFFSET_REGION_LUT, OOB_OCTANT},
         math::{flat_projection, hash_region, matrix_index_for, vector::V3c},
         Cube,
     },
@@ -14,6 +17,235 @@ use std::{collections::HashMap, hash::Hash};
 
 #[cfg(feature = "bytecode")]
 use bendy::{decoding::FromBencode, encoding::ToBencode};
+
+pub(crate) trait MIPResaplingFunction {
+    /// Provides a color value from the given range acquired from the sampling function
+    /// * `sample_start` - The start position of the range to sample from
+    /// * `sample_size` - The size of the range to sample from
+    /// * `sample_fn` - The function providing the samples. It will be called on each position given by the range
+    fn execute<F: Fn(&V3c<u32>) -> Option<Albedo>>(
+        self,
+        sample_start: &V3c<u32>,
+        sample_size: u32,
+        sample_fn: F,
+    ) -> Option<Albedo>;
+}
+
+/// Container to store intermediate values in a higher capacity type ( u8 overflows a lot )
+/// do do do do doo do do do do du doo
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+struct Albedou32 {
+    r: u32,
+    g: u32,
+    b: u32,
+    a: u32,
+}
+
+impl Albedou32 {
+    fn length(&self) -> f32 {
+        ((self.r.pow(2) + self.g.pow(2) + self.b.pow(2) + self.a.pow(2)) as f32).sqrt()
+    }
+    fn sqrt(mut self) -> Self {
+        self.r = (self.r as f32).sqrt().round() as u32;
+        self.g = (self.g as f32).sqrt().round() as u32;
+        self.b = (self.b as f32).sqrt().round() as u32;
+        self.a = (self.a as f32).sqrt().round() as u32;
+        self
+    }
+    fn pow2(mut self) -> Self {
+        self.r = self.r.pow(2);
+        self.g = self.g.pow(2);
+        self.b = self.b.pow(2);
+        self.a = self.a.pow(2);
+        self
+    }
+}
+
+impl std::ops::Sub for Albedou32 {
+    type Output = Albedou32;
+    fn sub(self, other: Albedou32) -> Albedou32 {
+        Albedou32 {
+            r: self.r - other.r,
+            g: self.g - other.g,
+            b: self.b - other.b,
+            a: self.a - other.a,
+        }
+    }
+}
+
+impl std::ops::Add for Albedou32 {
+    type Output = Albedou32;
+    fn add(self, other: Albedou32) -> Albedou32 {
+        Albedou32 {
+            r: self.r + other.r,
+            g: self.g + other.g,
+            b: self.b + other.b,
+            a: self.a + other.a,
+        }
+    }
+}
+
+impl std::ops::Div<u32> for Albedou32 {
+    type Output = Albedou32;
+    fn div(self, divisor: u32) -> Albedou32 {
+        Albedou32 {
+            r: (self.r as f32 / divisor as f32).round() as u32,
+            g: (self.g as f32 / divisor as f32).round() as u32,
+            b: (self.b as f32 / divisor as f32).round() as u32,
+            a: (self.a as f32 / divisor as f32).round() as u32,
+        }
+    }
+}
+
+impl From<Albedo> for Albedou32 {
+    fn from(other: Albedo) -> Self {
+        Albedou32 {
+            r: other.r as u32,
+            g: other.g as u32,
+            b: other.b as u32,
+            a: other.a as u32,
+        }
+    }
+}
+
+impl From<Albedou32> for Albedo {
+    fn from(other: Albedou32) -> Self {
+        Albedo {
+            r: (other.r).min(255) as u8,
+            g: (other.g).min(255) as u8,
+            b: (other.b).min(255) as u8,
+            a: (other.a).min(255) as u8,
+        }
+    }
+}
+
+impl MIPResaplingFunction for MIPResamplingMethods {
+    fn execute<F: Fn(&V3c<u32>) -> Option<Albedo>>(
+        self,
+        sample_start: &V3c<u32>,
+        sample_size: u32,
+        sample_fn: F,
+    ) -> Option<Albedo> {
+        match self {
+            MIPResamplingMethods::BoxFilter => {
+                // Calculate gamma corrected average albedo in the sampling range
+                let mut avg_albedo = None;
+                let mut entry_count = 0;
+                for x in sample_start.x..(sample_start.x + sample_size) {
+                    for y in sample_start.y..(sample_start.y + sample_size) {
+                        for z in sample_start.z..(sample_start.z + sample_size) {
+                            match (&mut avg_albedo, sample_fn(&V3c::new(x, y, z))) {
+                                (None, Some(new_albedo)) => {
+                                    debug_assert_eq!(0, entry_count);
+                                    entry_count = 1;
+                                    avg_albedo = Some((
+                                        (new_albedo.r as f32).powf(2.),
+                                        (new_albedo.g as f32).powf(2.),
+                                        (new_albedo.b as f32).powf(2.),
+                                        (new_albedo.a as f32).powf(2.),
+                                    ));
+                                }
+                                (Some(ref mut current_avg_albedo), Some(new_albedo)) => {
+                                    entry_count += 1;
+                                    current_avg_albedo.0 += (new_albedo.r as f32).powf(2.);
+                                    current_avg_albedo.1 += (new_albedo.g as f32).powf(2.);
+                                    current_avg_albedo.2 += (new_albedo.b as f32).powf(2.);
+                                    current_avg_albedo.3 += (new_albedo.a as f32).powf(2.);
+                                }
+                                (None, None) | (Some(_), None) => {}
+                            }
+                        }
+                    }
+                }
+
+                if let Some(albedo) = avg_albedo {
+                    debug_assert_ne!(0, entry_count, "Expected to have non-zero entries in MIP");
+                    let r = (albedo.0 / entry_count as f32).sqrt().min(255.) as u8;
+                    let g = (albedo.1 / entry_count as f32).sqrt().min(255.) as u8;
+                    let b = (albedo.2 / entry_count as f32).sqrt().min(255.) as u8;
+                    let a = (albedo.3 / entry_count as f32).sqrt().min(255.) as u8;
+                    Some(Albedo { r, g, b, a })
+                } else {
+                    None
+                }
+            }
+            MIPResamplingMethods::PointFilter | MIPResamplingMethods::PointFilterBD => {
+                // Collect Albedo occurences in the sampling range
+                let mut albedo_counts = HashMap::new();
+                for x in sample_start.x..(sample_start.x + sample_size) {
+                    for y in sample_start.y..(sample_start.y + sample_size) {
+                        for z in sample_start.z..(sample_start.z + sample_size) {
+                            if let Some(color) = sample_fn(&V3c::new(x, y, z)) {
+                                albedo_counts
+                                    .entry(color)
+                                    .and_modify(|e| *e += 1)
+                                    .or_insert(1);
+                            }
+                        }
+                    }
+                }
+
+                // return with the most frequent albedo
+                albedo_counts
+                    .into_iter()
+                    .max_by_key(|&(_, count)| count)
+                    .unzip()
+                    .0
+            }
+            MIPResamplingMethods::Posterize(thr) | MIPResamplingMethods::PosterizeBD(thr) => {
+                // Collect Albedo occurences in the sampling range
+                // the map collects squared albedo sums, along with occurence counts
+                // to build the function: sqrt((x1^2 + .... xn^2)/n)
+                let mut albedo_counts = HashMap::<Albedou32, u32>::new();
+                for x in sample_start.x..(sample_start.x + sample_size) {
+                    for y in sample_start.y..(sample_start.y + sample_size) {
+                        for z in sample_start.z..(sample_start.z + sample_size) {
+                            if let Some(color) = sample_fn(&V3c::new(x, y, z)) {
+                                let mut old_albedo_sum = None;
+                                let mut new_albedo_sum = Albedou32 {
+                                    r: 0,
+                                    g: 0,
+                                    b: 0,
+                                    a: 0,
+                                };
+
+                                for (albedo_sum, albedo_count) in albedo_counts.iter() {
+                                    // Convert stored albedo back from gamma space
+                                    let poster_color = (albedo_sum.clone() / *albedo_count).sqrt();
+                                    if (poster_color - Albedou32::from(color)).length()
+                                        < (thr * 255.)
+                                    {
+                                        old_albedo_sum = Some(albedo_sum.clone());
+                                        new_albedo_sum =
+                                            albedo_sum.clone() + Albedou32::from(color).pow2();
+                                        break;
+                                    }
+                                }
+
+                                if let Some(old_albedo_sum) = old_albedo_sum {
+                                    let new_albedo_count = albedo_counts
+                                        .remove(&old_albedo_sum)
+                                        .expect(
+                                        "Expected albdeo value to be previously present in HashSet",
+                                    ) + 1;
+                                    albedo_counts.insert(new_albedo_sum, new_albedo_count);
+                                } else {
+                                    albedo_counts.insert(Albedou32::from(color).pow2(), 1);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // return with the most frequent albedo
+                albedo_counts
+                    .into_iter()
+                    .max_by_key(|&(_, count)| count)
+                    .map(|(powered_color, color_count)| (powered_color / color_count).sqrt().into())
+            }
+        }
+    }
+}
 
 impl<
         #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
@@ -30,139 +262,6 @@ impl<
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
     > Octree<T>
 {
-    /// Provides simple average color value from the given range calculated from the sampling function
-    /// * `sample_start` - The start position of the range to sample from
-    /// * `sample_size` - The size of the range to sample from
-    /// * `sample_fn` - The function providing the samples. It will be called on each position given by the range
-    fn box_resample<F: Fn(&V3c<u32>) -> Option<Albedo>>(
-        sample_start: &V3c<u32>,
-        sample_size: u32,
-        sample_fn: F,
-    ) -> Option<Albedo> {
-        // Calculate average albedo in the sampling range
-        let mut avg_albedo = None;
-        let mut entry_count = 0;
-        for x in sample_start.x..(sample_start.x + sample_size) {
-            for y in sample_start.y..(sample_start.y + sample_size) {
-                for z in sample_start.z..(sample_start.z + sample_size) {
-                    match (&mut avg_albedo, sample_fn(&V3c::new(x, y, z))) {
-                        (None, Some(new_albedo)) => {
-                            entry_count += 1;
-                            avg_albedo = Some((
-                                new_albedo.r as f32,
-                                new_albedo.g as f32,
-                                new_albedo.b as f32,
-                                new_albedo.a as f32,
-                            ));
-                        }
-                        (Some(ref mut current_avg_albedo), Some(new_albedo)) => {
-                            entry_count += 1;
-                            current_avg_albedo.0 += new_albedo.r as f32;
-                            current_avg_albedo.1 += new_albedo.g as f32;
-                            current_avg_albedo.2 += new_albedo.b as f32;
-                            current_avg_albedo.3 += new_albedo.a as f32;
-                        }
-                        (None, None) | (Some(_), None) => {}
-                    }
-                }
-            }
-        }
-
-        if let Some(albedo) = avg_albedo {
-            debug_assert_ne!(0, entry_count, "Expected to have non-zero entries in MIP");
-            let r = (albedo.0 / entry_count as f32).min(255.) as u8;
-            let g = (albedo.1 / entry_count as f32).min(255.) as u8;
-            let b = (albedo.2 / entry_count as f32).min(255.) as u8;
-            let a = (albedo.3 / entry_count as f32).min(255.) as u8;
-            Some(Albedo { r, g, b, a })
-        } else {
-            None
-        }
-    }
-
-    /// Provides a gamma corrected average color value from the given range calculated from the sampling function
-    /// * `sample_start` - The start position of the range to sample from
-    /// * `sample_size` - The size of the range to sample from
-    /// * `sample_fn` - The function providing the samples. It will be called on each position given by the range
-    fn gamma_box_resample<F: Fn(&V3c<u32>) -> Option<Albedo>>(
-        sample_start: &V3c<u32>,
-        sample_size: u32,
-        sample_fn: F,
-    ) -> Option<Albedo> {
-        // Calculate gamma corrected average albedo in the sampling range
-        let mut avg_albedo = None;
-        let mut entry_count = 0;
-        for x in sample_start.x..(sample_start.x + sample_size) {
-            for y in sample_start.y..(sample_start.y + sample_size) {
-                for z in sample_start.z..(sample_start.z + sample_size) {
-                    match (&mut avg_albedo, sample_fn(&V3c::new(x, y, z))) {
-                        (None, Some(new_albedo)) => {
-                            debug_assert_eq!(0, entry_count);
-                            entry_count = 1;
-                            avg_albedo = Some((
-                                (new_albedo.r as f32).powf(2.),
-                                (new_albedo.g as f32).powf(2.),
-                                (new_albedo.b as f32).powf(2.),
-                                (new_albedo.a as f32).powf(2.),
-                            ));
-                        }
-                        (Some(ref mut current_avg_albedo), Some(new_albedo)) => {
-                            entry_count += 1;
-                            current_avg_albedo.0 += (new_albedo.r as f32).powf(2.);
-                            current_avg_albedo.1 += (new_albedo.g as f32).powf(2.);
-                            current_avg_albedo.2 += (new_albedo.b as f32).powf(2.);
-                            current_avg_albedo.3 += (new_albedo.a as f32).powf(2.);
-                        }
-                        (None, None) | (Some(_), None) => {}
-                    }
-                }
-            }
-        }
-
-        if let Some(albedo) = avg_albedo {
-            debug_assert_ne!(0, entry_count, "Expected to have non-zero entries in MIP");
-            let r = (albedo.0 / entry_count as f32).sqrt().min(255.) as u8;
-            let g = (albedo.1 / entry_count as f32).sqrt().min(255.) as u8;
-            let b = (albedo.2 / entry_count as f32).sqrt().min(255.) as u8;
-            let a = (albedo.3 / entry_count as f32).sqrt().min(255.) as u8;
-            Some(Albedo { r, g, b, a })
-        } else {
-            None
-        }
-    }
-
-    /// Provides a gamma corrected average color value from the given range calculated from the sampling function
-    /// * `sample_start` - The start position of the range to sample from
-    /// * `sample_size` - The size of the range to sample from
-    /// * `sample_fn` - The function providing the samples. It will be called on each position given by the range
-    fn dominant_point_filter_resample<F: Fn(&V3c<u32>) -> Option<Albedo>>(
-        sample_start: &V3c<u32>,
-        sample_size: u32,
-        sample_fn: F,
-    ) -> Option<Albedo> {
-        // Collect Albedo occurences in the sampling range
-        let mut albedo_counts = HashMap::new();
-        for x in sample_start.x..(sample_start.x + sample_size) {
-            for y in sample_start.y..(sample_start.y + sample_size) {
-                for z in sample_start.z..(sample_start.z + sample_size) {
-                    if let Some(color) = sample_fn(&V3c::new(x, y, z)) {
-                        albedo_counts
-                            .entry(color)
-                            .and_modify(|e| *e += 1)
-                            .or_insert(1);
-                    }
-                }
-            }
-        }
-
-        // return with the most frequent albedo
-        albedo_counts
-            .into_iter()
-            .max_by_key(|&(_, count)| count)
-            .unzip()
-            .0
-    }
-
     /// Updates the MIP for the given node at the given position. It expects that MIPS of child nodes are up-to-date.
     /// * `node_key` - The node to update teh MIP for
     /// * `node_bounds` - The bounds of the target node
@@ -171,28 +270,39 @@ impl<
         if !self.albedo_mip_maps {
             return;
         }
-        let dominant_bottom = true;
         debug_assert_eq!(
             0,
             node_bounds.size as u32 % self.brick_dim,
             "Expected node bounds to be the multiple of DIM"
         );
 
-        let mip_entry = match self.nodes.get(node_key) {
+        let mip_level = (node_bounds.size / self.brick_dim as f32).log2() as usize;
+        let dominant_bottom = if let Some(strategy) = self.mip_resampling_strategy.get(&mip_level) {
+            matches!(strategy, MIPResamplingMethods::PointFilterBD)
+        } else {
+            false
+        };
+        let sampler = if let Some(sampler) = self.mip_resampling_strategy.get(&mip_level) {
+            sampler.clone()
+        } else {
+            MIPResamplingMethods::default()
+        };
+
+        let (sample_start, sample_size) = match self.nodes.get(node_key) {
             NodeContent::Nothing => {
                 debug_assert_eq!(
                     NodeChildren::NoChildren,
                     self.node_children[node_key],
                     "Expected empty node to not have children!"
                 );
-                None
+                return;
             }
             NodeContent::UniformLeaf(_brick) => {
                 if !matches!(self.node_mips[node_key], BrickData::Empty) {
                     //Uniform Leaf nodes need not a MIP, because their content is equivalent with it
                     self.node_mips[node_key] = BrickData::Empty;
                 }
-                None
+                return;
             }
             NodeContent::Leaf(_) => {
                 // determine the sampling range
@@ -229,23 +339,7 @@ impl<
                     node_bounds.min_position.z,
                     node_bounds.size
                 );
-
-                let sampled_color = Self::dominant_point_filter_resample(
-                    &sample_start,
-                    sample_size,
-                    |pos| -> Option<Albedo> {
-                        self.get_internal(node_key, *node_bounds, pos)
-                            .albedo()
-                            .copied()
-                    },
-                );
-
-                // Assemble MIP entry
-                Some(if let Some(ref color) = sampled_color {
-                    self.add_to_palette(&OctreeEntry::Visual(color))
-                } else {
-                    empty_marker::<PaletteIndexValues>()
-                })
+                (sample_start, sample_size)
             }
             NodeContent::Internal(_) if dominant_bottom => {
                 // determine the sampling range
@@ -279,23 +373,7 @@ impl<
                     node_bounds.min_position.z,
                     node_bounds.size
                 );
-
-                let sampled_color = Self::dominant_point_filter_resample(
-                    &sample_start,
-                    sample_size,
-                    |pos| -> Option<Albedo> {
-                        self.get_internal(node_key, *node_bounds, pos)
-                            .albedo()
-                            .copied()
-                    },
-                );
-
-                // Assemble MIP entry
-                Some(if let Some(ref color) = sampled_color {
-                    self.add_to_palette(&OctreeEntry::Visual(color))
-                } else {
-                    empty_marker::<PaletteIndexValues>()
-                })
+                (sample_start, sample_size)
             }
             NodeContent::Internal(_occupied_bits) => {
                 // determine the sampling range
@@ -330,52 +408,98 @@ impl<
                     sample_size,
                     self.brick_dim
                 );
-                let sampled_color = if empty_marker::<u32>() as usize
+                (sample_start, sample_size)
+            }
+        };
+
+        let sampled_color = match self.nodes.get(node_key) {
+            NodeContent::Nothing | NodeContent::UniformLeaf(_) => None,
+            NodeContent::Leaf(_) => {
+                sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
+                    self.get_internal(node_key, *node_bounds, pos)
+                        .albedo()
+                        .copied()
+                })
+            }
+            NodeContent::Internal(_) if dominant_bottom => {
+                sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
+                    self.get_internal(node_key, *node_bounds, pos)
+                        .albedo()
+                        .copied()
+                })
+            }
+            NodeContent::Internal(_occupied_bits) => {
+                let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
+                let child_octant = hash_region(&pos_in_bounds, node_bounds.size / 2.);
+                if empty_marker::<u32>() as usize
                     == self.node_children[node_key].child(child_octant)
                 {
                     None
                 } else {
-                    Self::dominant_point_filter_resample(
-                        &sample_start,
-                        sample_size,
-                        |pos| -> Option<Albedo> {
-                            match &self.node_mips[self.node_children[node_key].child(child_octant)]
-                            {
-                                BrickData::Empty => None,
-                                BrickData::Solid(voxel) => NodeContent::pix_get_ref(
-                                    voxel,
+                    sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
+                        match &self.node_mips[self.node_children[node_key].child(child_octant)] {
+                            BrickData::Empty => None,
+                            BrickData::Solid(voxel) => NodeContent::pix_get_ref(
+                                voxel,
+                                &self.voxel_color_palette,
+                                &self.voxel_data_palette,
+                            )
+                            .albedo()
+                            .copied(),
+                            BrickData::Parted(brick) => {
+                                let mip_index = flat_projection(
+                                    pos.x as usize,
+                                    pos.y as usize,
+                                    pos.z as usize,
+                                    self.brick_dim as usize,
+                                );
+                                NodeContent::pix_get_ref(
+                                    &brick[mip_index],
                                     &self.voxel_color_palette,
                                     &self.voxel_data_palette,
                                 )
                                 .albedo()
-                                .copied(),
-                                BrickData::Parted(brick) => {
-                                    let mip_index = flat_projection(
-                                        pos.x as usize,
-                                        pos.y as usize,
-                                        pos.z as usize,
-                                        self.brick_dim as usize,
-                                    );
-                                    NodeContent::pix_get_ref(
-                                        &brick[mip_index],
-                                        &self.voxel_color_palette,
-                                        &self.voxel_data_palette,
-                                    )
-                                    .albedo()
-                                    .copied()
-                                }
+                                .copied()
                             }
-                        },
-                    )
-                };
-
-                // Assemble MIP entry
-                Some(if let Some(ref color) = sampled_color {
-                    self.add_to_palette(&OctreeEntry::Visual(color))
-                } else {
-                    empty_marker::<PaletteIndexValues>()
-                })
+                        }
+                    })
+                }
             }
+        };
+
+        // Assemble MIP entry
+        let mip_entry = if let Some(ref color) = sampled_color {
+            if let Some(color_distance_threshold) =
+                self.mip_resampling_color_matching_threshold.get(&mip_level)
+            {
+                let mut similar_color = None;
+                let color_distance_threshold = color_distance_threshold * 255.;
+                for palette_index in 0..self.voxel_color_palette.len() {
+                    // if a color if close enoguh i.e. distance is below distance threshold, it will do
+                    if color.distance_from(&self.voxel_color_palette[palette_index])
+                        < color_distance_threshold
+                    {
+                        similar_color = Some(palette_index as u16);
+                        break;
+                    }
+                }
+
+                if let Some(similar_color) = similar_color {
+                    // Generate Voxel entry from available color
+                    Some(
+                        // self.add_to_palette(&OctreeEntry::Visual(&similar_color))
+                        NodeContent::pix_visual(similar_color),
+                    )
+                } else {
+                    // Add new color to the color palette
+                    Some(self.add_to_palette(&OctreeEntry::Visual(&color)))
+                }
+            } else {
+                // Add new color to the color palette
+                Some(self.add_to_palette(&OctreeEntry::Visual(&color)))
+            }
+        } else {
+            None
         };
 
         if let Some(mip_entry) = mip_entry {
@@ -405,21 +529,240 @@ impl<
             }
         }
     }
+}
 
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > MIPMapsStrategy<'_, T>
+{
+    /// Resets the strategy for a MIP level during resample operations
+    pub fn reset(self) -> Self {
+        self.0.mip_resampling_strategy.clear();
+        self.0.mip_resampling_color_matching_threshold.clear();
+        self
+    }
+
+    /// To reduce adding new colors during MIP resampling operations, each MIP level has
+    /// a color similarity method where colors within the same threshold are recognized as the same
+    /// This reduces the number of introduced colors.
+    pub fn get_new_color_similarity_at(&self, mip_level: usize) -> f32 {
+        self.0
+            .mip_resampling_color_matching_threshold
+            .get(&mip_level)
+            .cloned()
+            .unwrap_or(0.)
+    }
+
+    /// Sets the similarity threshold for a color to be discarded for a similar, already available color
+    /// during MIP resampling operations. This reduces the number of introduced colors by MIP bricks
+    pub fn set_color_similarity_thr_at(self, mip_level: usize, mut similarity_thr: f32) -> Self {
+        debug_assert!(
+            similarity_thr >= 0. && similarity_thr <= 1.,
+            "Color similarity Threshold {similarity_thr} out of range!"
+        );
+        similarity_thr = similarity_thr.clamp(0., 1.);
+
+        self.0
+            .mip_resampling_color_matching_threshold
+            .insert(mip_level, similarity_thr);
+        self
+    }
+
+    /// Sets the comolr reduction strategy similarity thresholds for each given MIP level
+    pub fn set_color_similarity_thr(self, levels: impl IntoIterator<Item = (usize, f32)>) -> Self {
+        let mut chain = self;
+        for (mip_level, similarity_thr) in levels {
+            chain = chain.set_color_similarity_thr_at(mip_level, similarity_thr);
+        }
+        chain
+    }
+
+    /// Provides the strategy for a MIP level during resample operations, if any
+    pub fn get_method_at(&self, mip_level: usize) -> MIPResamplingMethods {
+        self.0
+            .mip_resampling_strategy
+            .get(&mip_level)
+            .cloned()
+            .unwrap_or(MIPResamplingMethods::BoxFilter)
+    }
+
+    /// Sets the strategy for a MIP level during resample operations
+    /// In case method has a parameter, it is clamped to 0. <= thr <= 1.
+    pub fn set_method_at(self, mip_level: usize, mut method: MIPResamplingMethods) -> Self {
+        if let MIPResamplingMethods::Posterize(ref mut thr)
+        | MIPResamplingMethods::PosterizeBD(ref mut thr) = method
+        {
+            debug_assert!(
+                *thr >= 0. && *thr <= 1.,
+                "Posterize Threshold {thr} out of range!"
+            );
+            *thr = thr.clamp(0., 1.);
+        }
+        self.0.mip_resampling_strategy.insert(mip_level, method);
+        self
+    }
+
+    /// Sets the strategy for a MIP level during resample operations
+    pub fn set_method(
+        self,
+        levels: impl IntoIterator<Item = (usize, MIPResamplingMethods)>,
+    ) -> Self {
+        let mut chain = self;
+        for (mip_level, method) in levels {
+            chain = chain.set_method_at(mip_level, method)
+        }
+        chain
+    }
+
+    /// Recalculates MIPs for the whole content of the octree
+    pub fn recalculate_mips(&mut self) {
+        self.0.node_mips = vec![BrickData::Empty; self.0.nodes.len()];
+
+        // Generating MIPMAPs need to happen while traveling the graph in a DFS
+        // in order to generate MIPs for the leaf nodes first
+        let mut node_stack = vec![(
+            Octree::<T>::ROOT_NODE_KEY as usize,
+            Cube::root_bounds(self.0.octree_size as f32),
+            0,
+        )];
+        while !node_stack.is_empty() {
+            let tree = &mut self.0;
+            let (current_node_key, current_bounds, target_octant) = node_stack.last().unwrap();
+
+            // evaluate current node and return to its parent node
+            if OOB_OCTANT == *target_octant {
+                self.recalculate_mip(*current_node_key, current_bounds);
+                node_stack.pop();
+                if let Some(parent) = node_stack.last_mut() {
+                    parent.2 += 1;
+                }
+                continue;
+            }
+
+            match tree.nodes.get(*current_node_key) {
+                NodeContent::Nothing => unreachable!("BFS shouldn't evaluate empty children"),
+                NodeContent::Internal(_occupied_bits) => {
+                    let target_child_key =
+                        tree.node_children[*current_node_key].child(*target_octant);
+                    if tree.nodes.key_is_valid(target_child_key)
+                        && !matches!(tree.nodes.get(target_child_key), NodeContent::Nothing)
+                    {
+                        debug_assert!(
+                            matches!(
+                                tree.node_children[target_child_key],
+                                NodeChildren::OccupancyBitmap(_) | NodeChildren::Children(_)
+                            ),
+                            "Expected node[{}] child[{}] to have children or occupancy instead of: {:?}",
+                            current_node_key, target_octant, tree.node_children[target_child_key]
+                        );
+                        node_stack.push((
+                            target_child_key,
+                            current_bounds.child_bounds_for(*target_octant),
+                            0,
+                        ));
+                    } else {
+                        node_stack.last_mut().unwrap().2 += 1;
+                    }
+                }
+                NodeContent::Leaf(_) | NodeContent::UniformLeaf(_) => {
+                    debug_assert!(
+                        matches!(
+                            tree.node_children[*current_node_key],
+                            NodeChildren::OccupancyBitmap(_)
+                        ),
+                        "Expected node[{}] to have occupancy bitmaps instead of: {:?}",
+                        current_node_key,
+                        tree.node_children[*current_node_key]
+                    );
+                    // Set current child iterator to OOB, to evaluate it and move on
+                    node_stack.last_mut().unwrap().2 = OOB_OCTANT;
+                }
+            }
+        }
+    }
+
+    /// Enables or disables mipmap feature for albedo values
+    pub fn switch_albedo_mip_maps(mut self, enabled: bool) -> Self {
+        let tree = &mut self.0;
+        let mips_on_previously = tree.albedo_mip_maps;
+        tree.albedo_mip_maps = enabled;
+
+        // go through every node and set its mip-maps in case the feature is just enabled
+        // and if there's anything to iterate into
+        if tree.albedo_mip_maps
+            && mips_on_previously != enabled
+            && *tree.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize) != NodeContent::Nothing
+        {
+            self.recalculate_mips();
+        }
+        self
+    }
+
+    /// Resamples every voxel for the MIP of the given node
     pub(crate) fn recalculate_mip(&mut self, node_key: usize, node_bounds: &Cube) {
-        if !self.albedo_mip_maps {
+        let tree = &mut self.0;
+        if !tree.albedo_mip_maps {
             return;
         }
 
-        for x in 0..self.brick_dim {
-            for y in 0..self.brick_dim {
-                for z in 0..self.brick_dim {
+        for x in 0..tree.brick_dim {
+            for y in 0..tree.brick_dim {
+                for z in 0..tree.brick_dim {
                     let pos: V3c<f32> = node_bounds.min_position
                         + (V3c::<f32>::new(x as f32, y as f32, z as f32) * node_bounds.size
-                            / self.brick_dim as f32)
+                            / tree.brick_dim as f32)
                             .round();
-                    self.update_mip(node_key, node_bounds, &V3c::from(pos));
+                    tree.update_mip(node_key, node_bounds, &V3c::from(pos));
                 }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    /// Sample the MIP of the root node, or its children
+    /// * `octant` - the child to sample, in case `OOB_OCTANT` the root MIP is sampled
+    /// * `position` - the position inside the MIP, expected to be in range `0..self.brick_dim` for all components
+    pub(crate) fn sample_root_mip(&self, octant: u8, position: &V3c<u32>) -> OctreeEntry<T> {
+        let tree = &self.0;
+        let node_key = if OOB_OCTANT == octant {
+            Octree::<T>::ROOT_NODE_KEY as usize
+        } else {
+            tree.node_children[Octree::<T>::ROOT_NODE_KEY as usize].child(octant) as usize
+        };
+
+        if !tree.nodes.key_is_valid(node_key) {
+            return OctreeEntry::Empty;
+        }
+        match &tree.node_mips[node_key] {
+            BrickData::Empty => OctreeEntry::Empty,
+            BrickData::Solid(voxel) => NodeContent::pix_get_ref(
+                &voxel,
+                &tree.voxel_color_palette,
+                &tree.voxel_data_palette,
+            ),
+            BrickData::Parted(brick) => {
+                let flat_index = flat_projection(
+                    position.x as usize,
+                    position.y as usize,
+                    position.z as usize,
+                    tree.brick_dim as usize,
+                );
+                NodeContent::pix_get_ref(
+                    &brick[flat_index],
+                    &tree.voxel_color_palette,
+                    &tree.voxel_data_palette,
+                )
             }
         }
     }

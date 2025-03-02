@@ -81,6 +81,7 @@ pub struct OctreeSpyGlass {
 
 #[derive(Resource, Clone)]
 pub struct OctreeGPUView {
+    pub(crate) reload: bool,
     pub spyglass: OctreeSpyGlass,
     pub(crate) data_handler: OctreeGPUDataHandler,
 }

@@ -355,7 +355,7 @@ where
                     }
                 };
 
-                // The following are the two fields this whole implementation is required
+                // The following are the two fields this whole implementation is required for
                 // There is no other reason not to use the derive macro `Deserialize`
                 // As there is an `ArbitraryMapKeysUnsupported` error when trying to serialize them,
                 // Re-building them manually is required

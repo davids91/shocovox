@@ -115,6 +115,7 @@ where
         let output_texture = images.add(output_texture);
 
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
+            reload: false,
             data_handler: gpu_data_handler,
             spyglass: OctreeSpyGlass {
                 viewport_changed: true,
@@ -334,10 +335,21 @@ pub(crate) fn write_to_gpu<T>(
 {
     if let (Some(mut pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
         // Initial octree data upload
-        if !pipeline.init_data_sent {
+        if !pipeline.init_data_sent || svx_view_set.views[0].lock().unwrap().reload {
             if let Some(resources) = &pipeline.resources {
                 //write data for root node
-                let view = svx_view_set.views[0].lock().unwrap();
+                let mut view = svx_view_set.views[0].lock().unwrap();
+
+                if view.reload {
+                    view.data_handler
+                        .render_data
+                        .node_children
+                        .splice(0..8, vec![empty_marker(); 8]);
+                    for m in view.data_handler.render_data.node_mips.iter_mut() {
+                        *m = empty_marker();
+                    }
+                }
+
                 write_range_to_buffer(
                     &view.data_handler.render_data.metadata,
                     0..1,
@@ -351,12 +363,19 @@ pub(crate) fn write_to_gpu<T>(
                     &pipeline.render_queue,
                 );
                 write_range_to_buffer(
+                    &view.data_handler.render_data.node_mips,
+                    0..view.data_handler.render_data.node_mips.len(),
+                    &resources.node_mips_buffer,
+                    &pipeline.render_queue,
+                );
+                write_range_to_buffer(
                     &view.data_handler.render_data.node_ocbits,
                     0..2,
                     &resources.node_ocbits_buffer,
                     &pipeline.render_queue,
                 );
                 pipeline.init_data_sent = true;
+                view.reload = false;
             }
         }
         let resources = if let Some(resources) = &pipeline.resources {
@@ -623,6 +642,7 @@ pub(crate) fn write_to_gpu<T>(
 
             // Color palette
             if 0 < color_palette_size_diff {
+                println!("colors: {}", host_color_count);
                 for i in view.data_handler.uploaded_color_palette_size..host_color_count {
                     view.data_handler.render_data.color_palette[i] =
                         tree.voxel_color_palette[i].into();

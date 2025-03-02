@@ -1,5 +1,8 @@
 use crate::{
-    octree::{Albedo, Octree, OctreeEntry, V3c, VoxelData},
+    octree::{
+        types::{MIPMapsStrategy, OctreeError},
+        Albedo, Octree, OctreeEntry, V3c, VoxelData,
+    },
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
 use dot_vox::{Color, DotVoxData, Model, SceneNode, Size, Voxel};
@@ -210,10 +213,76 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > MIPMapsStrategy<'_, T>
+{
+    pub fn load_vox_file_into_new_tree(self, filename: &str) -> Result<Octree<T>, &'static str> {
+        let (vox_data, min_position, mut max_position) =
+            Octree::<T>::load_vox_file_internal(filename);
+        max_position -= min_position;
+        let tree_size = max_position.x.max(max_position.y).max(max_position.z);
+        let tree_size = (tree_size as f32).log2().ceil() as u32;
+        let tree_size = 2_u32.pow(tree_size);
+
+        let mut shocovox_octree =
+            Octree::<T>::new(tree_size, self.0.brick_dim).unwrap_or_else(|err| {
+                panic!(
+                    "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
+                    tree_size,
+                    self.0.brick_dim.to_owned(),
+                    err
+                )
+            });
+
+        shocovox_octree.albedo_mip_maps = self.0.albedo_mip_maps;
+        shocovox_octree.mip_resampling_strategy = self.0.mip_resampling_strategy.clone();
+        shocovox_octree.mip_resampling_color_matching_threshold =
+            self.0.mip_resampling_color_matching_threshold.clone();
+        shocovox_octree.load_vox_data_internal(&vox_data, &min_position);
+        Ok(shocovox_octree)
+    }
+}
+
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
     > Octree<T>
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
-        let vox_tree = dot_vox::load(filename)?;
+        let (vox_data, min_position, mut max_position) = Self::load_vox_file_internal(filename);
+        max_position -= min_position;
+        let tree_size = max_position.x.max(max_position.y).max(max_position.z);
+        let tree_size = (tree_size as f32).log2().ceil() as u32;
+        let tree_size = 2_u32.pow(tree_size);
+
+        let mut shocovox_octree =
+            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
+                panic!(
+                    "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
+                    tree_size,
+                    brick_dimension.to_owned(),
+                    err
+                )
+            });
+
+        shocovox_octree.load_vox_data_internal(&vox_data, &min_position);
+        Ok(shocovox_octree)
+    }
+
+    /// Loads data from the given filename
+    /// * `returns` - (file_data, voxel_maximum_position_lyup, voxel_maximum_position_lyup)
+    pub(crate) fn load_vox_file_internal(filename: &str) -> (DotVoxData, V3c<i32>, V3c<i32>) {
+        let vox_tree =
+            dot_vox::load(filename).expect("Expected file {filename} to be a valid .vox file!");
 
         let mut min_position_lyup = V3c::<i32>::new(0, 0, 0);
         let mut max_position_lyup = V3c::<i32>::new(0, 0, 0);
@@ -263,23 +332,14 @@ impl<
                 .max(position.z + model_size_half_lyup.z)
                 .max(position.z - model_size_half_lyup.z);
         });
-        max_position_lyup -= min_position_lyup;
-        let max_dimension = max_position_lyup
-            .x
-            .max(max_position_lyup.y)
-            .max(max_position_lyup.z);
-        let max_dimension = (max_dimension as f32).log2().ceil() as u32;
-        let max_dimension = 2_u32.pow(max_dimension);
-        let mut shocovox_octree =
-            Octree::<T>::new(max_dimension, brick_dimension).unwrap_or_else(|err| {
-                panic!(
-                    "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
-                    max_dimension,
-                    brick_dimension.to_owned(),
-                    err
-                )
-            });
+        (vox_tree, min_position_lyup, max_position_lyup)
+    }
 
+    pub(crate) fn load_vox_data_internal(
+        &mut self,
+        vox_tree: &DotVoxData,
+        min_position_lyup: &V3c<i32>,
+    ) {
         iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
@@ -293,14 +353,14 @@ impl<
                 CoordinateSystemType::Lyup,
             );
 
-            let current_position = position_lyup - min_position_lyup - (model_size_lyup / 2)
+            let current_position = position_lyup - *min_position_lyup - (model_size_lyup / 2)
                 + V3c::new(
                     if model_size_lyup.x < 0 { -1 } else { 0 },
                     if model_size_lyup.y < 0 { -1 } else { 0 },
                     if model_size_lyup.z < 0 { -1 } else { 0 },
                 );
 
-            let mut vmin = V3c::unit(max_dimension);
+            let mut vmin = V3c::unit(self.octree_size);
             let mut vmax = V3c::unit(0u32);
             for voxel in &model.voxels {
                 let voxel_position = convert_coordinate(
@@ -316,16 +376,22 @@ impl<
                     vmax = cpos.into();
                 }
 
-                shocovox_octree
-                    .insert(
-                        &V3c::<u32>::from(current_position + voxel_position),
-                        OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
-                    )
-                    .ok()
-                    .unwrap();
+                match self.insert(
+                    &V3c::<u32>::from(cpos),
+                    OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
+                ) {
+                    Ok(_) => {}
+                    Err(octree_error) => {
+                        match octree_error {
+                            OctreeError::InvalidPosition { .. } => {
+                                panic!("inserting into octree at at invalid position: {:?} + {:?} = {:?}", current_position, voxel_position, octree_error)
+                            }
+                            _ => panic!("inserting into octree yielded: {:?}", octree_error),
+                        }
+                    }
+                }
             }
         });
-        Ok(shocovox_octree)
     }
 }
 

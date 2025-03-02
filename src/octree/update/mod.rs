@@ -51,6 +51,18 @@ impl<
     // ░░░░░        ░░░░░   ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░    ░░░░░       ░░░░░    ░░░░░░░░░░
     //####################################################################################
 
+    /// Generates a voxel value based on the given albedo reference
+    pub(crate) fn albedo_entry_from_palette(&self, albedo: &Albedo) -> PaletteIndexValues {
+        if *albedo == Albedo::zero() {
+            return empty_marker();
+        }
+        debug_assert!(
+            self.map_to_color_index_in_palette.contains_key(albedo),
+            "Expected Albedo value to be already included in palette!"
+        );
+        NodeContent::pix_visual(self.map_to_color_index_in_palette[albedo] as u16)
+    }
+
     /// Updates the stored palette by adding the new colors and data in the given entry
     /// Since unused colors are not removed from the palette, possible "pollution" is possible,
     /// where unused colors remain in the palette.

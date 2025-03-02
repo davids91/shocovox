@@ -62,7 +62,8 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             Ok(tree_) => tree_,
             Err(message) => panic!("Parsing model file failed with message: {message}"),
         };
-        tree.switch_albedo_mip_maps(true);
+        tree.albedo_mip_map_resampling_strategy()
+            .switch_albedo_mip_maps(true);
         tree.save(&tree_path).ok().unwrap();
     }
 
