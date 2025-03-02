@@ -319,7 +319,12 @@ impl<
                 self.nodes.get(node_key as usize),
                 self.node_children[node_key as usize]
             );
-            self.store_occupied_bits(node_key as usize, new_occupied_bits);
+
+            if 0 == new_occupied_bits {
+                self.node_children[node_key as usize] = NodeChildren::NoChildren;
+            } else {
+                self.store_occupied_bits(node_key as usize, new_occupied_bits);
+            }
 
             // update MIP maps
             self.update_mip(node_key as usize, &node_bounds, position);

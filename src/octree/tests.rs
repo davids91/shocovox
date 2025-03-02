@@ -153,18 +153,28 @@ mod brick_tests {
 }
 
 mod mipmap_tests {
-    use crate::octree::{Albedo, Octree, V3c, OOB_OCTANT};
+    use crate::{
+        octree::{Albedo, MIPResamplingMethods, Octree, V3c},
+        spatial::lut::OOB_OCTANT,
+    };
 
     #[test]
     fn test_mixed_mip_lvl1() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
-        let mix: Albedo = 0x7F7F00FF.into();
+        let mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 2.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 2.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
 
         let mut tree: Octree = Octree::new(2, 1).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
-            .switch_albedo_mip_maps(true);
+            .switch_albedo_mip_maps(true)
+            .set_method_at(1, MIPResamplingMethods::BoxFilter);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -200,7 +210,8 @@ mod mipmap_tests {
         let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
-            .switch_albedo_mip_maps(true);
+            .switch_albedo_mip_maps(true)
+            .set_method_at(1, MIPResamplingMethods::BoxFilter);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &red)
@@ -268,12 +279,19 @@ mod mipmap_tests {
     fn test_mixed_mip_lvl2_where_dim_is_2() {
         let red: Albedo = 0xFF0000FF.into();
         let green: Albedo = 0x00FF00FF.into();
-        let mix: Albedo = 0x7F7F00FF.into();
+        let mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 2.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 2.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
 
         let mut tree: Octree = Octree::new(4, 2).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
-            .switch_albedo_mip_maps(true);
+            .switch_albedo_mip_maps(true)
+            .set_method_at(1, MIPResamplingMethods::BoxFilter);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -346,7 +364,9 @@ mod mipmap_tests {
         let mut tree: Octree = Octree::new(16, 4).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
-            .switch_albedo_mip_maps(true);
+            .switch_albedo_mip_maps(true)
+            .set_method_at(1, MIPResamplingMethods::BoxFilter)
+            .set_method_at(2, MIPResamplingMethods::BoxFilter);
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
         tree.insert(&V3c::new(0, 0, 1), &green)
@@ -374,7 +394,13 @@ mod mipmap_tests {
             .expect("octree insert");
 
         // For child position 0,0,0
-        let rg_mix: Albedo = 0x7F7F00FF.into();
+        let rg_mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 2.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 2.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
         assert!(tree
             .albedo_mip_map_resampling_strategy()
             .sample_root_mip(0, &V3c::new(0, 0, 0))
@@ -390,7 +416,14 @@ mod mipmap_tests {
         );
 
         // For child position 8,0,0
-        let rgb_mix: Albedo = 0x555555FF.into();
+        let rgb_mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 3.).sqrt() as u32) << 8)
+                | (((255_f32.powf(2.) / 3.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 3.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
         assert!(tree
             .albedo_mip_map_resampling_strategy()
             .sample_root_mip(1, &V3c::new(0, 0, 0))
@@ -470,12 +503,21 @@ mod mipmap_tests {
         tree.insert(&V3c::new(9, 0, 1), &blue)
             .expect("octree insert");
 
-        // Switch MIP maps on, it should calculate the correct values
+        // Switch MIP maps on, calculate the correct values
         tree.albedo_mip_map_resampling_strategy()
-            .switch_albedo_mip_maps(true);
+            .switch_albedo_mip_maps(true)
+            .set_method_at(1, MIPResamplingMethods::BoxFilter)
+            .set_method_at(2, MIPResamplingMethods::BoxFilter)
+            .recalculate_mips();
 
         // For child position 0,0,0
-        let rg_mix: Albedo = 0x7F7F00FF.into();
+        let rg_mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 2.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 2.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
         assert!(tree
             .albedo_mip_map_resampling_strategy()
             .sample_root_mip(0, &V3c::new(0, 0, 0))
@@ -491,7 +533,14 @@ mod mipmap_tests {
         );
 
         // For child position 8,0,0
-        let rgb_mix: Albedo = 0x555555FF.into();
+        let rgb_mix: Albedo = (
+            // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
+            (((255_f32.powf(2.) / 3.).sqrt() as u32) << 8)
+                | (((255_f32.powf(2.) / 3.).sqrt() as u32) << 16)
+                | (((255_f32.powf(2.) / 3.).sqrt() as u32) << 24)
+                | 0x000000FF
+        )
+        .into();
         assert!(tree
             .albedo_mip_map_resampling_strategy()
             .sample_root_mip(1, &V3c::new(0, 0, 0))

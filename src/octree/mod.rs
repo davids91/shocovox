@@ -2,13 +2,16 @@ pub mod types;
 pub mod update;
 
 mod detail;
+pub(crate) mod mipmap;
 mod node;
 
 #[cfg(test)]
 mod tests;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
-pub use types::{Albedo, MIPMapsStrategy, MIPResamplingMethods, Octree, OctreeEntry, VoxelData};
+pub use types::{
+    Albedo, MIPMapStrategy, MIPResamplingMethods, Octree, OctreeEntry, StrategyUpdater, VoxelData,
+};
 
 use crate::{
     object_pool::{empty_marker, ObjectPool},
@@ -189,7 +192,6 @@ impl<
         assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
-            albedo_mip_maps: false,
             octree_size: size,
             brick_dim: brick_dimension,
             nodes,
@@ -199,8 +201,7 @@ impl<
             voxel_data_palette: vec![],
             map_to_color_index_in_palette: HashMap::new(),
             map_to_data_index_in_palette: HashMap::new(),
-            mip_resampling_strategy: HashMap::new(),
-            mip_resampling_color_matching_threshold: HashMap::new(),
+            mip_map_strategy: MIPMapStrategy::default(),
         })
     }
 
@@ -376,7 +377,7 @@ impl<
     }
 
     /// Object to set the MIP map strategy for each MIP level inside the octree
-    pub fn albedo_mip_map_resampling_strategy(&mut self) -> MIPMapsStrategy<T> {
-        MIPMapsStrategy(self)
+    pub fn albedo_mip_map_resampling_strategy(&mut self) -> StrategyUpdater<T> {
+        StrategyUpdater(self)
     }
 }

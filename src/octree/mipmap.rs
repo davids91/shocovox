@@ -2,8 +2,8 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{
-            BrickData, MIPMapsStrategy, MIPResamplingMethods, NodeChildren, NodeContent,
-            OctreeEntry, PaletteIndexValues,
+            BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren, NodeContent,
+            OctreeEntry, PaletteIndexValues, StrategyUpdater,
         },
         Albedo, Octree, VoxelData,
     },
@@ -119,6 +119,16 @@ impl From<Albedou32> for Albedo {
     }
 }
 
+//####################################################################################
+//  █████████    █████████   ██████   ██████ ███████████  █████       ██████████
+//  ███░░░░░███  ███░░░░░███ ░░██████ ██████ ░░███░░░░░███░░███       ░░███░░░░░█
+// ░███    ░░░  ░███    ░███  ░███░█████░███  ░███    ░███ ░███        ░███  █ ░
+// ░░█████████  ░███████████  ░███░░███ ░███  ░██████████  ░███        ░██████
+//  ░░░░░░░░███ ░███░░░░░███  ░███ ░░░  ░███  ░███░░░░░░   ░███        ░███░░█
+//  ███    ░███ ░███    ░███  ░███      ░███  ░███         ░███      █ ░███ ░   █
+// ░░█████████  █████   █████ █████     █████ █████        ███████████ ██████████
+//  ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░     ░░░░░ ░░░░░        ░░░░░░░░░░░ ░░░░░░░░░░
+//####################################################################################
 impl MIPResaplingFunction for MIPResamplingMethods {
     fn execute<F: Fn(&V3c<u32>) -> Option<Albedo>>(
         self,
@@ -262,12 +272,30 @@ impl<
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
     > Octree<T>
 {
+    //####################################################################################
+    //  ██████   ██████ █████ ███████████
+    // ░░██████ ██████ ░░███ ░░███░░░░░███
+    //  ░███░█████░███  ░███  ░███    ░███
+    //  ░███░░███ ░███  ░███  ░██████████
+    //  ░███ ░░░  ░███  ░███  ░███░░░░░░
+    //  ░███      ░███  ░███  ░███
+    //  █████     █████ █████ █████
+    // ░░░░░     ░░░░░ ░░░░░ ░░░░░
+    //  █████  █████ ███████████  ██████████     █████████   ███████████ ██████████
+    // ░░███  ░░███ ░░███░░░░░███░░███░░░░███   ███░░░░░███ ░█░░░███░░░█░░███░░░░░█
+    //  ░███   ░███  ░███    ░███ ░███   ░░███ ░███    ░███ ░   ░███  ░  ░███  █ ░
+    //  ░███   ░███  ░██████████  ░███    ░███ ░███████████     ░███     ░██████
+    //  ░███   ░███  ░███░░░░░░   ░███    ░███ ░███░░░░░███     ░███     ░███░░█
+    //  ░███   ░███  ░███         ░███    ███  ░███    ░███     ░███     ░███ ░   █
+    //  ░░████████   █████        ██████████   █████   █████    █████    ██████████
+    //   ░░░░░░░░   ░░░░░        ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░░░░░░
+    //####################################################################################
     /// Updates the MIP for the given node at the given position. It expects that MIPS of child nodes are up-to-date.
     /// * `node_key` - The node to update teh MIP for
     /// * `node_bounds` - The bounds of the target node
     /// * `position` - The global position in alignment with node bounds
     pub(crate) fn update_mip(&mut self, node_key: usize, node_bounds: &Cube, position: &V3c<u32>) {
-        if !self.albedo_mip_maps {
+        if !self.mip_map_strategy.enabled {
             return;
         }
         debug_assert_eq!(
@@ -277,23 +305,25 @@ impl<
         );
 
         let mip_level = (node_bounds.size / self.brick_dim as f32).log2() as usize;
-        let dominant_bottom = if let Some(strategy) = self.mip_resampling_strategy.get(&mip_level) {
-            matches!(strategy, MIPResamplingMethods::PointFilterBD)
-        } else {
-            false
-        };
-        let sampler = if let Some(sampler) = self.mip_resampling_strategy.get(&mip_level) {
-            sampler.clone()
-        } else {
-            MIPResamplingMethods::default()
-        };
+        let dominant_bottom =
+            if let Some(strategy) = self.mip_map_strategy.resampling_methods.get(&mip_level) {
+                matches!(strategy, MIPResamplingMethods::PointFilterBD)
+            } else {
+                false
+            };
+        let sampler =
+            if let Some(sampler) = self.mip_map_strategy.resampling_methods.get(&mip_level) {
+                sampler.clone()
+            } else {
+                MIPResamplingMethods::default()
+            };
 
         let (sample_start, sample_size) = match self.nodes.get(node_key) {
             NodeContent::Nothing => {
-                debug_assert_eq!(
-                    NodeChildren::NoChildren,
-                    self.node_children[node_key],
-                    "Expected empty node to not have children!"
+                debug_assert!(
+                    matches!(self.node_children[node_key], NodeChildren::NoChildren),
+                    "Expected empty node to not have children: {:?}",
+                    self.node_children[node_key]
                 );
                 return;
             }
@@ -377,14 +407,10 @@ impl<
             }
             NodeContent::Internal(_occupied_bits) => {
                 // determine the sampling range
-                let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
-                let child_octant = hash_region(&pos_in_bounds, node_bounds.size / 2.);
                 let sample_size = 2;
+                let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
                 let sample_start = pos_in_bounds * 2. * self.brick_dim as f32 / node_bounds.size; // Transform into 2*DIM space
-                let sample_start: V3c<u32> = (sample_start
-                    - (OCTANT_OFFSET_REGION_LUT[child_octant as usize] * self.brick_dim as f32))
-                    .floor()
-                    .into();
+                let sample_start: V3c<u32> = sample_start.floor().into();
                 let sample_start = sample_start - (sample_start % 2); // sample from grid of 2
 
                 debug_assert!(
@@ -421,7 +447,7 @@ impl<
                         .copied()
                 })
             }
-            NodeContent::Internal(_) if dominant_bottom => {
+            NodeContent::Internal(_occupied_bits) if dominant_bottom => {
                 sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
                     self.get_internal(node_key, *node_bounds, pos)
                         .albedo()
@@ -429,14 +455,31 @@ impl<
                 })
             }
             NodeContent::Internal(_occupied_bits) => {
-                let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
-                let child_octant = hash_region(&pos_in_bounds, node_bounds.size / 2.);
+                // the sampling range spans 0 --> (2 * brick_dimension)
                 if empty_marker::<u32>() as usize
-                    == self.node_children[node_key].child(child_octant)
+                    == self.node_children[node_key].child(hash_region(
+                        &V3c::from(sample_start),
+                        self.brick_dim as f32 / 2.,
+                    ))
                 {
                     None
                 } else {
                     sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
+                        // Current position spans 2 bricks, but in special cases the brick dimension might be smaller,
+                        // than the sample size, e.g. when brick_dim == 1
+                        // In this case the target child_octant needs to be updated to accomodate this
+                        let child_octant = hash_region(&((*pos).into()), self.brick_dim as f32);
+
+                        if empty_marker::<u32>() as usize
+                            == self.node_children[node_key].child(child_octant)
+                        {
+                            return None;
+                        }
+
+                        let pos = *pos
+                            - (V3c::from(OCTANT_OFFSET_REGION_LUT[child_octant as usize])
+                                * self.brick_dim);
+
                         match &self.node_mips[self.node_children[node_key].child(child_octant)] {
                             BrickData::Empty => None,
                             BrickData::Solid(voxel) => NodeContent::pix_get_ref(
@@ -469,8 +512,10 @@ impl<
 
         // Assemble MIP entry
         let mip_entry = if let Some(ref color) = sampled_color {
-            if let Some(color_distance_threshold) =
-                self.mip_resampling_color_matching_threshold.get(&mip_level)
+            if let Some(color_distance_threshold) = self
+                .mip_map_strategy
+                .resampling_color_matching_thresholds
+                .get(&mip_level)
             {
                 let mut similar_color = None;
                 let color_distance_threshold = color_distance_threshold * 255.;
@@ -531,51 +576,62 @@ impl<
     }
 }
 
-impl<
-        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
-            + ToBencode
-            + Serialize
-            + DeserializeOwned
-            + Default
-            + Eq
-            + Clone
-            + Hash
-            + VoxelData,
-        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
-        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
-        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > MIPMapsStrategy<'_, T>
-{
-    /// Resets the strategy for a MIP level during resample operations
-    pub fn reset(self) -> Self {
-        self.0.mip_resampling_strategy.clear();
-        self.0.mip_resampling_color_matching_threshold.clear();
-        self
+//####################################################################################
+//  ██████   ██████ █████ ███████████       █████████   ███████████  █████
+// ░░██████ ██████ ░░███ ░░███░░░░░███     ███░░░░░███ ░░███░░░░░███░░███
+//  ░███░█████░███  ░███  ░███    ░███    ░███    ░███  ░███    ░███ ░███
+//  ░███░░███ ░███  ░███  ░██████████     ░███████████  ░██████████  ░███
+//  ░███ ░░░  ░███  ░███  ░███░░░░░░      ░███░░░░░███  ░███░░░░░░   ░███
+//  ░███      ░███  ░███  ░███            ░███    ░███  ░███         ░███
+//  █████     █████ █████ █████           █████   █████ █████        █████
+// ░░░░░     ░░░░░ ░░░░░ ░░░░░           ░░░░░   ░░░░░ ░░░░░        ░░░░░
+//####################################################################################
+impl Default for MIPMapStrategy {
+    fn default() -> Self {
+        MIPMapStrategy {
+            enabled: true,
+            resampling_methods: HashMap::from([
+                (1, MIPResamplingMethods::PointFilter),
+                (2, MIPResamplingMethods::BoxFilter),
+                (3, MIPResamplingMethods::BoxFilter),
+                (4, MIPResamplingMethods::BoxFilter),
+            ]),
+            resampling_color_matching_thresholds: HashMap::from([(2, 0.1), (3, 0.05), (4, 0.02)]),
+        }
     }
+}
 
+impl MIPMapStrategy {
     /// To reduce adding new colors during MIP resampling operations, each MIP level has
     /// a color similarity method where colors within the same threshold are recognized as the same
     /// This reduces the number of introduced colors.
     pub fn get_new_color_similarity_at(&self, mip_level: usize) -> f32 {
-        self.0
-            .mip_resampling_color_matching_threshold
+        self.resampling_color_matching_thresholds
             .get(&mip_level)
             .cloned()
             .unwrap_or(0.)
     }
 
-    /// Sets the similarity threshold for a color to be discarded for a similar, already available color
-    /// during MIP resampling operations. This reduces the number of introduced colors by MIP bricks
-    pub fn set_color_similarity_thr_at(self, mip_level: usize, mut similarity_thr: f32) -> Self {
+    /// Checks the value and integrates itinto the object
+    pub(crate) fn set_color_similarity_thr_internal(
+        &mut self,
+        mip_level: usize,
+        mut similarity_thr: f32,
+    ) {
         debug_assert!(
             similarity_thr >= 0. && similarity_thr <= 1.,
             "Color similarity Threshold {similarity_thr} out of range!"
         );
         similarity_thr = similarity_thr.clamp(0., 1.);
 
-        self.0
-            .mip_resampling_color_matching_threshold
+        self.resampling_color_matching_thresholds
             .insert(mip_level, similarity_thr);
+    }
+
+    /// Sets the similarity threshold for a color to be discarded for a similar, already available color
+    /// during MIP resampling operations. This reduces the number of introduced colors by MIP bricks
+    pub fn set_color_similarity_thr_at(mut self, mip_level: usize, similarity_thr: f32) -> Self {
+        self.set_color_similarity_thr_internal(mip_level, similarity_thr);
         self
     }
 
@@ -590,16 +646,17 @@ impl<
 
     /// Provides the strategy for a MIP level during resample operations, if any
     pub fn get_method_at(&self, mip_level: usize) -> MIPResamplingMethods {
-        self.0
-            .mip_resampling_strategy
+        self.resampling_methods
             .get(&mip_level)
             .cloned()
             .unwrap_or(MIPResamplingMethods::BoxFilter)
     }
 
-    /// Sets the strategy for a MIP level during resample operations
-    /// In case method has a parameter, it is clamped to 0. <= thr <= 1.
-    pub fn set_method_at(self, mip_level: usize, mut method: MIPResamplingMethods) -> Self {
+    pub(crate) fn set_method_at_internal(
+        &mut self,
+        mip_level: usize,
+        mut method: MIPResamplingMethods,
+    ) {
         if let MIPResamplingMethods::Posterize(ref mut thr)
         | MIPResamplingMethods::PosterizeBD(ref mut thr) = method
         {
@@ -609,7 +666,94 @@ impl<
             );
             *thr = thr.clamp(0., 1.);
         }
-        self.0.mip_resampling_strategy.insert(mip_level, method);
+        self.resampling_methods.insert(mip_level, method);
+    }
+
+    /// Sets the strategy for a MIP level during resample operations
+    /// In case method has a parameter, it is clamped to 0. <= thr <= 1.
+    pub fn set_method_at(mut self, mip_level: usize, method: MIPResamplingMethods) -> Self {
+        self.set_method_at_internal(mip_level, method);
+        self
+    }
+
+    /// Sets the strategy for a MIP level during resample operations
+    pub fn set_method(
+        self,
+        levels: impl IntoIterator<Item = (usize, MIPResamplingMethods)>,
+    ) -> Self {
+        let mut chain = self;
+        for (mip_level, method) in levels {
+            chain = chain.set_method_at(mip_level, method);
+        }
+        chain
+    }
+
+    /// Enables or disables mipmap feature for albedo values
+    pub fn switch_albedo_mip_maps(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > StrategyUpdater<'_, T>
+{
+    /// Resets the strategy for MIP maps during resample operations
+    pub fn reset(self) -> Self {
+        self.0.mip_map_strategy = MIPMapStrategy::default();
+        self
+    }
+
+    /// To reduce adding new colors during MIP resampling operations, each MIP level has
+    /// a color similarity method where colors within the same threshold are recognized as the same
+    /// This reduces the number of introduced colors.
+    pub fn get_new_color_similarity_at(&self, mip_level: usize) -> f32 {
+        self.0
+            .mip_map_strategy
+            .get_new_color_similarity_at(mip_level)
+    }
+
+    /// Sets the similarity threshold for a color to be discarded for a similar, already available color
+    /// during MIP resampling operations. This reduces the number of introduced colors by MIP bricks
+    pub fn set_color_similarity_thr_at(self, mip_level: usize, similarity_thr: f32) -> Self {
+        self.0
+            .mip_map_strategy
+            .set_color_similarity_thr_internal(mip_level, similarity_thr);
+        self
+    }
+
+    /// Sets the comolr reduction strategy similarity thresholds for each given MIP level
+    pub fn set_color_similarity_thr(self, levels: impl IntoIterator<Item = (usize, f32)>) -> Self {
+        let mut chain = self;
+        for (mip_level, similarity_thr) in levels {
+            chain = chain.set_color_similarity_thr_at(mip_level, similarity_thr);
+        }
+        chain
+    }
+
+    /// Provides the strategy for a MIP level during resample operations, if any
+    pub fn get_method_at(&self, mip_level: usize) -> MIPResamplingMethods {
+        self.0.mip_map_strategy.get_method_at(mip_level)
+    }
+
+    /// Sets the strategy for a MIP level during resample operations
+    /// In case method has a parameter, it is clamped to 0. <= thr <= 1.
+    pub fn set_method_at(self, mip_level: usize, method: MIPResamplingMethods) -> Self {
+        self.0
+            .mip_map_strategy
+            .set_method_at_internal(mip_level, method);
         self
     }
 
@@ -625,6 +769,24 @@ impl<
         chain
     }
 
+    //####################################################################################
+    // ██████   ██████ █████ ███████████
+    // ░░██████ ██████ ░░███ ░░███░░░░░███
+    //  ░███░█████░███  ░███  ░███    ░███
+    //  ░███░░███ ░███  ░███  ░██████████
+    //  ░███ ░░░  ░███  ░███  ░███░░░░░░
+    //  ░███      ░███  ░███  ░███
+    //  █████     █████ █████ █████
+    // ░░░░░     ░░░░░ ░░░░░ ░░░░░
+    //  ███████████   ██████████   █████████    █████████   █████         █████████
+    // ░░███░░░░░███ ░░███░░░░░█  ███░░░░░███  ███░░░░░███ ░░███         ███░░░░░███
+    //  ░███    ░███  ░███  █ ░  ███     ░░░  ░███    ░███  ░███        ███     ░░░
+    //  ░██████████   ░██████   ░███          ░███████████  ░███       ░███
+    //  ░███░░░░░███  ░███░░█   ░███          ░███░░░░░███  ░███       ░███
+    //  ░███    ░███  ░███ ░   █░░███     ███ ░███    ░███  ░███      █░░███     ███
+    //  █████   █████ ██████████ ░░█████████  █████   █████ ███████████ ░░█████████
+    // ░░░░░   ░░░░░ ░░░░░░░░░░   ░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░░░░░░░   ░░░░░░░░░
+    //####################################################################################
     /// Recalculates MIPs for the whole content of the octree
     pub fn recalculate_mips(&mut self) {
         self.0.node_mips = vec![BrickData::Empty; self.0.nodes.len()];
@@ -695,12 +857,12 @@ impl<
     /// Enables or disables mipmap feature for albedo values
     pub fn switch_albedo_mip_maps(mut self, enabled: bool) -> Self {
         let tree = &mut self.0;
-        let mips_on_previously = tree.albedo_mip_maps;
-        tree.albedo_mip_maps = enabled;
+        let mips_on_previously = tree.mip_map_strategy.enabled;
+        tree.mip_map_strategy.enabled = enabled;
 
         // go through every node and set its mip-maps in case the feature is just enabled
         // and if there's anything to iterate into
-        if tree.albedo_mip_maps
+        if tree.mip_map_strategy.enabled
             && mips_on_previously != enabled
             && *tree.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize) != NodeContent::Nothing
         {
@@ -712,7 +874,7 @@ impl<
     /// Resamples every voxel for the MIP of the given node
     pub(crate) fn recalculate_mip(&mut self, node_key: usize, node_bounds: &Cube) {
         let tree = &mut self.0;
-        if !tree.albedo_mip_maps {
+        if !tree.mip_map_strategy.enabled {
             return;
         }
 

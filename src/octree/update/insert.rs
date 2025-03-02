@@ -354,6 +354,7 @@ impl<
                 }
             }
             self.store_occupied_bits(node_key as usize, new_occupied_bits);
+
             // update MIP maps
             self.update_mip(node_key as usize, &node_bounds, &(position.into()));
 

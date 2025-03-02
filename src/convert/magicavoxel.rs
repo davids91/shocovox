@@ -1,6 +1,6 @@
 use crate::{
     octree::{
-        types::{MIPMapsStrategy, OctreeError},
+        types::{MIPMapStrategy, OctreeError},
         Albedo, Octree, OctreeEntry, V3c, VoxelData,
     },
     spatial::math::{convert_coordinate, CoordinateSystemType},
@@ -200,7 +200,8 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(
     }
 }
 
-impl<
+impl MIPMapStrategy {
+    pub fn load_vox_file<
         #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
             + ToBencode
             + Serialize
@@ -213,9 +214,11 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > MIPMapsStrategy<'_, T>
-{
-    pub fn load_vox_file_into_new_tree(self, filename: &str) -> Result<Octree<T>, &'static str> {
+    >(
+        self,
+        brick_dimension: u32,
+        filename: &str,
+    ) -> Result<Octree<T>, &'static str> {
         let (vox_data, min_position, mut max_position) =
             Octree::<T>::load_vox_file_internal(filename);
         max_position -= min_position;
@@ -224,19 +227,21 @@ impl<
         let tree_size = 2_u32.pow(tree_size);
 
         let mut shocovox_octree =
-            Octree::<T>::new(tree_size, self.0.brick_dim).unwrap_or_else(|err| {
+            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
                 panic!(
                     "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
                     tree_size,
-                    self.0.brick_dim.to_owned(),
+                    brick_dimension,
                     err
                 )
             });
 
-        shocovox_octree.albedo_mip_maps = self.0.albedo_mip_maps;
-        shocovox_octree.mip_resampling_strategy = self.0.mip_resampling_strategy.clone();
-        shocovox_octree.mip_resampling_color_matching_threshold =
-            self.0.mip_resampling_color_matching_threshold.clone();
+        shocovox_octree.mip_map_strategy.enabled = self.enabled;
+        shocovox_octree.mip_map_strategy.resampling_methods = self.resampling_methods.clone();
+        shocovox_octree
+            .mip_map_strategy
+            .resampling_color_matching_thresholds =
+            self.resampling_color_matching_thresholds.clone();
         shocovox_octree.load_vox_data_internal(&vox_data, &min_position);
         Ok(shocovox_octree)
     }

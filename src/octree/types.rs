@@ -113,7 +113,21 @@ pub enum MIPResamplingMethods {
 }
 
 /// A helper object for setting Octree MIP map resampling strategy
-pub struct MIPMapsStrategy<'a, T: Default + Clone + Eq + Hash>(pub(crate) &'a mut Octree<T>);
+pub struct StrategyUpdater<'a, T: Default + Clone + Eq + Hash>(pub(crate) &'a mut Octree<T>);
+
+/// Configuration object for storing MIP map strategy
+#[derive(Clone)]
+pub struct MIPMapStrategy {
+    /// Decides if the strategy is enabled, see @Octree/node_mips
+    pub(crate) enabled: bool,
+
+    /// The MIP resampling strategy for different MIP levels
+    pub(crate) resampling_methods: HashMap<usize, MIPResamplingMethods>,
+
+    /// Color similarity threshold to reduce adding
+    /// new colors during MIP operations for each MIP level. Has a resolution of 0.001
+    pub(crate) resampling_color_matching_thresholds: HashMap<usize, f32>,
+}
 
 /// Sparse Octree of Nodes, where each node contains a brick of voxels.
 /// A Brick is a 3 dimensional matrix, each element of it containing a voxel.
@@ -147,13 +161,6 @@ where
     /// Feature flag for trying to simplify internal structure during update operations
     pub auto_simplify: bool,
 
-    /// Feature flag for MIP maps, see @node_mips
-    pub(crate) albedo_mip_maps: bool,
-
-    /// The MIP resampling strategy for different MIP levels
-    pub(crate) mip_resampling_strategy: HashMap<usize, MIPResamplingMethods>,
-
-    /// Color similarity threshold to reduce adding new colors during MIP operations
-    /// for each MIP level. Has a resolution of 0.001
-    pub(crate) mip_resampling_color_matching_threshold: HashMap<usize, f32>,
+    /// The stored MIP map strategy
+    pub(crate) mip_map_strategy: MIPMapStrategy,
 }
