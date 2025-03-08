@@ -457,17 +457,17 @@ impl<
             NodeContent::Internal(_occupied_bits) => {
                 // the sampling range spans 0 --> (2 * brick_dimension)
                 if empty_marker::<u32>() as usize
-                    == self.node_children[node_key].child(hash_region(
-                        &V3c::from(sample_start),
-                        self.brick_dim as f32 / 2.,
-                    ))
+                    == self.node_children[node_key]
+                        .child(hash_region(&V3c::from(sample_start), self.brick_dim as f32))
                 {
                     None
                 } else {
                     sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
                         // Current position spans 2 bricks, but in special cases the brick dimension might be smaller,
                         // than the sample size, e.g. when brick_dim == 1
-                        // In this case the target child_octant needs to be updated to accomodate this
+                        // In this case the target child_octant needs to be updated dynamically to accomodate this
+                        // It would be possible to use an if condition to handle when brick_dim == 1
+                        // but the performance gain is neglegible
                         let child_octant = hash_region(&((*pos).into()), self.brick_dim as f32);
 
                         if empty_marker::<u32>() as usize
@@ -477,8 +477,10 @@ impl<
                         }
 
                         let pos = *pos
-                            - (V3c::from(OCTANT_OFFSET_REGION_LUT[child_octant as usize])
-                                * self.brick_dim);
+                            - V3c::from(
+                                OCTANT_OFFSET_REGION_LUT[child_octant as usize]
+                                    * self.brick_dim as f32,
+                            );
 
                         match &self.node_mips[self.node_children[node_key].child(child_octant)] {
                             BrickData::Empty => None,
@@ -589,7 +591,7 @@ impl<
 impl Default for MIPMapStrategy {
     fn default() -> Self {
         MIPMapStrategy {
-            enabled: true,
+            enabled: false,
             resampling_methods: HashMap::from([
                 (1, MIPResamplingMethods::PointFilter),
                 (2, MIPResamplingMethods::BoxFilter),
@@ -686,6 +688,11 @@ impl MIPMapStrategy {
             chain = chain.set_method_at(mip_level, method);
         }
         chain
+    }
+
+    /// Returns true if MIP maps are enabled
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
     }
 
     /// Enables or disables mipmap feature for albedo values

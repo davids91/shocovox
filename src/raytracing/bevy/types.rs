@@ -23,10 +23,33 @@ use std::{
 
 #[derive(Clone, ShaderType)]
 pub struct OctreeMetaData {
+    /// Color of the ambient light in the render
     pub ambient_light_color: V3cf32,
+
+    /// Position of the ambient light in the render
     pub ambient_light_position: V3cf32,
+
+    /// Size of the octree to display
     pub(crate) octree_size: u32,
-    pub(crate) voxel_brick_dim: u32,
+
+    /// Contains the properties of the Octree
+    ///  _===================================================================_
+    /// | Byte 0-1 | Voxel Brick Dimension                                    |
+    /// |=====================================================================|
+    /// | Byte 2   | Features                                                 |
+    /// |---------------------------------------------------------------------|
+    /// |  bit 0   | 1 if MIP maps are enabled                                |
+    /// |  bit 1   | unused                                                   |
+    /// |  bit 2   | unused                                                   |
+    /// |  bit 3   | unused                                                   |
+    /// |  bit 4   | unused                                                   |
+    /// |  bit 5   | unused                                                   |
+    /// |  bit 6   | unused                                                   |
+    /// |  bit 7   | unused                                                   |
+    /// |=====================================================================|
+    /// | Byte 3   | unused                                                   |
+    /// `=====================================================================`
+    pub(crate) tree_properties: u32,
 }
 
 #[derive(Debug, Clone, Copy, ShaderType)]
@@ -169,6 +192,9 @@ pub(crate) struct CacheUpdatePackage<'a> {
 #[derive(Clone, TypePath)]
 #[type_path = "shocovox::gpu::ShocoVoxRenderData"]
 pub struct OctreeRenderData {
+    /// CPU only field, contains stored MIP feature enabled state
+    pub(crate) mips_enabled: bool,
+
     /// Contains the properties of the Octree
     pub(crate) octree_meta: OctreeMetaData,
 

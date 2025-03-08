@@ -319,7 +319,7 @@ fn traverse_brick(
     ray_scale_factors: ptr<function, vec3f>,
     direction_lut_index: u32,
 ) -> BrickHit {
-    let dimension = i32(octree_meta_data.voxel_brick_dim);
+    let dimension = i32(octree_meta_data.tree_properties & 0x0000FFFF);
     let voxels_count = i32(arrayLength(&voxels));
     var current_index = clamp(
         vec3i(vec3f( // entry position in brick
@@ -441,7 +441,10 @@ fn probe_brick(
                 brick_bounds, ray_scale_factors, direction_lut_index
             );
             if leaf_brick_hit.hit == true {
-                let unit_voxel_size = round((*brick_bounds).size / f32(octree_meta_data.voxel_brick_dim));
+                let unit_voxel_size = round(
+                    (*brick_bounds).size
+                    / f32(octree_meta_data.tree_properties & 0x0000FFFF)
+                );
                 return OctreeRayIntersection(
                     true,
                     color_palette[voxels[leaf_brick_hit.flat_index] & 0x0000FFFF],
@@ -493,7 +496,10 @@ fn probe_MIP(
                 node_bounds, ray_scale_factors, direction_lut_index
             );
             if leaf_brick_hit.hit == true {
-                let unit_voxel_size = round((*node_bounds).size / f32(octree_meta_data.voxel_brick_dim));
+                let unit_voxel_size = round(
+                    (*node_bounds).size
+                    / f32(octree_meta_data.tree_properties & 0x0000FFFF)
+                );
                 return OctreeRayIntersection(
                     true,
                     color_palette[voxels[leaf_brick_hit.flat_index] & 0x0000FFFF],
@@ -597,7 +603,10 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var target_octant = OOB_OCTANT;
     var step_vec = vec3f(0.);
     var missing_data_color = vec3f(0.);
-    var mip_level = log2(f32(octree_meta_data.octree_size) / f32(octree_meta_data.voxel_brick_dim));
+    var mip_level = log2(
+        f32(octree_meta_data.octree_size)
+        / f32(octree_meta_data.tree_properties & 0x0000FFFF)
+    );
 
     let root_intersect = cube_intersect_ray(current_bounds, ray);
     if(root_intersect.hit){
@@ -667,23 +676,19 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 );
             }
             */// --- DEBUG ---
-            if( // In case current node MIP level is smaller, than the required MIP level
-                mip_level <
-                (
-                    /*length( // based on ray current travel distance
-                        viewport.origin - (
-                            round(point_in_ray_at_distance(ray, ray_current_distance) / f32(current_bounds.size))
-                            * f32(current_bounds.size) // rounded to bound border
+            if( // In case MIPs are enabled
+                (0 != (octree_meta_data.tree_properties & 0x00010000))
+                &&( // In case current node MIP level is smaller, than the required MIP level
+                    mip_level <
+                    ( // Note: Aligning to bound borders deemed undesriable artefaccts
+                        length( // based on ray current travel distance
+                            viewport.origin - (
+                                round(point_in_ray_at_distance(ray, ray_current_distance) / (mip_level * 2.))
+                                * (mip_level * 2.) // aligned to nearest cube edges(based on current MIP level)
+                            )
                         )
+                        / f32(viewport.frustum.z)
                     )
-                    / f32(debug_data)*/
-                    length( // based on ray current travel distance
-                        viewport.origin - (
-                            round(point_in_ray_at_distance(ray, ray_current_distance) / (mip_level * 2.))
-                            * (mip_level * 2.) // aligned to nearest cube edges(based on current MIP level)
-                        )
-                    )
-                    / f32(viewport.frustum.z)
                 )
             ){
                 if( // node has MIP which is not uploaded
@@ -737,14 +742,9 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     )
                 )
                 // Request node only once per ray iteration to prioritize nodes in sight for cache
-                //&& 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
+                && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
             ){
-                // request the node, then display MIP if available, but do not request it
-                var mip_hit = probe_MIP(
-                    ray, ray_current_distance,
-                    current_node_key, &current_bounds,
-                    &ray_scale_factors, direction_lut_index
-                );
+                // request the node, then display MIP if available; do not request MIP here
                 if request_node(current_node_key, target_octant) {
                     missing_data_color += (
                         COLOR_FOR_NODE_REQUEST_SENT
@@ -768,9 +768,18 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         ))
                     );
                 }
-                if true == mip_hit.hit {
-                    mip_hit.albedo -= vec4f(missing_data_color, 0.);
-                    return mip_hit;
+                
+                // Check if MIP is enabled
+                if (0 != (octree_meta_data.tree_properties & 0x00010000)){
+                    var mip_hit = probe_MIP(
+                        ray, ray_current_distance,
+                        current_node_key, &current_bounds,
+                        &ray_scale_factors, direction_lut_index
+                    );
+                    if true == mip_hit.hit {
+                        mip_hit.albedo -= vec4f(missing_data_color, 0.);
+                        return mip_hit;
+                    }
                 }
             } else if( // target child is available for a valid target
                 (target_octant != OOB_OCTANT)
@@ -1057,7 +1066,7 @@ struct OctreeMetaData {
     ambient_light_color: vec3f,
     ambient_light_position: vec3f,
     octree_size: u32,
-    voxel_brick_dim: u32,
+    tree_properties: u32,
 }
 
 struct Viewport {

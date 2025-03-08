@@ -435,9 +435,7 @@ pub(crate) fn prepare_bind_groups(
         });
 
         // One element in the metadata holds 8 bricks. See @OctreeRenderData
-        let brick_size = render_data.octree_meta.voxel_brick_dim
-            * render_data.octree_meta.voxel_brick_dim
-            * render_data.octree_meta.voxel_brick_dim;
+        let brick_size = (render_data.octree_meta.tree_properties & 0x0000FFFF).pow(3);
         let brick_element_count = (render_data.metadata.len() * 8 * brick_size as usize) as u64;
         let one_voxel_byte_size = std::mem::size_of::<PaletteIndexValues>() as u64;
         let voxels_buffer = render_device.create_buffer(&BufferDescriptor {

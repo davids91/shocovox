@@ -370,12 +370,14 @@ where
                 );
 
                 // In case current node MIP level is smaller, than the required MIP level
-                if mip_level
+                if
+                self.mip_map_strategy.is_enabled()
+                && (mip_level // In case current node MIP level is smaller, than the required MIP level
                     < ((ray.origin // based on ray current travel distance
                         - (ray.point_at(ray_current_distance) / (mip_level * 2.)).round()
                             * (mip_level * 2.)) // aligned to nearest cube edges(based on current MIP level)
                         .length())
-                        / viewing_distance
+                        / viewing_distance)
                 {
                     if let Some(hit) = self.probe_brick(
                         ray,

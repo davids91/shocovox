@@ -32,6 +32,25 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+fn octree_properties<
+    #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+        + ToBencode
+        + Serialize
+        + DeserializeOwned
+        + Default
+        + Eq
+        + Clone
+        + Hash
+        + VoxelData,
+    #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+    #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+>(
+    tree: &Octree<T>,
+) -> u32 {
+    (tree.brick_dim & 0x0000FFFF) | ((tree.mip_map_strategy.is_enabled() as u32) << 16)
+}
+
 impl<T> OctreeGPUHost<T>
 where
     T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
@@ -73,9 +92,10 @@ where
     ) -> Handle<Image> {
         let mut gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
+                mips_enabled: self.tree.mip_map_strategy.is_enabled(),
                 octree_meta: OctreeMetaData {
                     octree_size: self.tree.octree_size,
-                    voxel_brick_dim: self.tree.brick_dim,
+                    tree_properties: octree_properties(&self.tree),
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
                         self.tree.octree_size as f32,
@@ -395,12 +415,28 @@ pub(crate) fn write_to_gpu<T>(
             view.spyglass.viewport_changed = false;
         }
 
+        // Data updates for Octree MIP map feature
+        let tree = &tree_host.tree;
+        if view.data_handler.render_data.mips_enabled != tree.mip_map_strategy.is_enabled() {
+            // Regenerate feature bits
+            view.data_handler.render_data.octree_meta.tree_properties = octree_properties(tree);
+
+            // Write to GPU
+            let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+            buffer
+                .write(&view.data_handler.render_data.octree_meta)
+                .unwrap();
+            pipeline
+                .render_queue
+                .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
+            view.data_handler.render_data.mips_enabled = tree.mip_map_strategy.is_enabled()
+        }
+
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&view.spyglass.debug_data).unwrap();
         render_queue.write_buffer(&resources.debug_data_buffer, 0, &buffer.into_inner());
 
         // Handle node requests, update cache
-        let tree = &tree_host.tree;
         {
             let mut meta_updated = Range {
                 start: view.data_handler.render_data.metadata.len(),
@@ -642,7 +678,6 @@ pub(crate) fn write_to_gpu<T>(
 
             // Color palette
             if 0 < color_palette_size_diff {
-                println!("colors: {}", host_color_count);
                 for i in view.data_handler.uploaded_color_palette_size..host_color_count {
                     view.data_handler.render_data.color_palette[i] =
                         tree.voxel_color_palette[i].into();
