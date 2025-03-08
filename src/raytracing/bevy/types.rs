@@ -131,7 +131,6 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
     pub(crate) brick_ownership: Vec<BrickOwnedBy>,
-
     pub(crate) uploaded_color_palette_size: usize,
 }
 

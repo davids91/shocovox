@@ -322,9 +322,9 @@ fn traverse_brick(
     let dimension = i32(octree_meta_data.tree_properties & 0x0000FFFF);
     let voxels_count = i32(arrayLength(&voxels));
     var current_index = clamp(
-        vec3i(vec3f( // entry position in brick
-            point_in_ray_at_distance(ray, *ray_current_distance)
-            - (*brick_bounds).min_position
+        vec3i( // entry position in brick
+        (
+            point_in_ray_at_distance(ray, *ray_current_distance) - (*brick_bounds).min_position
         ) * f32(dimension) / (*brick_bounds).size),
         vec3i(0),
         vec3i(dimension - 1)
@@ -425,7 +425,6 @@ fn probe_brick(
         )
     ){
         let brick_index = node_children[((leaf_node_key * 8) + brick_octant)];
-        set_brick_used(brick_index);
         if(0 == ((0x01u << (16 + brick_octant)) & metadata[leaf_node_key])) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
@@ -435,6 +434,7 @@ fn probe_brick(
                 cube_impact_normal(*brick_bounds, point_in_ray_at_distance(ray, *ray_current_distance))
             );
         } else { // brick is parted
+            set_brick_used(brick_index);
             let leaf_brick_hit = traverse_brick(
                 ray, ray_current_distance,
                 brick_index,
@@ -626,7 +626,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         outer_safety += 1;
         if(f32(outer_safety) > f32(octree_meta_data.octree_size) * sqrt(3.)) {
             return OctreeRayIntersection(
-                true, vec4f(1.,0.,0.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+                true, vec4f(1.,0.,0.,1.), vec3f(0.), vec3f(0., 0., 1.)
             );
         }
        */ // --- DEBUG ---
@@ -642,7 +642,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             safety += 1;
             if(f32(safety) > f32(octree_meta_data.octree_size) * sqrt(30.)) {
                 return OctreeRayIntersection(
-                    true, vec4f(0.,0.,1.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+                    true, vec4f(0.,0.,1.,1.), vec3f(0.), vec3f(0., 0., 1.)
                 );
             }
             */// --- DEBUG ---
@@ -887,7 +887,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     advance_safety += 1;
                     if(advance_safety > 4) {
                         return OctreeRayIntersection(
-                            true, vec4f(1.,0.,1.,1.), 0, vec3f(0.), vec3f(0., 0., 1.)
+                            true, vec4f(1.,0.,1.,1.), vec3f(0.), vec3f(0., 0., 1.)
                         );
                     }
                     */// --- DEBUG ---
@@ -1009,7 +1009,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             target_octant = OOB_OCTANT;
         }
         // Push ray current distance a little bit forward to avoid iterating the same paths all over again
-        ray_current_distance += FLOAT_ERROR_TOLERANCE;
+        ray_current_distance += 1000. * FLOAT_ERROR_TOLERANCE;
     } // while (ray inside root bounds)
     return OctreeRayIntersection(false, vec4f(missing_data_color, 1.), vec3f(0.), vec3f(0., 0., 1.));
 }

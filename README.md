@@ -27,7 +27,7 @@ I have marked some issues with the help needed flag, which I think would be a go
 Special thanks to contributors and supporters!
 -
 
-[@nerdachse](https://github.com/nerdachse) For the Albedo type and amazing support!
+[@mogambro](https://github.com/mogambro) For the Albedo type and amazing support!
 
 [@DouglasDwyer](https://github.com/DouglasDwyer) My nemesis; Check out [his project](https://github.com/DouglasDwyer/octo-release) it's amazing! ( I hate him )
 

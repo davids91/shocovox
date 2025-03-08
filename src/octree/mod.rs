@@ -181,9 +181,9 @@ impl<
         {
             return Err(OctreeError::InvalidSize(size));
         }
-        if brick_dimension >= size {
+        if size < (brick_dimension * 2) {
             return Err(OctreeError::InvalidStructure(
-                "Octree size must be larger, than the brick dimension".into(),
+                "Octree size must be larger, than 2 * brick dimension".into(),
             ));
         }
         let node_count_estimation = (size / brick_dimension).pow(3);

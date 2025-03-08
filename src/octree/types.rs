@@ -7,17 +7,31 @@ use serde::{Deserialize, Serialize};
 /// error types during usage or creation of the octree
 #[derive(Debug)]
 pub enum OctreeError {
+    /// Octree creation was attempted with an invalid octree size
     InvalidSize(u32),
+
+    /// Octree creation was attempted with an invalid brick dimension
     InvalidBrickDimension(u32),
+
+    /// Octree creation was attempted with an invalid structure parameter ( refer to error )
     InvalidStructure(Box<dyn Error>),
+
+    /// Octree query was attempted with an invalid position
     InvalidPosition { x: u32, y: u32, z: u32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OctreeEntry<'a, T: VoxelData> {
+    /// No information available in octree query
     Empty,
+
+    /// Albedo data is available in octree query
     Visual(&'a Albedo),
+
+    /// User data is avaliable in octree query
     Informative(&'a T),
+
+    /// Both user data and color information is available in octree query
     Complex(&'a Albedo, &'a T),
 }
 
@@ -27,8 +41,13 @@ pub(crate) enum BrickData<T>
 where
     T: Clone + PartialEq + Clone,
 {
+    /// Brick is empty
     Empty,
+
+    /// Brick is an NxNxN matrix, size is determined by the parent entity
     Parted(Vec<T>),
+
+    /// Brick is a single item T, which takes up the entirety of the brick
     Solid(T),
 }
 
@@ -38,10 +57,17 @@ pub(crate) enum NodeContent<T>
 where
     T: Clone + PartialEq + Clone,
 {
+    /// Node is empty
     #[default]
     Nothing,
-    Internal(u64), // cache data to store the occupancy of the enclosed nodes
+
+    /// Internal node + cache data to store the occupancy of the enclosed nodes
+    Internal(u64),
+
+    /// Node contains 8 children, each with their own brickdata
     Leaf([BrickData<T>; 8]),
+
+    /// Node has one child, which takes up the entirety of the node with its brick data
     UniformLeaf(BrickData<T>),
 }
 
@@ -144,10 +170,19 @@ pub struct Octree<T = u32>
 where
     T: Default + Clone + Eq + Hash,
 {
-    pub(crate) brick_dim: u32,   // Size of one brick in a leaf node (dim^3)
-    pub(crate) octree_size: u32, // Extent of the octree
-    pub(crate) nodes: ObjectPool<NodeData>, // Storing data at each position through palette index values
-    pub(crate) node_children: Vec<NodeConnection>, // Node Connections
+    /// Size of one brick in a leaf node (dim^3)
+    pub(crate) brick_dim: u32,
+
+    /// Extent of the octree
+    pub(crate) octree_size: u32,
+
+    /// Storing data at each position through palette index values
+    pub(crate) nodes: ObjectPool<NodeData>,
+
+    /// Node Connections
+    pub(crate) node_children: Vec<NodeConnection>,
+
+    /// Brick data for each node containing a simplified representation, or all empties if the feature is disabled
     pub(crate) node_mips: Vec<BrickData<PaletteIndexValues>>,
 
     /// The albedo colors used by the octree. Maximum 65535 colors can be used at once
@@ -156,13 +191,15 @@ where
     pub(crate) voxel_color_palette: Vec<Albedo>, // referenced by @nodes
     pub(crate) voxel_data_palette: Vec<T>, // referenced by @nodes
 
+    /// Cache variable to help find colors inside the color palette
     #[cfg_attr(feature = "serialization", serde(skip_serializing, skip_deserializing))]
     pub(crate) map_to_color_index_in_palette: HashMap<Albedo, usize>,
 
+    /// Cache variable to help find user data in the palette
     #[cfg_attr(feature = "serialization", serde(skip_serializing, skip_deserializing))]
     pub(crate) map_to_data_index_in_palette: HashMap<T, usize>,
 
-    /// Feature flag for trying to simplify internal structure during update operations
+    /// Feature flag to enable/disable simplification attempts during octree update operations
     pub auto_simplify: bool,
 
     /// The stored MIP map strategy
