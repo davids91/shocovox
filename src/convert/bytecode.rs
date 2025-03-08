@@ -544,7 +544,7 @@ impl FromBencode for MIPResamplingMethods {
             Object::Integer("2") => Ok(MIPResamplingMethods::PointFilterBD),
             Object::Integer(int) => match int
                 .parse::<u32>()
-                .expect(&format!("Expected to be able to parse: {:?} as u32", int).to_owned())
+                .unwrap_or_else(|_| panic!("Expected to be able to parse: {:?} as u32", int))
             {
                 thr if (3..1002).contains(&thr) => {
                     Ok(MIPResamplingMethods::Posterize((thr as f32 - 3.) / 1000.))

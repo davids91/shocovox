@@ -719,19 +719,22 @@ impl<
                         }
                     }
 
-                    // Every matrix is the same! Make leaf uniform
-                    *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(bricks[0].clone());
-                    self.node_children[node_key] = NodeChildren::OccupancyBitmap(
-                        if let NodeChildren::OccupancyBitmap(bitmaps) = self.node_children[node_key]
-                        {
-                            bitmaps
-                        } else {
-                            panic!("Leaf NodeContent should have OccupancyBitmap child assigned to it!");
-                        },
-                    );
-                    self.simplify(node_key); // Try to collapse it to homogeneous node, but
-                                             // irrespective of the results of it, return value is true,
-                                             // because the node was updated already
+                    // Every matrix is the same! Make leaf uniform ( except with parted bricks )
+                    if !matches!(bricks[0], BrickData::Parted(_)) {
+                        *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(bricks[0].clone());
+                        self.node_children[node_key] = NodeChildren::OccupancyBitmap(
+                            if let NodeChildren::OccupancyBitmap(bitmaps) =
+                                self.node_children[node_key]
+                            {
+                                bitmaps
+                            } else {
+                                panic!("Leaf NodeContent should have OccupancyBitmap child assigned to it!");
+                            },
+                        );
+                        self.simplify(node_key); // Try to collapse it to homogeneous node, but
+                                                 // irrespective of the results of it, return value is true,
+                                                 // because the node was updated already
+                    }
                     true
                 }
                 NodeContent::Internal(ocbits) => {

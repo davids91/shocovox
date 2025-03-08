@@ -50,15 +50,17 @@ fn main() {
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // fill octree with data
+
+    use shocovox_rs::octree::MIPMapStrategy;
     let tree: Octree;
     let tree_path = "example_junk_beach";
     if std::path::Path::new(tree_path).exists() {
         tree = Octree::load(&tree_path).ok().unwrap();
     } else {
-        tree = match shocovox_rs::octree::Octree::load_vox_file(
-            "assets/models/beach.vox",
-            BRICK_DIMENSION,
-        ) {
+        tree = match MIPMapStrategy::default()
+            .set_enabled(true)
+            .load_vox_file(BRICK_DIMENSION, "assets/models/castle.vox")
+        {
             Ok(tree_) => tree_,
             Err(message) => panic!("Parsing model file failed with message: {message}"),
         };
@@ -69,7 +71,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        500,
+        1000,
         Viewport {
             origin: V3c {
                 x: 0.,
@@ -81,7 +83,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                 y: 0.,
                 z: -1.,
             },
-            frustum: V3c::new(10., 10., 200.),
+            frustum: V3c::new(10., 10., 500.),
             fov: 3.,
         },
         DISPLAY_RESOLUTION,
@@ -231,6 +233,12 @@ fn handle_zoom(
     }
     if keys.pressed(KeyCode::ControlLeft) {
         cam.target_focus.y -= 1.;
+    }
+    if keys.pressed(KeyCode::NumpadAdd) {
+        tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    }
+    if keys.pressed(KeyCode::NumpadSubtract) {
+        tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
     }
 
     if keys.pressed(KeyCode::F3) {

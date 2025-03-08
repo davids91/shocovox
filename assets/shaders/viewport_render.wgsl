@@ -923,6 +923,8 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                                     & node_occupied_bits[current_node_key * 2 + 1]
                                 )
                             )
+                            // Request node only once per ray iteration to prioritize nodes in sight for cache
+                            && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
                         ){
                             if request_node(current_node_key, target_octant) {
                                 missing_data_color += (

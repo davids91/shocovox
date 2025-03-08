@@ -6,7 +6,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{MIPMapStrategy, MIPResamplingMethods, Octree, V3c, V3cf32},
+    octree::{MIPMapStrategy, Octree, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -49,37 +49,15 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    // fill octree with data
     let tree: Octree;
     let tree_path = "example_junk_minecraft";
-    if false {
-        //std::path::Path::new(tree_path).exists() {
+    if std::path::Path::new(tree_path).exists() {
         tree = Octree::load(&tree_path).ok().unwrap();
     } else {
         tree = MIPMapStrategy::default()
-            .switch_albedo_mip_maps(true)
-            // .set_method_at(1, MIPResamplingMethods::PointFilter)
-            // .set_method_at(2, MIPResamplingMethods::Posterize(0.2))
-            .set_method(vec![
-                (1, MIPResamplingMethods::PointFilter),
-                // (2, MIPResamplingMethods::Posterize(0.2)),
-                // (3, MIPResamplingMethods::Posterize(0.4)),
-                // (4, MIPResamplingMethods::Posterize(0.6)),
-                // (1, MIPResamplingMethods::BoxFilter),
-                (2, MIPResamplingMethods::BoxFilter),
-                (3, MIPResamplingMethods::BoxFilter),
-                (4, MIPResamplingMethods::BoxFilter),
-            ])
-            .set_color_similarity_thr(vec![(2, 0.1), (3, 0.05), (4, 0.02)])
+            .set_enabled(true)
             .load_vox_file(BRICK_DIMENSION, "assets/models/minecraft.vox")
             .expect("Expected vox file to be valid");
-        // tree = match shocovox_rs::octree::Octree::load_vox_file(
-        //     "assets/models/minecraft.vox",
-        //     BRICK_DIMENSION,
-        // ) {
-        //     Ok(tree_) => tree_,
-        //     Err(message) => panic!("Parsing model file failed with message: {message}"),
-        // };
         tree.save(&tree_path).ok().unwrap();
     }
 

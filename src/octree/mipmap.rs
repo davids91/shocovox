@@ -539,11 +539,11 @@ impl<
                     )
                 } else {
                     // Add new color to the color palette
-                    Some(self.add_to_palette(&OctreeEntry::Visual(&color)))
+                    Some(self.add_to_palette(&OctreeEntry::Visual(color)))
                 }
             } else {
                 // Add new color to the color palette
-                Some(self.add_to_palette(&OctreeEntry::Visual(&color)))
+                Some(self.add_to_palette(&OctreeEntry::Visual(color)))
             }
         } else {
             None
@@ -621,7 +621,7 @@ impl MIPMapStrategy {
         mut similarity_thr: f32,
     ) {
         debug_assert!(
-            similarity_thr >= 0. && similarity_thr <= 1.,
+            (0. ..=1.).contains(&similarity_thr),
             "Color similarity Threshold {similarity_thr} out of range!"
         );
         similarity_thr = similarity_thr.clamp(0., 1.);
@@ -696,7 +696,7 @@ impl MIPMapStrategy {
     }
 
     /// Enables or disables mipmap feature for albedo values
-    pub fn switch_albedo_mip_maps(mut self, enabled: bool) -> Self {
+    pub fn set_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }

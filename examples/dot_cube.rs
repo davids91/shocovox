@@ -13,7 +13,7 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{Albedo, Octree, V3c, V3cf32},
+    octree::{Albedo, Octree, OctreeEntry, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -55,8 +55,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut tree: Octree = shocovox_rs::octree::Octree::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
-    tree.albedo_mip_map_resampling_strategy()
-        .switch_albedo_mip_maps(true);
 
     for x in 0..TREE_SIZE {
         for y in 0..TREE_SIZE {
@@ -80,7 +78,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     } else {
                         128
                     };
-                    // println!("Inserting at: {:?}", (x, y, z));
                     tree.insert(
                         &V3c::new(x, y, z),
                         &Albedo::default()
@@ -91,7 +88,16 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     )
                     .ok()
                     .unwrap();
-                    //assert!(tree.get(&V3c::new(x, y, z)).is_some());
+                    assert_eq!(
+                        tree.get(&V3c::new(x, y, z)),
+                        OctreeEntry::Visual(
+                            &Albedo::default()
+                                .with_red(r as u8)
+                                .with_green(g as u8)
+                                .with_blue(b as u8)
+                                .with_alpha(255)
+                        )
+                    );
                 }
             }
         }
@@ -101,7 +107,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let output_texture = host.create_new_view(
         &mut views,
-        500,
+        50,
         Viewport {
             origin,
             direction: (V3c::new(0., 0., 0.) - origin).normalized(),

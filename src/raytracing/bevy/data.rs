@@ -477,8 +477,13 @@ pub(crate) fn write_to_gpu<T>(
                     requested_parent_node_key
                 );
 
-                if modified_nodes.contains(&requested_parent_meta_index) {
-                    // Do not accept a request if the requester meta is already overwritten
+                if modified_nodes.contains(&requested_parent_meta_index)
+                    || !view
+                        .data_handler
+                        .node_key_vs_meta_index
+                        .contains_left(&requested_parent_node_key)
+                {
+                    // Do not accept a request if the requester meta is already overwritten or deleted
                     continue;
                 }
 
@@ -666,11 +671,6 @@ pub(crate) fn write_to_gpu<T>(
                 host_color_count, view.data_handler.uploaded_color_palette_size
             );
 
-            // Node requests
-            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-            buffer.write(&node_requests).unwrap();
-            render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
-
             // Color palette
             if 0 < color_palette_size_diff {
                 for i in view.data_handler.uploaded_color_palette_size..host_color_count {
@@ -734,6 +734,11 @@ pub(crate) fn write_to_gpu<T>(
                     }
                 }
             }
+
+            // Node requests
+            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            buffer.write(&node_requests).unwrap();
+            render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
         }
     }
 }

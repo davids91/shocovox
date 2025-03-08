@@ -105,7 +105,6 @@ impl VictimPointer {
 
             // child at target is not empty in a non-leaf node, which means
             // the target child might point to an internal node if it's valid
-            // parent node has a child at target octant, which isn't invalid
             if 0 == (render_data.metadata[self.meta_index] & OctreeGPUDataHandler::NODE_LEAF_MASK)
                 && render_data.node_children[self.meta_index * 8 + self.child]
                     != empty_marker::<u32>()
@@ -188,6 +187,11 @@ impl OctreeGPUDataHandler {
     /// Index of the metadata element should be brick index divided by 8, as one metadata element contains 8 bricks
     fn brick_used_mask(brick_index: usize) -> u32 {
         0x01 << (24 + (brick_index % 8))
+    }
+
+    /// Returns true if child is of parted brick structure absed on the given metadata
+    fn child_is_parted(meta: u32, child_octant: u8) -> bool {
+        0 != (meta & (0x01 << (child_octant + 16)))
     }
 
     /// Creates the descriptor bytes for the given node
@@ -301,7 +305,9 @@ impl OctreeGPUDataHandler {
         debug_assert_ne!(
             child_index,
             empty_marker::<u32>() as usize,
-            "Expected victim pointer to point to an erasable node/brick, instead of: {child_index}"
+            "Expected erased child of node[{}](meta[{}]) to be an erasable node/brick",
+            parent_key,
+            meta_index
         );
 
         match tree.nodes.get(*parent_key) {
@@ -339,7 +345,13 @@ impl OctreeGPUDataHandler {
                     for octant in 0..8 {
                         let brick_index =
                             self.render_data.node_children[child_index * 8 + octant] as usize;
-                        if brick_index != empty_marker::<u32>() as usize {
+
+                        if (brick_index != empty_marker::<u32>() as usize)
+                            && Self::child_is_parted(
+                                self.render_data.metadata[child_index],
+                                octant as u8,
+                            )
+                        {
                             self.brick_ownership[brick_index] = BrickOwnedBy::NotOwned;
 
                             // No need to eliminate child connections
@@ -555,7 +567,7 @@ impl OctreeGPUDataHandler {
     where
         T: Default + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
     {
-        // In case OOB octant, the target brick to ad is the MIP for the node
+        // In case OOB octant, the target brick to add is the MIP for the node
         let (brick, node_entry) = if target_octant == OOB_OCTANT {
             (
                 &tree.node_mips[node_key],
@@ -587,7 +599,9 @@ impl OctreeGPUDataHandler {
                     BrickOwnedBy::NodeAsChild(key, octant) => {
                         debug_assert!(
                             self.node_key_vs_meta_index.contains_left(&(key as usize)),
-                            "Expected brick to be owned by a node used in cache"
+                            "Expected brick[{}] to be owned by a node used in cache. Node key: {}",
+                            brick_index,
+                            key
                         );
                         self.erase_node_child(
                             *self
@@ -608,14 +622,14 @@ impl OctreeGPUDataHandler {
                         let robbed_meta_index = *self
                             .node_key_vs_meta_index
                             .get_by_left(&(key as usize))
-                            .unwrap() as usize;
+                            .unwrap();
                         self.render_data.node_mips[robbed_meta_index] = empty_marker();
                         (Vec::new(), vec![robbed_meta_index])
                     }
                     BrickOwnedBy::NotOwned => (Vec::new(), Vec::new()),
                 };
 
-                self.brick_ownership[brick_index] = node_entry.clone();
+                self.brick_ownership[brick_index] = node_entry;
 
                 debug_assert_eq!(
                     tree.brick_dim.pow(3) as usize,

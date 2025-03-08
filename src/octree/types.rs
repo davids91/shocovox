@@ -116,6 +116,10 @@ pub enum MIPResamplingMethods {
 pub struct StrategyUpdater<'a, T: Default + Clone + Eq + Hash>(pub(crate) &'a mut Octree<T>);
 
 /// Configuration object for storing MIP map strategy
+/// Don't forget to @recalculate_mip after you've enabled it, as it is
+/// only updated on octree updates otherwise.
+/// Activating MIP maps will require a larger GPU view (see @OctreeGPUHost::create_new_view)
+/// As the MIP bricks will take space from other bricks.
 #[derive(Clone)]
 pub struct MIPMapStrategy {
     /// Decides if the strategy is enabled, see @Octree/node_mips

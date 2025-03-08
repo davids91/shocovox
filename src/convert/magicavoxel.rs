@@ -345,7 +345,7 @@ impl<
         vox_tree: &DotVoxData,
         min_position_lyup: &V3c<i32>,
     ) {
-        iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
+        iterate_vox_tree(vox_tree, 0, |model, position, orientation| {
             let model_size_lyup = convert_coordinate(
                 V3c::from(model.size).clone_transformed(orientation),
                 CoordinateSystemType::Rzup,
