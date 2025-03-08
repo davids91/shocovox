@@ -419,60 +419,84 @@ impl<
 
                         // Each brick is mapped to take up one subsection of the current data
                         let mut update_size = 0;
-                        for octant in 0..8usize {
-                            let brick_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant])
-                                * (2.min(self.brick_dim as usize - 1));
-                            let flat_brick_offset = flat_projection(
-                                brick_offset.x,
-                                brick_offset.y,
-                                brick_offset.z,
-                                self.brick_dim as usize,
-                            );
-                            let mut new_brick = vec![
-                                brick[flat_brick_offset];
-                                (self.brick_dim * self.brick_dim * self.brick_dim)
-                                    as usize
+                        if 1 == self.brick_dim {
+                            leaf_data = [
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
+                                BrickData::Parted(brick.clone()),
                             ];
-                            for x in 0..self.brick_dim as usize {
-                                for y in 0..self.brick_dim as usize {
-                                    for z in 0..self.brick_dim as usize {
-                                        if x < 2 && y < 2 && z < 2 {
-                                            continue;
+
+                            // Also update the target brick
+                            let mut new_brick = brick.clone();
+                            update_size = Self::update_brick(
+                                overwrite_if_empty,
+                                &mut new_brick,
+                                target_bounds,
+                                self.brick_dim,
+                                *position,
+                                size,
+                                &target_content,
+                            );
+                            leaf_data[target_child_octant] = BrickData::Parted(new_brick);
+                        } else {
+                            for octant in 0..8usize {
+                                let octant_offset = V3c::<usize>::from(
+                                    OCTANT_OFFSET_REGION_LUT[octant] * self.brick_dim as f32 / 2.,
+                                );
+                                let mut new_brick = vec![
+                                    brick[flat_projection(
+                                        octant_offset.x,
+                                        octant_offset.y,
+                                        octant_offset.z,
+                                        self.brick_dim as usize,
+                                    )];
+                                    (self.brick_dim * self.brick_dim * self.brick_dim)
+                                        as usize
+                                ];
+                                for x in 0..self.brick_dim as usize {
+                                    for y in 0..self.brick_dim as usize {
+                                        for z in 0..self.brick_dim as usize {
+                                            // println!("skip");
+                                            if x < 2 && y < 2 && z < 2 {
+                                                continue;
+                                            }
+                                            let flat_brick_offset = flat_projection(
+                                                octant_offset.x + x / 2,
+                                                octant_offset.y + y / 2,
+                                                octant_offset.z + z / 2,
+                                                self.brick_dim as usize,
+                                            );
+                                            new_brick[flat_projection(
+                                                x,
+                                                y,
+                                                z,
+                                                self.brick_dim as usize,
+                                            )] = brick[flat_brick_offset];
                                         }
-                                        let new_brick_flat_brick_offset = flat_projection(
-                                            brick_offset.x,
-                                            brick_offset.y,
-                                            brick_offset.z,
-                                            self.brick_dim as usize,
-                                        );
-                                        let flat_brick_offset = flat_projection(
-                                            brick_offset.x + x / 2,
-                                            brick_offset.y + y / 2,
-                                            brick_offset.z + z / 2,
-                                            self.brick_dim as usize,
-                                        );
-                                        new_brick[new_brick_flat_brick_offset] =
-                                            brick[flat_brick_offset];
                                     }
                                 }
-                            }
 
-                            // Also update the brick if it is the target
-                            if octant == target_child_octant {
-                                update_size = Self::update_brick(
-                                    overwrite_if_empty,
-                                    &mut new_brick,
-                                    target_bounds,
-                                    self.brick_dim,
-                                    *position,
-                                    size,
-                                    &target_content,
-                                );
-                            }
+                                // Also update the brick if it is the target
+                                if octant == target_child_octant {
+                                    update_size = Self::update_brick(
+                                        overwrite_if_empty,
+                                        &mut new_brick,
+                                        target_bounds,
+                                        self.brick_dim,
+                                        *position,
+                                        size,
+                                        &target_content,
+                                    );
+                                }
 
-                            leaf_data[octant] = BrickData::Parted(new_brick)
+                                leaf_data[octant] = BrickData::Parted(new_brick);
+                            }
                         }
-
                         *self.nodes.get_mut(node_key) = NodeContent::Leaf(leaf_data);
                         debug_assert_ne!(
                             0, update_size,
@@ -691,7 +715,7 @@ impl<
                                             || BITMAP_MASK_FOR_OCTANT_LUT[octant]
                                                 == occupied_bits
                                                     & BITMAP_MASK_FOR_OCTANT_LUT[octant],
-                                        "Brickdata at octant[{:?}] doesn't match occupied bricks: {:?} <> ({:#10X} & {:#10X})",
+                                        "Brickdata at octant[{:?}] doesn't match occupied bits: {:?} <> ({:#10X} & {:#10X})",
                                         octant,
                                         bricks[octant],
                                         occupied_bits,
@@ -710,32 +734,183 @@ impl<
                         "Expected node child to be OccupancyBitmap(_) instead of {:?}",
                         self.node_children[node_key]
                     );
-                    bricks[0].simplify(&self.voxel_color_palette, &self.voxel_data_palette);
-                    for octant in 1..8 {
-                        bricks[octant]
+
+                    // Try to simplify bricks
+                    let mut simplified = false;
+                    let mut is_leaf_uniform_solid = true;
+                    let mut uniform_solid_value = None;
+                    for octant in 0..8 {
+                        simplified |= bricks[octant]
                             .simplify(&self.voxel_color_palette, &self.voxel_data_palette);
-                        if bricks[0] != bricks[octant] {
-                            return false;
+
+                        if is_leaf_uniform_solid {
+                            if let BrickData::Solid(voxel) = bricks[octant] {
+                                if let Some(uniform_solid_value) = uniform_solid_value {
+                                    if uniform_solid_value != voxel {
+                                        is_leaf_uniform_solid = false;
+                                    }
+                                } else {
+                                    uniform_solid_value = Some(voxel);
+                                }
+                            } else {
+                                is_leaf_uniform_solid = false;
+                            }
                         }
                     }
 
-                    // Every matrix is the same! Make leaf uniform ( except with parted bricks )
-                    if !matches!(bricks[0], BrickData::Parted(_)) {
-                        *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(bricks[0].clone());
-                        self.node_children[node_key] = NodeChildren::OccupancyBitmap(
-                            if let NodeChildren::OccupancyBitmap(bitmaps) =
-                                self.node_children[node_key]
-                            {
-                                bitmaps
-                            } else {
-                                panic!("Leaf NodeContent should have OccupancyBitmap child assigned to it!");
-                            },
+                    // Try to unite bricks into a solid brick
+                    let mut unified_brick = BrickData::Empty;
+                    if is_leaf_uniform_solid {
+                        debug_assert_ne!(uniform_solid_value, None);
+                        debug_assert_eq!(
+                            self.node_children[node_key],
+                            NodeChildren::OccupancyBitmap(u64::MAX),
+                            "Expected Leaf with uniform solid value to have u64::MAX value"
                         );
-                        self.simplify(node_key); // Try to collapse it to homogeneous node, but
-                                                 // irrespective of the results of it, return value is true,
-                                                 // because the node was updated already
+                        *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(BrickData::Solid(
+                            uniform_solid_value.unwrap(),
+                        ));
+                        return true;
                     }
-                    true
+
+                    // Try to unite bricks into a Uniform parted brick
+                    let mut unified_brick_data =
+                        vec![empty_marker::<PaletteIndexValues>(); self.brick_dim.pow(3) as usize];
+                    let mut is_leaf_uniform = true;
+                    for octant in 0..8 {
+                        let brick_half = self.brick_dim as usize / 2;
+                        let octant_offset: V3c<usize> =
+                            (OCTANT_OFFSET_REGION_LUT[octant] * brick_half as f32).into();
+                        match &bricks[octant] {
+                            BrickData::Empty => {
+                                is_leaf_uniform &= bricks[octant] == bricks[0];
+                            } // No need to update unified brick, because empty values are already set
+                            BrickData::Solid(voxel) => {
+                                is_leaf_uniform &= bricks[octant] == bricks[0];
+                                for x in octant_offset.x..(octant_offset.x + brick_half) {
+                                    for y in octant_offset.y..(octant_offset.y + brick_half) {
+                                        for z in octant_offset.z..(octant_offset.z + brick_half) {
+                                            let flat_index =
+                                                flat_projection(x, y, z, self.brick_dim as usize);
+                                            unified_brick_data[flat_index] = *voxel;
+                                        }
+                                    }
+                                }
+                            }
+                            BrickData::Parted(brick) => {
+                                // check every second index if the one after has the same value
+                                for x in 0..brick_half {
+                                    for y in 0..brick_half {
+                                        for z in 0..brick_half {
+                                            if !is_leaf_uniform {
+                                                break;
+                                            }
+                                            if brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2 + 1,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2,
+                                                y * 2 + 1,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2 + 1,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2 + 1,
+                                                y * 2 + 1,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2,
+                                                y * 2 + 1,
+                                                z * 2 + 1,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2 + 1,
+                                                y * 2,
+                                                z * 2 + 1,
+                                                self.brick_dim as usize,
+                                            )] && brick[flat_projection(
+                                                x * 2,
+                                                y * 2,
+                                                z * 2,
+                                                self.brick_dim as usize,
+                                            )] == brick[flat_projection(
+                                                x * 2 + 1,
+                                                y * 2 + 1,
+                                                z * 2 + 1,
+                                                self.brick_dim as usize,
+                                            )] {
+                                                unified_brick_data[flat_projection(
+                                                    octant_offset.x + x,
+                                                    octant_offset.y + y,
+                                                    octant_offset.z + z,
+                                                    self.brick_dim as usize,
+                                                )] = brick[flat_projection(
+                                                    x * 2,
+                                                    y * 2,
+                                                    z * 2,
+                                                    self.brick_dim as usize,
+                                                )]
+                                            } else {
+                                                is_leaf_uniform = false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !is_leaf_uniform {
+                            break;
+                        }
+                    }
+
+                    // bricks can be represented as a uniform parted brick matrix!
+                    if is_leaf_uniform {
+                        unified_brick = BrickData::Parted(unified_brick_data);
+                        simplified = true;
+                    }
+
+                    if !matches!(unified_brick, BrickData::Empty) {
+                        *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(unified_brick);
+                    }
+
+                    simplified
                 }
                 NodeContent::Internal(ocbits) => {
                     if 0 == *ocbits

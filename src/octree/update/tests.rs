@@ -266,20 +266,14 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_1() {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
                 if hit != OctreeEntry::Empty {
-                    assert!(
-                        hit == (&red).into(),
-                        "Hit mismatch at {:?}: {:?} <> {:?}",
-                        (x, y, z),
-                        hit,
-                        red,
-                    );
+                    assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
             }
         }
     }
 
-    assert!(hits == 511, "Expected 511 hits instead of {hits}");
+    assert_eq!(hits, 511);
 }
 
 #[test]
@@ -298,21 +292,19 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
     }
 
     let item_at_333 = tree.get(&V3c::new(3, 3, 3));
-    assert!(
-        item_at_333 == (&red).into(),
-        "Hit mismatch at {:?}: {:?} <> {:?}",
-        (3, 3, 3),
+    assert_eq!(
         item_at_333,
-        red
+        (&red).into(),
+        "Hit mismatch at {:?}",
+        (3, 3, 3)
     );
     tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
     let item_at_333 = tree.get(&V3c::new(3, 3, 3));
-    assert!(
-        item_at_333 == OctreeEntry::Empty,
-        "Hit mismatch at {:?}: {:?} <> {:?}",
-        (3, 3, 3),
+    assert_eq!(
         item_at_333,
-        OctreeEntry::<u32>::Empty
+        OctreeEntry::Empty,
+        "Hit mismatch at {:?}",
+        (3, 3, 3)
     );
 
     let mut hits = 0;
@@ -321,20 +313,14 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
                 if hit != OctreeEntry::Empty {
-                    assert!(
-                        hit == (&red).into(),
-                        "Hit mismatch at {:?}: {:?} <> {:?}",
-                        (x, y, z),
-                        hit,
-                        red
-                    );
+                    assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
             }
         }
     }
 
-    assert!(hits == 511, "Expected 511 hits instead of {hits}");
+    assert_eq!(hits, 511);
 }
 
 #[test]
@@ -362,20 +348,13 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_4() {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
                 if hit != OctreeEntry::Empty {
-                    assert!(
-                        hit == (&red).into(),
-                        "Hit mismatch at {:?}: {:?} <> {:?}",
-                        (x, y, z),
-                        hit,
-                        red,
-                    );
+                    assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
             }
         }
     }
-
-    assert!(hits == 511);
+    assert_eq!(hits, 511);
 }
 
 #[test]
@@ -390,13 +369,7 @@ fn test_update_color() {
 
     tree.update(&V3c::new(0, 0, 0), &green).ok();
     let hit = tree.get(&V3c::new(0, 0, 0));
-    assert!(
-        hit == (&green, &3).into(),
-        "Hit mismatch at {:?}: {:?} <> {:?}",
-        (0, 0, 0),
-        hit,
-        (&green, &3)
-    );
+    assert_eq!(hit, (&green, &3).into(), "Hit mismatch at {:?}", (0, 0, 0));
 }
 
 #[test]
@@ -411,13 +384,7 @@ fn test_update_data() {
     tree.update(&V3c::new(0, 0, 0), OctreeEntry::Informative(&4))
         .ok();
     let hit = tree.get(&V3c::new(0, 0, 0));
-    assert!(
-        hit == (&red, &4).into(),
-        "Hit mismatch at {:?}: {:?} <> {:?}",
-        (0, 0, 0),
-        hit,
-        (&red, &4)
-    );
+    assert_eq!(hit, (&red, &4).into(), "Hit mismatch at {:?}", (0, 0, 0));
 }
 
 #[test]
@@ -755,6 +722,38 @@ fn test_insert_at_lod_with_unaligned_size_where_dim_is_1() {
     let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
     tree.auto_simplify = false;
 
+    tree.insert_at_lod(&V3c::new(2, 2, 2), 3, &red)
+        .ok()
+        .unwrap();
+    let mut hits = 0;
+    for x in 0..8 {
+        for y in 0..8 {
+            for z in 0..8 {
+                let hit = tree.get(&V3c::new(x, y, z));
+                if hit != OctreeEntry::Empty {
+                    assert!(
+                        hit == (&red).into(),
+                        "Hit mismatch at {:?}: {:?} <> {:?}",
+                        (x, y, z),
+                        hit,
+                        red,
+                    );
+                    hits += 1;
+                }
+            }
+        }
+    }
+
+    assert_eq!(hits, 8);
+}
+
+#[test]
+fn test_insert_at_lod_with_unaligned_size_and_position_where_dim_is_1() {
+    let red: Albedo = 0xFF0000FF.into();
+
+    let mut tree: Octree = Octree::new(8, 1).ok().unwrap();
+    tree.auto_simplify = false;
+
     tree.insert_at_lod(&V3c::new(3, 3, 3), 3, &red)
         .ok()
         .unwrap();
@@ -776,7 +775,9 @@ fn test_insert_at_lod_with_unaligned_size_where_dim_is_1() {
             }
         }
     }
-    assert!(hits == 8);
+
+    // Since the position points to a corner of a brick, only one voxel is inserted
+    assert_eq!(hits, 1);
 }
 
 #[test]
@@ -809,7 +810,7 @@ fn test_insert_at_lod_with_unaligned_size_where_dim_is_4() {
             }
         }
     }
-    assert!(hits == 27);
+    assert_eq!(hits, 27);
 }
 
 #[test]
@@ -1033,8 +1034,8 @@ fn test_double_clear() {
     tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
     tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
 
-    assert!(tree.get(&V3c::new(1, 0, 0)) == (&albedo_black).into());
-    assert!(tree.get(&V3c::new(0, 1, 0)) == (&albedo_white).into());
+    assert_eq!(tree.get(&V3c::new(1, 0, 0)), (&albedo_black).into());
+    assert_eq!(tree.get(&V3c::new(0, 1, 0)), (&albedo_white).into());
     let item_at_001 = tree.get(&V3c::new(0, 0, 1));
     assert!(item_at_001 == OctreeEntry::Empty);
 }

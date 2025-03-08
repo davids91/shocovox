@@ -1,6 +1,7 @@
 use crate::{
     octree::{
         detail::{bound_contains, child_octant_for},
+        empty_marker,
         types::{BrickData, NodeChildren, NodeContent, OctreeEntry, OctreeError},
         Octree, VoxelData,
     },
@@ -175,8 +176,16 @@ impl<
                 break;
             }
 
-            // iteration needs to go deeper, as current target size is still larger, than the requested
-            if target_bounds.size > insert_size.max(self.brick_dim) as f32 {
+            // iteration needs to go deeper, as current node is not a leaf,
+            // and target size is still larger, than brick dimension.
+            // The whole node can't be overwritten because that case was handled before this
+            if target_bounds.size > self.brick_dim as f32
+                && (!matches!(
+                    self.nodes.get(current_node_key),
+                    NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
+                ) || self.node_children[current_node_key].child(target_child_octant)
+                    == empty_marker::<u32>() as usize)
+            {
                 // the child at the queried position exists and valid, recurse into it
                 if self.nodes.key_is_valid(target_child_key) {
                     node_stack.push((
@@ -287,7 +296,6 @@ impl<
                     }
                 }
             } else {
-                // target_bounds.size <= min_node_size, which is the desired depth!
                 actual_update_size = self.leaf_update(
                     overwrite_if_empty,
                     current_node_key,
@@ -342,11 +350,12 @@ impl<
                                             || BITMAP_MASK_FOR_OCTANT_LUT[octant]
                                                 == occupied_bits
                                                     & BITMAP_MASK_FOR_OCTANT_LUT[octant],
-                                        "Brickdata at octant[{:?}] doesn't match occupied bricks: {:?} <> ({:#10X} & {:#10X})",
+                                        "Brickdata at octant[{:?}] doesn't match occupied bits: {:?} <> ({:#10X} & {:#10X} ==> {:#10X})",
                                         octant,
                                         bricks[octant],
                                         occupied_bits,
-                                        BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                        BITMAP_MASK_FOR_OCTANT_LUT[octant],
+                                        (occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant])
                                     );
                             }
                         }
