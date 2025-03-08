@@ -106,49 +106,36 @@ where
     /// output: the step to the next sibling
     /// The step is also returned in the given unit size ( based on the cell bounds )
     /// * `ray` - The ray to base the step on
-    /// * `ray_current_distance` - The distance the ray iteration is currently at
+    /// * `ray_current_point` - The point on the ray iteration is currently at
     /// * `current_bounds` - The cell which boundaries the current ray iteration intersects
     /// * `ray_scale_factors` - Pre-computed dda values for the ray
     pub(crate) fn dda_step_to_next_sibling(
         ray: &Ray,
-        ray_current_distance: &mut f32,
+        ray_current_point: &mut V3c<f32>,
         current_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
     ) -> V3c<f32> {
-        let p = ray.point_at(*ray_current_distance);
-        let diff_from_min = p - current_bounds.min_position;
         let signum_vec = V3c::new(
             ray.direction.x.signum(),
             ray.direction.y.signum(),
             ray.direction.z.signum(),
         );
+        let diff_from_min = *ray_current_point - current_bounds.min_position;
         let steps_needed = V3c::new(
             current_bounds.size * signum_vec.x.max(0.) - signum_vec.x * diff_from_min.x,
             current_bounds.size * signum_vec.y.max(0.) - signum_vec.y * diff_from_min.y,
             current_bounds.size * signum_vec.z.max(0.) - signum_vec.z * diff_from_min.z,
         );
-
-        let d_x = *ray_current_distance + (steps_needed.x * ray_scale_factors.x).abs();
-        let d_y = *ray_current_distance + (steps_needed.y * ray_scale_factors.y).abs();
-        let d_z = *ray_current_distance + (steps_needed.z * ray_scale_factors.z).abs();
-        *ray_current_distance = d_x.min(d_y).min(d_z);
+        let d_x = (steps_needed.x * ray_scale_factors.x).abs();
+        let d_y = (steps_needed.y * ray_scale_factors.y).abs();
+        let d_z = (steps_needed.z * ray_scale_factors.z).abs();
+        let min_step = d_x.min(d_y).min(d_z);
+        *ray_current_point += ray.direction * min_step;
 
         V3c::new(
-            if (*ray_current_distance - d_x).abs() < FLOAT_ERROR_TOLERANCE {
-                signum_vec.x
-            } else {
-                0.
-            },
-            if (*ray_current_distance - d_y).abs() < FLOAT_ERROR_TOLERANCE {
-                signum_vec.y
-            } else {
-                0.
-            },
-            if (*ray_current_distance - d_z).abs() < FLOAT_ERROR_TOLERANCE {
-                signum_vec.z
-            } else {
-                0.
-            },
+            if min_step == d_x { signum_vec.x } else { 0. },
+            if min_step == d_y { signum_vec.y } else { 0. },
+            if min_step == d_z { signum_vec.z } else { 0. },
         )
     }
 
@@ -157,16 +144,15 @@ where
     fn traverse_brick(
         &self,
         ray: &Ray,
-        ray_current_distance: &mut f32,
+        ray_current_point: &mut V3c<f32>,
         brick: &[PaletteIndexValues],
         brick_bounds: &Cube,
         brick_dim: usize,
         ray_scale_factors: &V3c<f32>,
     ) -> Option<(V3c<usize>, usize)> {
         // Decide the starting index inside the brick
-        let position_in_brick = (ray.point_at(*ray_current_distance) - brick_bounds.min_position)
-            * brick_dim as f32
-            / brick_bounds.size;
+        let position_in_brick =
+            (*ray_current_point - brick_bounds.min_position) * brick_dim as f32 / brick_bounds.size;
         let mut current_index = V3c::new(
             (position_in_brick.x as i32).clamp(0, (brick_dim - 1) as i32),
             (position_in_brick.y as i32).clamp(0, (brick_dim - 1) as i32),
@@ -230,7 +216,7 @@ where
 
             step = Self::dda_step_to_next_sibling(
                 ray,
-                ray_current_distance,
+                ray_current_point,
                 &current_bounds,
                 ray_scale_factors,
             );
@@ -240,8 +226,7 @@ where
             #[cfg(debug_assertions)]
             {
                 // Check if the resulting point is inside bounds still
-                let relative_point =
-                    ray.point_at(*ray_current_distance) - current_bounds.min_position;
+                let relative_point = *ray_current_point - current_bounds.min_position;
                 debug_assert!(
                     (relative_point.x < FLOAT_ERROR_TOLERANCE
                         || (relative_point.x - current_bounds.size) < FLOAT_ERROR_TOLERANCE)
@@ -259,7 +244,7 @@ where
     fn probe_brick(
         &self,
         ray: &Ray,
-        ray_current_distance: &mut f32,
+        ray_current_point: &mut V3c<f32>,
         brick: &BrickData<PaletteIndexValues>,
         brick_bounds: &Cube,
         ray_scale_factors: &V3c<f32>,
@@ -270,21 +255,21 @@ where
                 None
             }
             BrickData::Solid(voxel) => {
-                let impact_point = ray.point_at(*ray_current_distance);
+                let impact_point = ray_current_point;
                 Some((
                     NodeContent::pix_get_ref(
                         voxel,
                         &self.voxel_color_palette,
                         &self.voxel_data_palette,
                     ),
-                    impact_point,
+                    *impact_point,
                     cube_impact_normal(brick_bounds, &impact_point),
                 ))
             }
             BrickData::Parted(brick) => {
                 if let Some((leaf_brick_hit, leaf_brick_hit_flat_index)) = self.traverse_brick(
                     ray,
-                    ray_current_distance,
+                    ray_current_point,
                     brick,
                     brick_bounds,
                     self.brick_dim as usize,
@@ -296,7 +281,7 @@ where
                             + V3c::<f32>::from(leaf_brick_hit) * brick_bounds.size
                                 / self.brick_dim as f32,
                     };
-                    let impact_point = ray.point_at(*ray_current_distance);
+                    let impact_point = ray_current_point;
                     let impact_normal = cube_impact_normal(&hit_bounds, &impact_point);
                     Some((
                         NodeContent::pix_get_ref(
@@ -304,7 +289,7 @@ where
                             &self.voxel_color_palette,
                             &self.voxel_data_palette,
                         ),
-                        impact_point,
+                        *impact_point,
                         impact_normal,
                     ))
                 } else {
@@ -336,21 +321,20 @@ where
 
         let mut node_stack: NodeStack<u32> = NodeStack::default();
         let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let (mut ray_current_distance, mut target_octant) =
+        let (mut ray_current_point, mut target_octant) =
             if let Some(root_hit) = current_bounds.intersect_ray(ray) {
-                let ray_current_distance = root_hit.impact_distance.unwrap_or(0.);
+                let ray_current_point = ray.point_at(root_hit.impact_distance.unwrap_or(0.));
                 (
-                    ray_current_distance,
+                    ray_current_point,
                     hash_region(
-                        &(ray.point_at(ray_current_distance) - current_bounds.min_position),
+                        &(ray_current_point - current_bounds.min_position),
                         current_bounds.size / 2.,
                     ),
                 )
             } else {
-                (0., OOB_OCTANT)
+                (ray.origin, OOB_OCTANT)
             };
         let mut current_node_key: usize;
-        let mut step_vec = V3c::unit(0.);
         let mut mip_level = (self.octree_size as f32 / self.brick_dim as f32).log2();
 
         while target_octant != OOB_OCTANT {
@@ -370,22 +354,21 @@ where
                 );
 
                 // In case current node MIP level is smaller, than the required MIP level
-                if
-                self.mip_map_strategy.is_enabled()
-                && (mip_level // In case current node MIP level is smaller, than the required MIP level
+                if self.mip_map_strategy.is_enabled()
+                    && (mip_level // In case current node MIP level is smaller, than the required MIP level
                     < ((ray.origin // based on ray current travel distance
-                        - (ray.point_at(ray_current_distance) / (mip_level * 2.)).round()
+                        - (ray_current_point / (mip_level * 2.)).round()
                             * (mip_level * 2.)) // aligned to nearest cube edges(based on current MIP level)
                         .length())
                         / viewing_distance)
                 {
                     if let Some(hit) = self.probe_brick(
                         ray,
-                        &mut ray_current_distance,
+                        &mut ray_current_point,
                         &self.node_mips[current_node_key],
                         &current_bounds,
                         &ray_scale_factors,
-                    ){
+                    ) {
                         return Some(hit);
                     }
                 }
@@ -398,7 +381,7 @@ where
                             ));
                             if let Some(hit) = self.probe_brick(
                                 ray,
-                                &mut ray_current_distance,
+                                &mut ray_current_point,
                                 brick,
                                 &current_bounds,
                                 &ray_scale_factors,
@@ -414,7 +397,7 @@ where
                             ));
                             if let Some(hit) = self.probe_brick(
                                 ray,
-                                &mut ray_current_distance,
+                                &mut ray_current_point,
                                 &bricks[target_octant as usize],
                                 &current_bounds.child_bounds_for(target_octant),
                                 &ray_scale_factors,
@@ -427,8 +410,7 @@ where
                 };
 
                 // the position of the current iteration inside the current bounds in bitmap dimensions
-                let mut bitmap_pos_in_node = (ray.point_at(ray_current_distance)
-                    - current_bounds.min_position)
+                let mut bitmap_pos_in_node = (ray_current_point - current_bounds.min_position)
                     * BITMAP_DIMENSION as f32
                     / current_bounds.size;
                 bitmap_pos_in_node = V3c::new(
@@ -450,12 +432,6 @@ where
                 {
                     // POP
                     node_stack.pop();
-                    step_vec = Self::dda_step_to_next_sibling(
-                        ray,
-                        &mut ray_current_distance,
-                        &current_bounds,
-                        &ray_scale_factors,
-                    );
                     mip_level += 1.0;
                     if let Some(parent) = node_stack.last_mut() {
                         current_node_key = *parent as usize;
@@ -471,7 +447,12 @@ where
                                 &(current_bound_center - parent_bound_min_position),
                                 current_bounds.size,
                             ),
-                            step_vec,
+                            Self::dda_step_to_next_sibling(
+                                ray,
+                                &mut ray_current_point,
+                                &current_bounds,
+                                &ray_scale_factors,
+                            ),
                         );
                         current_bounds.size *= 2.;
                         current_bounds.min_position = parent_bound_min_position;
@@ -492,7 +473,7 @@ where
                     current_node_key = target_child_key as usize;
                     current_bounds = target_bounds;
                     target_octant = hash_region(
-                        &(ray.point_at(ray_current_distance) - target_bounds.min_position),
+                        &(ray_current_point - target_bounds.min_position),
                         target_bounds.size / 2.,
                     );
                     node_stack.push(target_child_key);
@@ -503,9 +484,9 @@ where
                     // so advance iteration to the next sibling
                     loop {
                         // step the iteration to the next sibling cell!
-                        step_vec = Self::dda_step_to_next_sibling(
+                        let step_vec = Self::dda_step_to_next_sibling(
                             ray,
-                            &mut ray_current_distance,
+                            &mut ray_current_point,
                             &target_bounds,
                             &ray_scale_factors,
                         );
@@ -553,19 +534,17 @@ where
             }
 
             // POP on empty stack happened, which means iteration must continue from root
-            // To avoid precision problems the current bound center
-            // pushed along the last step is used for reference
-            let current_octant_center = current_bounds.min_position
-                + V3c::unit(current_bounds.size / 2.)
-                + step_vec * current_bounds.size;
-            target_octant = if current_octant_center.x < self.octree_size as f32
-                && current_octant_center.y < self.octree_size as f32
-                && current_octant_center.z < self.octree_size as f32
-                && current_octant_center.x > 0.
-                && current_octant_center.y > 0.
-                && current_octant_center.z > 0.
+            // To avoid precision problems the current point center is pushed forward slightly within
+            // a voxel of size 1
+            ray_current_point += ray.direction * 0.1;
+            target_octant = if ray_current_point.x < self.octree_size as f32
+                && ray_current_point.y < self.octree_size as f32
+                && ray_current_point.z < self.octree_size as f32
+                && ray_current_point.x > 0.
+                && ray_current_point.y > 0.
+                && ray_current_point.z > 0.
             {
-                hash_region(&current_octant_center, self.octree_size as f32 / 2.)
+                hash_region(&ray_current_point, self.octree_size as f32 / 2.)
             } else {
                 OOB_OCTANT
             };

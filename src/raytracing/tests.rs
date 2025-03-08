@@ -108,18 +108,19 @@ mod octree_raytracing_tests {
                 &mut rng,
             );
             let scale_factors = Octree::<Albedo>::get_dda_scale_factors(&ray);
-            let mut current_d = cube
-                .intersect_ray(&ray)
-                .unwrap()
-                .impact_distance
-                .unwrap_or(0.);
+            let mut current_point = ray.point_at(
+                cube.intersect_ray(&ray)
+                    .unwrap()
+                    .impact_distance
+                    .unwrap_or(0.),
+            );
 
             assert!(
                 FLOAT_ERROR_TOLERANCE
                     > (get_step_to_next_sibling(&cube, &ray)
                         - Octree::<Albedo>::dda_step_to_next_sibling(
                             &ray,
-                            &mut current_d,
+                            &mut current_point,
                             &cube,
                             &scale_factors
                         ))
