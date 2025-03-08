@@ -99,7 +99,6 @@ pub struct OctreeSpyGlass {
     pub(crate) viewport_changed: bool,
     pub(crate) viewport: Viewport,
     pub(crate) node_requests: Vec<u32>,
-    pub debug_data: u32, // To see Occupied bits clearly for a level
 }
 
 #[derive(Resource, Clone)]
@@ -143,7 +142,6 @@ pub(crate) struct OctreeRenderDataResources {
     pub(crate) spyglass_bind_group: BindGroup,
     pub(crate) viewport_buffer: Buffer,
     pub(crate) node_requests_buffer: Buffer,
-    pub(crate) debug_data_buffer: Buffer,
     // }--
 
     // Octree render data group

@@ -140,7 +140,6 @@ where
             spyglass: OctreeSpyGlass {
                 viewport_changed: true,
                 node_requests: vec![empty_marker(); 4],
-                debug_data: 200,
                 output_texture: output_texture.clone(),
                 viewport,
             },
@@ -431,10 +430,6 @@ pub(crate) fn write_to_gpu<T>(
                 .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
             view.data_handler.render_data.mips_enabled = tree.mip_map_strategy.is_enabled()
         }
-
-        let mut buffer = UniformBuffer::new(Vec::<u8>::new());
-        buffer.write(&view.spyglass.debug_data).unwrap();
-        render_queue.write_buffer(&resources.debug_data_buffer, 0, &buffer.into_inner());
 
         // Handle node requests, update cache
         {

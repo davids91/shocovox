@@ -47,12 +47,8 @@ fn main() {
         .run();
 }
 
-#[derive(Component)]
-struct PosterizeThreshold(f32, i32);
-
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    commands.spawn(PosterizeThreshold(0.2, 0));
     // fill octree with data
     let tree: Octree;
     let tree_path = "example_junk_minecraft";
@@ -172,10 +168,9 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
-    mut tree: ResMut<OctreeGPUHost>,
+    tree: ResMut<OctreeGPUHost>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
-    mut thr_query: Query<&mut PosterizeThreshold>,
 ) {
     let mut tree_view = view_set.views[0].lock().unwrap();
 
@@ -256,133 +251,6 @@ fn handle_zoom(
         cam.target_focus.y -= 1.;
     }
 
-    let mut updated = false;
-    if keys.just_pressed(KeyCode::Digit0) {
-        thr_query.single_mut().1 = (thr_query.single_mut().1 + 1) % 5;
-        updated = true;
-    }
-    if keys.just_pressed(KeyCode::Digit1) {
-        updated = true;
-        thr_query.single_mut().0 = 0.1;
-        tree_view.spyglass.debug_data = 1;
-    }
-    if keys.just_pressed(KeyCode::Digit2) {
-        updated = true;
-        thr_query.single_mut().0 = 0.2;
-        tree_view.spyglass.debug_data = 2;
-    }
-    if keys.just_pressed(KeyCode::Digit3) {
-        updated = true;
-        thr_query.single_mut().0 = 0.3;
-        tree_view.spyglass.debug_data = 4;
-    }
-    if keys.just_pressed(KeyCode::Digit4) {
-        updated = true;
-        thr_query.single_mut().0 = 0.4;
-        tree_view.spyglass.debug_data = 8;
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        updated = true;
-        thr_query.single_mut().0 = 0.5;
-        tree_view.spyglass.debug_data = 16;
-    }
-    if keys.just_pressed(KeyCode::Digit6) {
-        updated = true;
-        thr_query.single_mut().0 = 0.6;
-        tree_view.spyglass.debug_data = 32;
-    }
-    if keys.just_pressed(KeyCode::Digit7) {
-        updated = true;
-        thr_query.single_mut().0 = 0.7;
-        tree_view.spyglass.debug_data = 64;
-    }
-    if keys.just_pressed(KeyCode::Digit8) {
-        updated = true;
-        thr_query.single_mut().0 = 0.8;
-        tree_view.spyglass.debug_data = 128;
-    }
-    if keys.just_pressed(KeyCode::Digit9) {
-        updated = true;
-        thr_query.single_mut().0 = 0.9;
-        tree_view.spyglass.debug_data = 256;
-    }
-
-    if updated {
-        println!(
-            "MIP strategy: {:?}",
-            match thr_query.single().1 {
-                0 => "BoxFilter",
-                1 => "PointFilter",
-                2 => "PointFilterBD",
-                3 => "Posterize",
-                4 => "PosterizeBD",
-                _ => "???",
-            }
-        );
-        match thr_query.single().1 {
-            0 => {
-                tree.tree
-                    .albedo_mip_map_resampling_strategy()
-                    .set_method_at(1, MIPResamplingMethods::BoxFilter)
-                    .set_method_at(2, MIPResamplingMethods::BoxFilter)
-                    .set_method(vec![
-                        (3, MIPResamplingMethods::BoxFilter),
-                        (4, MIPResamplingMethods::BoxFilter),
-                    ])
-                    .recalculate_mips();
-            }
-            1 => {
-                tree.tree
-                    .albedo_mip_map_resampling_strategy()
-                    .set_method_at(1, MIPResamplingMethods::PointFilter)
-                    .set_method_at(2, MIPResamplingMethods::PointFilter)
-                    .set_method(vec![
-                        (3, MIPResamplingMethods::PointFilter),
-                        (4, MIPResamplingMethods::PointFilter),
-                    ])
-                    .recalculate_mips();
-            }
-            2 => {
-                tree.tree
-                    .albedo_mip_map_resampling_strategy()
-                    .set_method_at(1, MIPResamplingMethods::PointFilterBD)
-                    .set_method_at(2, MIPResamplingMethods::PointFilterBD)
-                    .set_method(vec![
-                        (3, MIPResamplingMethods::PointFilterBD),
-                        (4, MIPResamplingMethods::PointFilterBD),
-                    ])
-                    .recalculate_mips();
-            }
-            3 => {
-                tree.tree
-                    .albedo_mip_map_resampling_strategy()
-                    .set_method_at(1, MIPResamplingMethods::Posterize(thr_query.single().0))
-                    .set_method_at(2, MIPResamplingMethods::Posterize(thr_query.single().0))
-                    .set_method(vec![
-                        (3, MIPResamplingMethods::Posterize(thr_query.single().0)),
-                        (4, MIPResamplingMethods::Posterize(thr_query.single().0)),
-                    ])
-                    .recalculate_mips();
-            }
-            4 => {
-                tree.tree
-                    .albedo_mip_map_resampling_strategy()
-                    .set_method_at(1, MIPResamplingMethods::PosterizeBD(thr_query.single().0))
-                    .set_method_at(2, MIPResamplingMethods::PosterizeBD(thr_query.single().0))
-                    .set_method(vec![
-                        (3, MIPResamplingMethods::PosterizeBD(thr_query.single().0)),
-                        (4, MIPResamplingMethods::PosterizeBD(thr_query.single().0)),
-                    ])
-                    .recalculate_mips();
-            }
-            _ => {}
-        }
-        if thr_query.single().1 == 5 {
-        } else if thr_query.single().1 == 4 {
-        }
-        tree_view.reload();
-    }
-
     if keys.pressed(KeyCode::NumpadAdd) {
         tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
     }
@@ -391,8 +259,7 @@ fn handle_zoom(
     }
 
     if keys.pressed(KeyCode::F3) {
-        // println!("{:?}", tree_view.spyglass.viewport());
-        println!("{:?}", tree_view.spyglass.debug_data);
+        println!("{:?}", tree_view.spyglass.viewport());
     }
 
     if let Some(_) = cam.radius {

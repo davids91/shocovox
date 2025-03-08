@@ -661,21 +661,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             var bitmap_index_in_node = BITMAP_INDEX_LUT[u32(bitmap_pos_in_node.x)]
                                                        [u32(bitmap_pos_in_node.y)]
                                                        [u32(bitmap_pos_in_node.z)];
-
-            /*// +++ DEBUG +++
-            if(current_bounds.size == f32(octree_meta_data.octree_size / debug_data)) {
-                missing_data_color += (
-                    vec3f(0.0,0.0,0.7)
-                    * vec3f(traverse_node_for_ocbits(
-                        ray,
-                        ray_current_distance,
-                        current_node_key,
-                        &current_bounds,
-                        &ray_scale_factors
-                    ))
-                );
-            }
-            */// --- DEBUG ---
             if( // In case MIPs are enabled
                 (0 != (octree_meta_data.tree_properties & 0x00010000))
                 &&( // In case current node MIP level is smaller, than the required MIP level
@@ -707,26 +692,6 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     }
                 }
             }
-
-            /*// +++ DEBUG +++
-            if(
-                current_bounds.size == f32(
-                    octree_meta_data.octree_size / debug_data
-                )
-            ){
-                missing_data_color += (
-                    vec3f(0.0,0.0,0.7)
-                    * vec3f(traverse_node_for_ocbits(
-                        ray,
-                        ray_current_distance,
-                        current_node_key,
-                        &current_bounds,
-                        &ray_scale_factors
-                    ))
-                );
-            }
-            */// --- DEBUG ---
-
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
                 target_octant != OOB_OCTANT

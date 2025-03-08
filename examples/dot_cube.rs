@@ -24,7 +24,7 @@ const DISPLAY_RESOLUTION: [u32; 2] = [1024, 768];
 const BRICK_DIMENSION: u32 = 32;
 
 #[cfg(feature = "bevy_wgpu")]
-const TREE_SIZE: u32 = 512;
+const TREE_SIZE: u32 = 256;
 
 #[cfg(feature = "bevy_wgpu")]
 fn main() {
@@ -256,34 +256,6 @@ fn handle_zoom(
     }
     if keys.pressed(KeyCode::ControlLeft) {
         cam.target_focus.y -= MOVEMENT_MODIF;
-    }
-
-    if keys.just_pressed(KeyCode::Digit1) {
-        tree_view.spyglass.debug_data = 1;
-    }
-    if keys.just_pressed(KeyCode::Digit2) {
-        tree_view.spyglass.debug_data = 2;
-    }
-    if keys.just_pressed(KeyCode::Digit3) {
-        tree_view.spyglass.debug_data = 4;
-    }
-    if keys.just_pressed(KeyCode::Digit4) {
-        tree_view.spyglass.debug_data = 8;
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        tree_view.spyglass.debug_data = 16;
-    }
-    if keys.just_pressed(KeyCode::Digit6) {
-        tree_view.spyglass.debug_data = 32;
-    }
-    if keys.just_pressed(KeyCode::Digit7) {
-        tree_view.spyglass.debug_data = 64;
-    }
-    if keys.just_pressed(KeyCode::Digit8) {
-        tree_view.spyglass.debug_data = 128;
-    }
-    if keys.just_pressed(KeyCode::Digit9) {
-        tree_view.spyglass.debug_data = 256;
     }
     if keys.pressed(KeyCode::NumpadAdd) {
         tree_view.spyglass.viewport_mut().frustum.z *= 1.01;

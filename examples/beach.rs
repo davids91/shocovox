@@ -233,34 +233,6 @@ fn handle_zoom(
         cam.target_focus.y -= 1.;
     }
 
-    if keys.just_pressed(KeyCode::Digit1) {
-        tree_view.spyglass.debug_data = 1;
-    }
-    if keys.just_pressed(KeyCode::Digit2) {
-        tree_view.spyglass.debug_data = 2;
-    }
-    if keys.just_pressed(KeyCode::Digit3) {
-        tree_view.spyglass.debug_data = 4;
-    }
-    if keys.just_pressed(KeyCode::Digit4) {
-        tree_view.spyglass.debug_data = 8;
-    }
-    if keys.just_pressed(KeyCode::Digit5) {
-        tree_view.spyglass.debug_data = 16;
-    }
-    if keys.just_pressed(KeyCode::Digit6) {
-        tree_view.spyglass.debug_data = 32;
-    }
-    if keys.just_pressed(KeyCode::Digit7) {
-        tree_view.spyglass.debug_data = 64;
-    }
-    if keys.just_pressed(KeyCode::Digit8) {
-        tree_view.spyglass.debug_data = 128;
-    }
-    if keys.just_pressed(KeyCode::Digit9) {
-        tree_view.spyglass.debug_data = 256;
-    }
-
     if keys.pressed(KeyCode::F3) {
         println!("{:?}", tree_view.spyglass.viewport());
     }
