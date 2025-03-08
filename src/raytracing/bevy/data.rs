@@ -1,5 +1,5 @@
-use crate::object_pool::empty_marker;
 use crate::{
+    object_pool::empty_marker,
     octree::{
         types::{BrickData, NodeContent, PaletteIndexValues},
         Octree, V3c, VoxelData,
@@ -9,6 +9,7 @@ use crate::{
         OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
         VictimPointer, Viewport,
     },
+    spatial::lut::OOB_OCTANT,
 };
 use bevy::{
     ecs::system::{Res, ResMut},
@@ -27,8 +28,28 @@ use bimap::BiHashMap;
 use std::{
     collections::{HashMap, HashSet},
     hash::Hash,
+    ops::Range,
     sync::{Arc, Mutex},
 };
+
+fn octree_properties<
+    #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+        + ToBencode
+        + Serialize
+        + DeserializeOwned
+        + Default
+        + Eq
+        + Clone
+        + Hash
+        + VoxelData,
+    #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+    #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+>(
+    tree: &Octree<T>,
+) -> u32 {
+    (tree.brick_dim & 0x0000FFFF) | ((tree.mip_map_strategy.is_enabled() as u32) << 16)
+}
 
 impl<T> OctreeGPUHost<T>
 where
@@ -71,9 +92,10 @@ where
     ) -> Handle<Image> {
         let mut gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
+                mips_enabled: self.tree.mip_map_strategy.is_enabled(),
                 octree_meta: OctreeMetaData {
                     octree_size: self.tree.octree_size,
-                    voxel_brick_dim: self.tree.brick_dim,
+                    tree_properties: octree_properties(&self.tree),
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
                         self.tree.octree_size as f32,
@@ -84,6 +106,7 @@ where
                 metadata: vec![0; size],
                 node_ocbits: vec![0; size * 2],
                 node_children: vec![empty_marker(); size * 8],
+                node_mips: vec![empty_marker(); size],
                 color_palette: vec![Vec4::ZERO; u16::MAX as usize],
             },
             victim_node: VictimPointer::new(size),
@@ -112,6 +135,7 @@ where
         let output_texture = images.add(output_texture);
 
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
+            reload: false,
             data_handler: gpu_data_handler,
             spyglass: OctreeSpyGlass {
                 viewport_changed: true,
@@ -273,7 +297,7 @@ pub(crate) fn handle_gpu_readback(
 /// and schedules it to be written to the given buffer in the GPU
 fn write_range_to_buffer<U>(
     array: &[U],
-    index_range: std::ops::Range<usize>,
+    index_range: Range<usize>,
     buffer: &Buffer,
     render_queue: &RenderQueue,
 ) where
@@ -330,10 +354,21 @@ pub(crate) fn write_to_gpu<T>(
 {
     if let (Some(mut pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
         // Initial octree data upload
-        if !pipeline.init_data_sent {
+        if !pipeline.init_data_sent || svx_view_set.views[0].lock().unwrap().reload {
             if let Some(resources) = &pipeline.resources {
                 //write data for root node
-                let view = svx_view_set.views[0].lock().unwrap();
+                let mut view = svx_view_set.views[0].lock().unwrap();
+
+                if view.reload {
+                    view.data_handler
+                        .render_data
+                        .node_children
+                        .splice(0..8, vec![empty_marker(); 8]);
+                    for m in view.data_handler.render_data.node_mips.iter_mut() {
+                        *m = empty_marker();
+                    }
+                }
+
                 write_range_to_buffer(
                     &view.data_handler.render_data.metadata,
                     0..1,
@@ -347,12 +382,19 @@ pub(crate) fn write_to_gpu<T>(
                     &pipeline.render_queue,
                 );
                 write_range_to_buffer(
+                    &view.data_handler.render_data.node_mips,
+                    0..view.data_handler.render_data.node_mips.len(),
+                    &resources.node_mips_buffer,
+                    &pipeline.render_queue,
+                );
+                write_range_to_buffer(
                     &view.data_handler.render_data.node_ocbits,
                     0..2,
                     &resources.node_ocbits_buffer,
                     &pipeline.render_queue,
                 );
                 pipeline.init_data_sent = true;
+                view.reload = false;
             }
         }
         let resources = if let Some(resources) = &pipeline.resources {
@@ -372,19 +414,39 @@ pub(crate) fn write_to_gpu<T>(
             view.spyglass.viewport_changed = false;
         }
 
-        // Handle node requests, update cache
+        // Data updates for Octree MIP map feature
         let tree = &tree_host.tree;
+        if view.data_handler.render_data.mips_enabled != tree.mip_map_strategy.is_enabled() {
+            // Regenerate feature bits
+            view.data_handler.render_data.octree_meta.tree_properties = octree_properties(tree);
+
+            // Write to GPU
+            let mut buffer = UniformBuffer::new(Vec::<u8>::new());
+            buffer
+                .write(&view.data_handler.render_data.octree_meta)
+                .unwrap();
+            pipeline
+                .render_queue
+                .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
+            view.data_handler.render_data.mips_enabled = tree.mip_map_strategy.is_enabled()
+        }
+
+        // Handle node requests, update cache
         {
-            let mut meta_updated = std::ops::Range {
+            let mut meta_updated = Range {
                 start: view.data_handler.render_data.metadata.len(),
                 end: 0,
             };
-            let mut ocbits_updated = std::ops::Range {
+            let mut ocbits_updated = Range {
                 start: view.data_handler.render_data.node_ocbits.len(),
                 end: 0,
             };
-            let mut node_children_updated = std::ops::Range {
+            let mut node_children_updated = Range {
                 start: view.data_handler.render_data.node_children.len(),
+                end: 0,
+            };
+            let mut node_mips_updated = Range {
+                start: view.data_handler.render_data.node_mips.len(),
                 end: 0,
             };
             let mut node_requests = view.spyglass.node_requests.clone();
@@ -397,11 +459,6 @@ pub(crate) fn write_to_gpu<T>(
                 }
                 let requested_parent_meta_index = (*node_request & 0x00FFFFFF) as usize;
                 let requested_child_octant = ((*node_request & 0xFF000000) >> 24) as u8;
-
-                if modified_nodes.contains(&requested_parent_meta_index) {
-                    // Do not accept a request if the requester meta is already overwritten
-                    continue;
-                }
 
                 debug_assert!(view
                     .data_handler
@@ -420,6 +477,39 @@ pub(crate) fn write_to_gpu<T>(
                     requested_parent_node_key
                 );
 
+                if modified_nodes.contains(&requested_parent_meta_index)
+                    || !view
+                        .data_handler
+                        .node_key_vs_meta_index
+                        .contains_left(&requested_parent_node_key)
+                {
+                    // Do not accept a request if the requester meta is already overwritten or deleted
+                    continue;
+                }
+
+                // In case MIP is requested, not node child
+                if OOB_OCTANT == requested_child_octant {
+                    // Upload MIP to bricks
+                    let (child_index, cache_update) =
+                        view.data_handler
+                            .add_brick(tree, requested_parent_node_key, OOB_OCTANT);
+
+                    meta_updated.start = meta_updated
+                        .start
+                        .min(cache_update.modified_usage_range.start);
+                    meta_updated.end = meta_updated.end.max(cache_update.modified_usage_range.end);
+
+                    modified_nodes.extend(cache_update.modified_nodes);
+                    extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
+
+                    // Update mip index
+                    view.data_handler.render_data.node_mips[requested_parent_meta_index] =
+                        child_index as u32;
+
+                    continue;
+                }
+
+                // In case node child is requested, not a MIP
                 modified_nodes.insert(requested_parent_meta_index);
                 ocbits_updated.start = ocbits_updated.start.min(requested_parent_meta_index * 2);
                 ocbits_updated.end = ocbits_updated.end.max(requested_parent_meta_index * 2 + 2);
@@ -439,12 +529,16 @@ pub(crate) fn write_to_gpu<T>(
                             .node_key_vs_meta_index
                             .contains_left(&requested_child_node_key)
                         {
-                            let (child_index, currently_modified_bricks, currently_modified_nodes) =
-                                view.data_handler
-                                .add_node(tree, requested_child_node_key)
-                                .expect("Expected to succeed adding a node into the GPU cache through data_handler");
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                            let (child_index, cache_update) =
+                                view.data_handler.add_node(tree, requested_child_node_key);
+
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
 
                             child_index
                         } else {
@@ -477,14 +571,20 @@ pub(crate) fn write_to_gpu<T>(
                                 [requested_parent_meta_index * 8]
                                 == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
+                            let (brick_index, cache_update) =
                                 view.data_handler
                                     .add_brick(tree, requested_parent_node_key, 0);
+
                             view.data_handler.render_data.node_children
                                 [requested_parent_meta_index * 8] = brick_index as u32;
 
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
                         }
                     }
                     NodeContent::Leaf(bricks) => {
@@ -496,18 +596,23 @@ pub(crate) fn write_to_gpu<T>(
                             [requested_parent_meta_index * 8 + requested_child_octant as usize]
                             == empty_marker::<u32>()
                         {
-                            let (brick_index, currently_modified_bricks, currently_modified_nodes) =
-                                view.data_handler.add_brick(
-                                    tree,
-                                    requested_parent_node_key,
-                                    requested_child_octant as usize,
-                                );
+                            let (brick_index, cache_update) = view.data_handler.add_brick(
+                                tree,
+                                requested_parent_node_key,
+                                requested_child_octant,
+                            );
+
                             view.data_handler.render_data.node_children[requested_parent_meta_index
                                 * 8
                                 + requested_child_octant as usize] = brick_index as u32;
 
-                            modified_nodes.extend(currently_modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, currently_modified_bricks);
+                            meta_updated.start = meta_updated
+                                .start
+                                .min(cache_update.modified_usage_range.start);
+                            meta_updated.end =
+                                meta_updated.end.max(cache_update.modified_usage_range.end);
+                            modified_nodes.extend(cache_update.modified_nodes);
+                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
                         }
                     }
                 }
@@ -544,6 +649,9 @@ pub(crate) fn write_to_gpu<T>(
                     node_children_updated.start.min(modified_node_index * 8);
                 node_children_updated.end =
                     node_children_updated.end.max(modified_node_index * 8 + 8);
+
+                node_mips_updated.start = node_mips_updated.start.min(*modified_node_index);
+                node_mips_updated.end = node_mips_updated.end.max(modified_node_index + 1);
             }
 
             for modified_brick_data in &modified_bricks {
@@ -562,11 +670,6 @@ pub(crate) fn write_to_gpu<T>(
                 "Expected host color palette({:?}), to be larger, than colors stored on the GPU({:?})",
                 host_color_count, view.data_handler.uploaded_color_palette_size
             );
-
-            // Node requests
-            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-            buffer.write(&node_requests).unwrap();
-            render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
 
             // Color palette
             if 0 < color_palette_size_diff {
@@ -605,6 +708,13 @@ pub(crate) fn write_to_gpu<T>(
                 &resources.node_ocbits_buffer,
                 render_queue,
             );
+            write_range_to_buffer(
+                &view.data_handler.render_data.node_mips,
+                0..view.data_handler.render_data.node_mips.len(),
+                // node_mips_updated,
+                &resources.node_mips_buffer,
+                render_queue,
+            );
 
             // Upload Voxel data
             for modified_brick_data in &modified_bricks {
@@ -612,7 +722,7 @@ pub(crate) fn write_to_gpu<T>(
                     let brick_start_index = *modified_brick_data.0 * new_brick_data.len();
                     debug_assert_eq!(
                         new_brick_data.len(),
-                        (tree.brick_dim * tree.brick_dim * tree.brick_dim) as usize,
+                        tree.brick_dim.pow(3) as usize,
                         "Expected Brick slice to align to tree brick dimension"
                     );
                     unsafe {
@@ -624,6 +734,11 @@ pub(crate) fn write_to_gpu<T>(
                     }
                 }
             }
+
+            // Node requests
+            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+            buffer.write(&node_requests).unwrap();
+            render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
         }
     }
 }

@@ -319,8 +319,17 @@ impl<
                 self.nodes.get(node_key as usize),
                 self.node_children[node_key as usize]
             );
-            self.store_occupied_bits(node_key as usize, new_occupied_bits);
 
+            if 0 == new_occupied_bits {
+                self.node_children[node_key as usize] = NodeChildren::NoChildren;
+            } else {
+                self.store_occupied_bits(node_key as usize, new_occupied_bits);
+            }
+
+            // update MIP maps
+            self.update_mip(node_key as usize, &node_bounds, position);
+
+            // Decide to continue or not
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because their parents can not be simplified further
                 simplifyable = self.simplify(node_key as usize);

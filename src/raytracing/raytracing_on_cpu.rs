@@ -254,6 +254,8 @@ where
         }
     }
 
+    /// Intersects a brick with the given ray
+    /// * `returns` - The intersection with the brick, if any
     fn probe_brick(
         &self,
         ray: &Ray,
@@ -313,8 +315,21 @@ where
     }
 
     /// provides the collision point of the ray with the contained voxel field
-    /// return reference of the data, collision point and normal at impact, should there be any
+    /// Returns a reference of the contained data, collision point and normal at impact, if any
     pub fn get_by_ray(&self, ray: &Ray) -> Option<(OctreeEntry<T>, V3c<f32>, V3c<f32>)> {
+        self.get_by_ray_at_lod(ray, f32::MAX)
+    }
+
+    /// provides the collision point of the ray with the contained voxel field,
+    /// Attempting to include less detail the further the ray travels
+    /// returning a simplified view of the data based on the provided viewing distance.
+    /// WARNING: Simplified views do not contain user data!
+    /// Returns a reference of the contained data, collision point and normal at impact, if any
+    pub fn get_by_ray_at_lod(
+        &self,
+        ray: &Ray,
+        viewing_distance: f32,
+    ) -> Option<(OctreeEntry<T>, V3c<f32>, V3c<f32>)> {
         // Pre-calculated optimization variables
         let ray_scale_factors = Self::get_dda_scale_factors(ray);
         let direction_lut_index = hash_direction(&ray.direction) as usize;
@@ -336,6 +351,7 @@ where
             };
         let mut current_node_key: usize;
         let mut step_vec = V3c::unit(0.);
+        let mut mip_level = (self.octree_size as f32 / self.brick_dim as f32).log2();
 
         while target_octant != OOB_OCTANT {
             current_node_key = Self::ROOT_NODE_KEY as usize;
@@ -352,6 +368,27 @@ where
                     self.nodes.get(current_node_key),
                     NodeContent::UniformLeaf(_)
                 );
+
+                // In case current node MIP level is smaller, than the required MIP level
+                if
+                self.mip_map_strategy.is_enabled()
+                && (mip_level // In case current node MIP level is smaller, than the required MIP level
+                    < ((ray.origin // based on ray current travel distance
+                        - (ray.point_at(ray_current_distance) / (mip_level * 2.)).round()
+                            * (mip_level * 2.)) // aligned to nearest cube edges(based on current MIP level)
+                        .length())
+                        / viewing_distance)
+                {
+                    if let Some(hit) = self.probe_brick(
+                        ray,
+                        &mut ray_current_distance,
+                        &self.node_mips[current_node_key],
+                        &current_bounds,
+                        &ray_scale_factors,
+                    ){
+                        return Some(hit);
+                    }
+                }
                 if target_octant != OOB_OCTANT {
                     match self.nodes.get(current_node_key) {
                         NodeContent::UniformLeaf(brick) => {
@@ -419,6 +456,7 @@ where
                         &current_bounds,
                         &ray_scale_factors,
                     );
+                    mip_level += 1.0;
                     if let Some(parent) = node_stack.last_mut() {
                         current_node_key = *parent as usize;
                         let current_bound_center =
@@ -458,6 +496,7 @@ where
                         target_bounds.size / 2.,
                     );
                     node_stack.push(target_child_key);
+                    mip_level -= 1.;
                 } else {
                     // ADVANCE
                     // target child is invalid, or it does not intersect with the ray,

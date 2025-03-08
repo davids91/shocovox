@@ -1,6 +1,6 @@
 use crate::object_pool::ObjectPool;
 use crate::octree::{
-    types::{BrickData, NodeChildren, NodeContent},
+    types::{BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren, NodeContent},
     Albedo, Octree,
 };
 use bendy::{
@@ -417,6 +417,156 @@ impl FromBencode for NodeChildren<u32> {
 }
 
 //####################################################################################
+//  ██████   ██████ █████ ███████████
+// ░░██████ ██████ ░░███ ░░███░░░░░███
+//  ░███░█████░███  ░███  ░███    ░███
+//  ░███░░███ ░███  ░███  ░██████████
+//  ░███ ░░░  ░███  ░███  ░███░░░░░░
+//  ░███      ░███  ░███  ░███
+//  █████     █████ █████ █████
+// ░░░░░     ░░░░░ ░░░░░ ░░░░░
+//  ███████████ ██████████   █████████   ███████████ █████  █████ ███████████   ██████████  █████████
+// ░░███░░░░░░█░░███░░░░░█  ███░░░░░███ ░█░░░███░░░█░░███  ░░███ ░░███░░░░░███ ░░███░░░░░█ ███░░░░░███
+//  ░███   █ ░  ░███  █ ░  ░███    ░███ ░   ░███  ░  ░███   ░███  ░███    ░███  ░███  █ ░ ░███    ░░░
+//  ░███████    ░██████    ░███████████     ░███     ░███   ░███  ░██████████   ░██████   ░░█████████
+//  ░███░░░█    ░███░░█    ░███░░░░░███     ░███     ░███   ░███  ░███░░░░░███  ░███░░█    ░░░░░░░░███
+//  ░███  ░     ░███ ░   █ ░███    ░███     ░███     ░███   ░███  ░███    ░███  ░███ ░   █ ███    ░███
+//  █████       ██████████ █████   █████    █████    ░░████████   █████   █████ ██████████░░█████████
+// ░░░░░       ░░░░░░░░░░ ░░░░░   ░░░░░    ░░░░░      ░░░░░░░░   ░░░░░   ░░░░░ ░░░░░░░░░░  ░░░░░░░░░
+//####################################################################################
+impl ToBencode for MIPMapStrategy {
+    const MAX_DEPTH: usize = 3;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        encoder.emit_list(|e| {
+            e.emit_int(self.enabled as u8)?;
+
+            e.emit_int(self.resampling_methods.len())?;
+            for entry in self.resampling_methods.iter() {
+                e.emit(entry.0)?;
+                e.emit(entry.1)?;
+            }
+            e.emit_int(self.resampling_color_matching_thresholds.len())?;
+            for entry in self.resampling_color_matching_thresholds.iter() {
+                e.emit(entry.0)?;
+                e.emit_int((entry.1 * 1000.) as u32)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+impl FromBencode for MIPMapStrategy {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::List(mut list) => {
+                let enabled = match list.next_object()?.unwrap() {
+                    Object::Integer("0") => Ok(false),
+                    Object::Integer("1") => Ok(true),
+                    Object::Integer(i) => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field albedo_mip_maps",
+                        format!("the number: {}", i),
+                    )),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "boolean field albedo_mip_maps",
+                        "Something else",
+                    )),
+                }?;
+
+                let resampling_strategy_len = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse()?),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field MIP resampling strategy length",
+                        "Something else",
+                    )),
+                }?;
+                let mut resampling_methods = HashMap::new();
+                for _ in 0..resampling_strategy_len {
+                    let key = usize::decode_bencode_object(list.next_object()?.unwrap()).unwrap();
+                    let value =
+                        MIPResamplingMethods::decode_bencode_object(list.next_object()?.unwrap())
+                            .unwrap();
+                    resampling_methods.insert(key, value);
+                }
+
+                let resampling_strategy_len = match list.next_object()?.unwrap() {
+                    Object::Integer(i) => Ok(i.parse::<usize>()?),
+                    _ => Err(bendy::decoding::Error::unexpected_token(
+                        "int field MIP color matching strategy length",
+                        "Something else",
+                    )),
+                }?;
+                let mut resampling_color_matching_thresholds = HashMap::new();
+                for _ in 0..resampling_strategy_len {
+                    let key = usize::decode_bencode_object(list.next_object()?.unwrap()).unwrap();
+                    let value = match list.next_object()?.unwrap() {
+                        Object::Integer(i) => Ok(i.parse::<u32>()?),
+                        _ => Err(bendy::decoding::Error::unexpected_token(
+                            "int field MIP color matching strategy length",
+                            "Something else",
+                        )),
+                    }?;
+                    resampling_color_matching_thresholds.insert(key, value as f32 / 1000.);
+                }
+
+                Ok(Self {
+                    enabled,
+                    resampling_methods,
+                    resampling_color_matching_thresholds,
+                })
+            }
+            _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),
+        }
+    }
+}
+
+impl ToBencode for MIPResamplingMethods {
+    const MAX_DEPTH: usize = 2;
+    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
+        match self {
+            MIPResamplingMethods::BoxFilter => encoder.emit_int(0),
+            MIPResamplingMethods::PointFilter => encoder.emit_int(1),
+            MIPResamplingMethods::PointFilterBD => encoder.emit_int(2),
+            MIPResamplingMethods::Posterize(threshold) => {
+                encoder.emit_int(3 + (threshold * 1000.) as u32)
+            }
+            MIPResamplingMethods::PosterizeBD(threshold) => {
+                encoder.emit_int(1003 + (threshold * 1000.) as u32)
+            }
+        }
+    }
+}
+
+impl FromBencode for MIPResamplingMethods {
+    fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
+        match data {
+            Object::Integer("0") => Ok(MIPResamplingMethods::BoxFilter),
+            Object::Integer("1") => Ok(MIPResamplingMethods::PointFilter),
+            Object::Integer("2") => Ok(MIPResamplingMethods::PointFilterBD),
+            Object::Integer(int) => match int
+                .parse::<u32>()
+                .unwrap_or_else(|_| panic!("Expected to be able to parse: {:?} as u32", int))
+            {
+                thr if (3..1002).contains(&thr) => {
+                    Ok(MIPResamplingMethods::Posterize((thr as f32 - 3.) / 1000.))
+                }
+
+                thr if (1003..2001).contains(&thr) => Ok(MIPResamplingMethods::PosterizeBD(
+                    (thr as f32 - 1003.) / 1000.,
+                )),
+                num => Err(bendy::decoding::Error::unexpected_token(
+                    "Integer of Posterized Enum type ranges",
+                    format!("the number: {num}").to_owned(),
+                )),
+            },
+            _ => Err(bendy::decoding::Error::unexpected_token(
+                "Integer of Enum type",
+                "not that",
+            )),
+        }
+    }
+}
+
+//####################################################################################
 //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
 //   ███░░░░░███   ███░░░░░███░█░░░███░░░█░░███░░░░░███ ░░███░░░░░█░░███░░░░░█
 //  ███     ░░███ ███     ░░░ ░   ░███  ░  ░███    ░███  ░███  █ ░  ░███  █ ░
@@ -438,8 +588,11 @@ where
             e.emit_int(self.brick_dim)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)?;
+            e.emit(&self.node_mips)?;
             e.emit(&self.voxel_color_palette)?;
-            e.emit(&self.voxel_data_palette)
+            e.emit(&self.voxel_data_palette)?;
+            e.emit(&self.mip_map_strategy)?;
+            Ok(())
         })
     }
 }
@@ -482,6 +635,7 @@ where
 
                 let nodes = ObjectPool::decode_bencode_object(list.next_object()?.unwrap())?;
                 let node_children = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
+                let node_mips = Vec::decode_bencode_object(list.next_object()?.unwrap())?;
 
                 let voxel_color_palette =
                     Vec::<Albedo>::decode_bencode_object(list.next_object()?.unwrap())?;
@@ -497,16 +651,21 @@ where
                     map_to_data_index_in_palette.insert(voxel_data_palette[i].clone(), i);
                 }
 
+                let mip_map_strategy =
+                    MIPMapStrategy::decode_bencode_object(list.next_object()?.unwrap())?;
+
                 Ok(Self {
                     auto_simplify,
                     octree_size,
                     brick_dim,
                     nodes,
                     node_children,
+                    node_mips,
                     voxel_color_palette,
                     voxel_data_palette,
                     map_to_color_index_in_palette,
                     map_to_data_index_in_palette,
+                    mip_map_strategy,
                 })
             }
             _ => Err(bendy::decoding::Error::unexpected_token("List", "not List")),

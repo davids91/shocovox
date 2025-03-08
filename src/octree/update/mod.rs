@@ -1,6 +1,9 @@
 pub mod clear;
 pub mod insert;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     object_pool::empty_marker,
     octree::{
@@ -45,7 +48,6 @@ impl<
     //  █████        █████   █████ ███████████ ██████████    █████       █████    ██████████
     // ░░░░░        ░░░░░   ░░░░░ ░░░░░░░░░░░ ░░░░░░░░░░    ░░░░░       ░░░░░    ░░░░░░░░░░
     //####################################################################################
-
     /// Updates the stored palette by adding the new colors and data in the given entry
     /// Since unused colors are not removed from the palette, possible "pollution" is possible,
     /// where unused colors remain in the palette.
@@ -170,7 +172,7 @@ impl<
         // and decide if the node content needs to be divided into bricks, and the update function to be called again
         match self.nodes.get_mut(node_key) {
             NodeContent::Leaf(bricks) => {
-                // In case brick_dimension == octree size, the root node can not be a leaf...
+                // In case brick_dimension == octree size, the 0 can not be a leaf...
                 debug_assert!(self.brick_dim < self.octree_size);
                 match &mut bricks[target_child_octant] {
                     //If there is no brick in the target position of the leaf, create one
@@ -493,14 +495,14 @@ impl<
             NodeContent::Nothing | NodeContent::Internal(_) => {
                 // Warning: Calling leaf update to an internal node might induce data loss - see #69
                 *self.nodes.get_mut(node_key) = NodeContent::Leaf([
-                    self.try_brick_from_node(self.node_children[node_key].child(0) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(1) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(2) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(3) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(4) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(5) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(6) as usize),
-                    self.try_brick_from_node(self.node_children[node_key].child(7) as usize),
+                    self.try_brick_from_node(self.node_children[node_key].child(0)),
+                    self.try_brick_from_node(self.node_children[node_key].child(1)),
+                    self.try_brick_from_node(self.node_children[node_key].child(2)),
+                    self.try_brick_from_node(self.node_children[node_key].child(3)),
+                    self.try_brick_from_node(self.node_children[node_key].child(4)),
+                    self.try_brick_from_node(self.node_children[node_key].child(5)),
+                    self.try_brick_from_node(self.node_children[node_key].child(6)),
+                    self.try_brick_from_node(self.node_children[node_key].child(7)),
                 ]);
                 self.deallocate_children_of(node_key);
                 self.leaf_update(
@@ -684,7 +686,6 @@ impl<
                                 if let NodeChildren::OccupancyBitmap(occupied_bits) =
                                     self.node_children[node_key]
                                 {
-                                    // println!("node[{:?}] octant[{:?}]", node_key, octant);
                                     debug_assert!(
                                         0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
                                             || BITMAP_MASK_FOR_OCTANT_LUT[octant]
@@ -718,19 +719,22 @@ impl<
                         }
                     }
 
-                    // Every matrix is the same! Make leaf uniform
-                    *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(bricks[0].clone());
-                    self.node_children[node_key] = NodeChildren::OccupancyBitmap(
-                        if let NodeChildren::OccupancyBitmap(bitmaps) = self.node_children[node_key]
-                        {
-                            bitmaps
-                        } else {
-                            panic!("Leaf NodeContent should have OccupancyBitmap child assigned to it!");
-                        },
-                    );
-                    self.simplify(node_key); // Try to collapse it to homogeneous node, but
-                                             // irrespective of the results of it, return value is true,
-                                             // because the node was updated already
+                    // Every matrix is the same! Make leaf uniform ( except with parted bricks )
+                    if !matches!(bricks[0], BrickData::Parted(_)) {
+                        *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(bricks[0].clone());
+                        self.node_children[node_key] = NodeChildren::OccupancyBitmap(
+                            if let NodeChildren::OccupancyBitmap(bitmaps) =
+                                self.node_children[node_key]
+                            {
+                                bitmaps
+                            } else {
+                                panic!("Leaf NodeContent should have OccupancyBitmap child assigned to it!");
+                            },
+                        );
+                        self.simplify(node_key); // Try to collapse it to homogeneous node, but
+                                                 // irrespective of the results of it, return value is true,
+                                                 // because the node was updated already
+                    }
                     true
                 }
                 NodeContent::Internal(ocbits) => {

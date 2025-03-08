@@ -25,6 +25,19 @@ fn main() {
     assert_eq!(tree.get(&V3c::new(0, 0, 0)), (&voxel_color_red).into());
     assert_eq!(tree.get(&V3c::new(0, 0, 1)), (&voxel_color_green).into());
 
+    // Don't try to insert fully transparent colors though, it won't work!
+    tree.insert(
+        &V3c::new(0, 1, 0),
+        &Albedo::default()
+            .with_red(69)
+            .with_green(69)
+            .with_blue(69)
+            .with_alpha(0),
+    )
+    .ok()
+    .unwrap();
+    assert_eq!(tree.get(&V3c::new(0, 1, 0)), OctreeEntry::Empty);
+
     // To overwrite data, just insert it to the same position
     tree.insert(&V3c::new(0, 0, 0), &voxel_color_green)
         .ok()

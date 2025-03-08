@@ -2,13 +2,16 @@ pub mod types;
 pub mod update;
 
 mod detail;
+pub(crate) mod mipmap;
 mod node;
 
 #[cfg(test)]
 mod tests;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
-pub use types::{Albedo, Octree, OctreeEntry, VoxelData};
+pub use types::{
+    Albedo, MIPMapStrategy, MIPResamplingMethods, Octree, OctreeEntry, StrategyUpdater, VoxelData,
+};
 
 use crate::{
     object_pool::{empty_marker, ObjectPool},
@@ -178,15 +181,13 @@ impl<
         {
             return Err(OctreeError::InvalidSize(size));
         }
-        if size <= (brick_dimension * 2) {
+        if size < (brick_dimension * 2) {
             return Err(OctreeError::InvalidStructure(
                 "Octree size must be larger, than 2 * brick dimension".into(),
             ));
         }
         let node_count_estimation = (size / brick_dimension).pow(3);
         let mut nodes = ObjectPool::with_capacity(node_count_estimation.min(1024) as usize);
-        let mut node_children = Vec::with_capacity(node_count_estimation.min(1024) as usize * 8);
-        node_children.push(NodeChildren::default());
         let root_node_key = nodes.push(NodeContent::Nothing); // The first element is the root Node
         assert!(root_node_key == 0);
         Ok(Self {
@@ -194,18 +195,34 @@ impl<
             octree_size: size,
             brick_dim: brick_dimension,
             nodes,
+            node_children: vec![NodeChildren::default()],
+            node_mips: vec![BrickData::Empty],
             voxel_color_palette: vec![],
             voxel_data_palette: vec![],
             map_to_color_index_in_palette: HashMap::new(),
             map_to_data_index_in_palette: HashMap::new(),
-            node_children,
+            mip_map_strategy: MIPMapStrategy::default(),
         })
     }
 
-    /// Provides immutable reference to the data, if there is any at the given position
+    /// Getter function for the octree
+    /// * Returns immutable reference to the data at the given position, if there is any
     pub fn get(&self, position: &V3c<u32>) -> OctreeEntry<T> {
-        let mut current_bounds = Cube::root_bounds(self.octree_size as f32);
-        let mut current_node_key = Self::ROOT_NODE_KEY as usize;
+        self.get_internal(
+            Self::ROOT_NODE_KEY as usize,
+            Cube::root_bounds(self.octree_size as f32),
+            position,
+        )
+    }
+
+    /// Internal Getter function for the octree, to be able to call get from within the tree itself
+    /// * Returns immutable reference to the data of the given node at the given position, if there is any
+    fn get_internal(
+        &self,
+        mut current_node_key: usize,
+        mut current_bounds: Cube,
+        position: &V3c<u32>,
+    ) -> OctreeEntry<T> {
         let position = V3c::from(*position);
         if !bound_contains(&current_bounds, &position) {
             return OctreeEntry::Empty;
@@ -357,5 +374,10 @@ impl<
     /// Tells the radius of the area covered by the octree
     pub fn get_size(&self) -> u32 {
         self.octree_size
+    }
+
+    /// Object to set the MIP map strategy for each MIP level inside the octree
+    pub fn albedo_mip_map_resampling_strategy(&mut self) -> StrategyUpdater<T> {
+        StrategyUpdater(self)
     }
 }
