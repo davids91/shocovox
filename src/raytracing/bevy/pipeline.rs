@@ -588,12 +588,13 @@ pub(crate) fn prepare_bind_groups(
     }
     {
         // Rebuild view becasue of changed output texture ( most likely resolution change )
-        if {
+        let output_texture_changed = {
             let view = svx_viewset.views[0].lock().unwrap();
             svx_viewset.resources[0].is_some()
                 && view.spyglass.output_texture != view.output_texture
                 && gpu_images.get(&view.output_texture).is_some()
-        } {
+        };
+        if output_texture_changed {
             let (
                 spyglass_bind_group,
                 viewport_buffer,

@@ -14,6 +14,7 @@ use crate::{
     },
     spatial::lut::OOB_OCTANT,
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use bevy::{
     ecs::system::{Res, ResMut},
     math::Vec4,
@@ -53,9 +54,32 @@ fn octree_properties<
     (tree.brick_dim & 0x0000FFFF) | ((tree.mip_map_strategy.is_enabled() as u32) << 16)
 }
 
-impl<T> OctreeGPUHost<T>
-where
-    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+    > OctreeGPUHost<T>
 {
     //##############################################################################
     //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
@@ -120,7 +144,7 @@ where
         gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
         let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
-            resolution: resolution,
+            resolution,
             output_texture: output_texture.clone(),
             reload: false,
             init_data_sent: false,
@@ -213,7 +237,7 @@ pub(crate) fn handle_gpu_readback(
     svx_viewset: ResMut<SvxViewSet>,
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
-    if let Some(_) = svx_pipeline {
+    if svx_pipeline.is_some() {
         let mut view = svx_viewset.views[0].lock().unwrap();
         let resources = svx_viewset.resources[0].as_ref();
 
@@ -338,13 +362,27 @@ fn extend_brick_updates<'a>(
 }
 
 /// Handles Data Streaming to the GPU based on incoming requests from the view(s)
-pub(crate) fn write_to_gpu<T>(
+pub(crate) fn write_to_gpu<
+    #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+        + ToBencode
+        + Serialize
+        + DeserializeOwned
+        + Default
+        + Eq
+        + Clone
+        + Hash
+        + VoxelData
+        + Send
+        + Sync
+        + 'static,
+    #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+    #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+    #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+>(
     tree_gpu_host: Option<ResMut<OctreeGPUHost<T>>>,
     svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
     svx_view_set: ResMut<SvxViewSet>,
-) where
-    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
-{
+) {
     if let (Some(pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
         let mut view = svx_view_set.views[0].lock().unwrap();
 

@@ -1,7 +1,6 @@
 use crate::{
     octree::{
         detail::{bound_contains, child_octant_for},
-        empty_marker,
         types::{BrickData, NodeChildren, NodeContent, OctreeEntry, OctreeError},
         Octree, VoxelData,
     },
@@ -134,8 +133,8 @@ impl<
                 size: current_bounds.size / 2.,
             };
 
-            let target_child_key = self.node_children[current_node_key].child(target_child_octant);
-
+            let mut target_child_key =
+                self.node_children[current_node_key].child(target_child_octant);
             if insert_size > 1
                 && target_bounds.size <= insert_size as f32
                 && position <= target_bounds.min_position
@@ -146,6 +145,8 @@ impl<
                     self.nodes.get(current_node_key)
                 {
                     self.subdivide_leaf_to_nodes(current_node_key, target_child_octant as usize);
+                    target_child_key =
+                        self.node_children[current_node_key].child(target_child_octant);
                 }
 
                 if self.nodes.key_is_valid(target_child_key) {
@@ -179,12 +180,14 @@ impl<
             // iteration needs to go deeper, as current node is not a leaf,
             // and target size is still larger, than brick dimension.
             // The whole node can't be overwritten because that case was handled before this
-            if target_bounds.size > self.brick_dim as f32
-                && (!matches!(
-                    self.nodes.get(current_node_key),
-                    NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
-                ) || self.node_children[current_node_key].child(target_child_octant)
-                    == empty_marker::<u32>() as usize)
+            let data_bounds = match self.nodes.get(current_node_key) {
+                NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::Leaf(_) => {
+                    target_bounds
+                }
+                NodeContent::UniformLeaf(_) => current_bounds,
+            };
+
+            if data_bounds.size > self.brick_dim as f32 || self.nodes.key_is_valid(target_child_key)
             {
                 // the child at the queried position exists and valid, recurse into it
                 if self.nodes.key_is_valid(target_child_key) {

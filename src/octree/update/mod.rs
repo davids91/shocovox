@@ -404,6 +404,19 @@ impl<
                             return 0;
                         }
 
+                        // If uniform leaf is the size of one brick, the brick is updated as is
+                        if node_bounds.size <= self.brick_dim as f32 && self.brick_dim > 1 {
+                            return Self::update_brick(
+                                overwrite_if_empty,
+                                brick,
+                                node_bounds,
+                                self.brick_dim,
+                                *position,
+                                size,
+                                &target_content,
+                            );
+                        }
+
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
                         let mut leaf_data: [BrickData<PaletteIndexValues>; 8] = [
@@ -444,43 +457,9 @@ impl<
                             );
                             leaf_data[target_child_octant] = BrickData::Parted(new_brick);
                         } else {
-                            for octant in 0..8usize {
-                                let octant_offset = V3c::<usize>::from(
-                                    OCTANT_OFFSET_REGION_LUT[octant] * self.brick_dim as f32 / 2.,
-                                );
-                                let mut new_brick = vec![
-                                    brick[flat_projection(
-                                        octant_offset.x,
-                                        octant_offset.y,
-                                        octant_offset.z,
-                                        self.brick_dim as usize,
-                                    )];
-                                    (self.brick_dim * self.brick_dim * self.brick_dim)
-                                        as usize
-                                ];
-                                for x in 0..self.brick_dim as usize {
-                                    for y in 0..self.brick_dim as usize {
-                                        for z in 0..self.brick_dim as usize {
-                                            // println!("skip");
-                                            if x < 2 && y < 2 && z < 2 {
-                                                continue;
-                                            }
-                                            let flat_brick_offset = flat_projection(
-                                                octant_offset.x + x / 2,
-                                                octant_offset.y + y / 2,
-                                                octant_offset.z + z / 2,
-                                                self.brick_dim as usize,
-                                            );
-                                            new_brick[flat_projection(
-                                                x,
-                                                y,
-                                                z,
-                                                self.brick_dim as usize,
-                                            )] = brick[flat_brick_offset];
-                                        }
-                                    }
-                                }
-
+                            let child_bricks =
+                                Self::dilute_brick_data(std::mem::take(brick), self.brick_dim);
+                            for (octant, mut new_brick) in child_bricks.into_iter().enumerate() {
                                 // Also update the brick if it is the target
                                 if octant == target_child_octant {
                                     update_size = Self::update_brick(
@@ -493,7 +472,6 @@ impl<
                                         &target_content,
                                     );
                                 }
-
                                 leaf_data[octant] = BrickData::Parted(new_brick);
                             }
                         }
@@ -516,8 +494,35 @@ impl<
                     target_content,
                 )
             }
-            NodeContent::Nothing | NodeContent::Internal(_) => {
+            NodeContent::Internal(ocbits) => {
                 // Warning: Calling leaf update to an internal node might induce data loss - see #69
+                self.node_children[node_key] = NodeChildren::OccupancyBitmap(*ocbits);
+                *self.nodes.get_mut(node_key) = NodeContent::Leaf([
+                    self.try_brick_from_node(self.node_children[node_key].child(0)),
+                    self.try_brick_from_node(self.node_children[node_key].child(1)),
+                    self.try_brick_from_node(self.node_children[node_key].child(2)),
+                    self.try_brick_from_node(self.node_children[node_key].child(3)),
+                    self.try_brick_from_node(self.node_children[node_key].child(4)),
+                    self.try_brick_from_node(self.node_children[node_key].child(5)),
+                    self.try_brick_from_node(self.node_children[node_key].child(6)),
+                    self.try_brick_from_node(self.node_children[node_key].child(7)),
+                ]);
+                self.deallocate_children_of(node_key);
+                self.leaf_update(
+                    overwrite_if_empty,
+                    node_key,
+                    node_bounds,
+                    target_bounds,
+                    target_child_octant,
+                    position,
+                    size,
+                    target_content,
+                )
+            }
+            NodeContent::Nothing => {
+                // Calling leaf update on Nothing is an odd thing to do..
+                // But possible, if this call is mid-update
+                // So let's try to gather all the information possible
                 *self.nodes.get_mut(node_key) = NodeContent::Leaf([
                     self.try_brick_from_node(self.node_children[node_key].child(0)),
                     self.try_brick_from_node(self.node_children[node_key].child(1)),
@@ -541,6 +546,85 @@ impl<
                 )
             }
         }
+    }
+
+    //####################################################################################
+    //  ███████████  ███████████   █████   █████████  █████   ████
+    // ░░███░░░░░███░░███░░░░░███ ░░███   ███░░░░░███░░███   ███░
+    //  ░███    ░███ ░███    ░███  ░███  ███     ░░░  ░███  ███
+    //  ░██████████  ░██████████   ░███ ░███          ░███████
+    //  ░███░░░░░███ ░███░░░░░███  ░███ ░███          ░███░░███
+    //  ░███    ░███ ░███    ░███  ░███ ░░███     ███ ░███ ░░███
+    //  ███████████  █████   █████ █████ ░░█████████  █████ ░░████
+    // ░░░░░░░░░░░  ░░░░░   ░░░░░ ░░░░░   ░░░░░░░░░  ░░░░░   ░░░░
+    //####################################################################################
+    /// Provides an array of bricks, based on the given brick data, with the same size of the original brick,
+    /// each voxel mapped as the new bricks were the children of the given brick
+    pub(crate) fn dilute_brick_data<B>(brick_data: Vec<B>, brick_dim: u32) -> [Vec<B>; 8]
+    where
+        B: Clone + Copy + PartialEq,
+    {
+        debug_assert_eq!(brick_data.len(), brick_dim.pow(3) as usize);
+
+        if 1 == brick_dim {
+            return [
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data.clone(),
+                brick_data,
+            ];
+        }
+
+        let mut result = [
+            vec![brick_data[0]; brick_dim.pow(3) as usize],
+            vec![brick_data[1]; brick_dim.pow(3) as usize],
+            vec![brick_data[2]; brick_dim.pow(3) as usize],
+            vec![brick_data[3]; brick_dim.pow(3) as usize],
+            vec![brick_data[4]; brick_dim.pow(3) as usize],
+            vec![brick_data[5]; brick_dim.pow(3) as usize],
+            vec![brick_data[6]; brick_dim.pow(3) as usize],
+            vec![brick_data[7]; brick_dim.pow(3) as usize],
+        ];
+
+        if 2 == brick_dim {
+            return result;
+        }
+
+        for octant in 0..8usize {
+            // Set the data of the new child
+            let brick_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * 2;
+            let new_brick_flat_offset = flat_projection(
+                brick_offset.x,
+                brick_offset.y,
+                brick_offset.z,
+                brick_dim as usize,
+            );
+            let mut new_brick_data =
+                vec![brick_data[new_brick_flat_offset]; brick_dim.pow(3) as usize];
+            for x in 0..brick_dim as usize {
+                for y in 0..brick_dim as usize {
+                    for z in 0..brick_dim as usize {
+                        if x < 2 && y < 2 && z < 2 {
+                            continue;
+                        }
+                        let new_brick_flat_offset = flat_projection(x, y, z, brick_dim as usize);
+                        let brick_flat_offset = flat_projection(
+                            brick_offset.x + x / 2,
+                            brick_offset.y + y / 2,
+                            brick_offset.z + z / 2,
+                            brick_dim as usize,
+                        );
+                        new_brick_data[new_brick_flat_offset] = brick_data[brick_flat_offset];
+                    }
+                }
+            }
+            result[octant] = new_brick_data;
+        }
+        result
     }
 
     /// Updates the content of the given brick and its occupancy bitmap. Each components of mat_index must be smaller, than the size of the brick.
@@ -940,7 +1024,7 @@ impl<
                     self.simplify(child_keys[0] as usize);
 
                     if !self.nodes.key_is_valid(child_keys[0] as usize) {
-                        // At least try to simplify the siblings
+                        // Try to simplify siblings, even if the first child wasn't simplifiable
                         for child_key in child_keys.iter().skip(1) {
                             self.simplify(*child_key as usize);
                         }
@@ -966,6 +1050,7 @@ impl<
                         NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
                     ));
                     self.nodes.swap(node_key, child_keys[0] as usize);
+
                     // Deallocate children, and set correct occupancy bitmap
                     let new_node_children = self.node_children[child_keys[0] as usize];
                     self.deallocate_children_of(node_key);

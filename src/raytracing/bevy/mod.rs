@@ -14,6 +14,7 @@ use crate::{
         types::{SvxLabel, SvxRenderNode, SvxRenderPipeline},
     },
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use bevy::{
     app::{App, Plugin},
     asset::LoadState,
@@ -97,6 +98,15 @@ impl OctreeSpyGlass {
     }
 }
 
+impl<T> Default for RenderBevyPlugin<T>
+where
+    T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> RenderBevyPlugin<T>
 where
     T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
@@ -125,8 +135,8 @@ pub(crate) fn create_output_texture(
     );
     output_texture.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    let new_tex = images.add(output_texture);
-    new_tex
+
+    images.add(output_texture)
 }
 
 pub(crate) fn handle_resolution_updates(
@@ -138,7 +148,7 @@ pub(crate) fn handle_resolution_updates(
         {
             let mut current_view = viewset.views[0].lock().unwrap();
             // check for resolution update requests
-            if let Some(_) = current_view.new_resolution {
+            if current_view.new_resolution.is_some() {
                 // see if a new output texture is loaded for the requested resolution yet
                 let new_out_tex = current_view
                     .new_output_texture
@@ -156,9 +166,32 @@ pub(crate) fn handle_resolution_updates(
     }
 }
 
-impl<T> Plugin for RenderBevyPlugin<T>
-where
-    T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+    > Plugin for RenderBevyPlugin<T>
 {
     fn build(&self, app: &mut App) {
         app.add_plugins((

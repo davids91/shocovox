@@ -24,7 +24,6 @@ use crate::{
         Cube,
     },
 };
-use num_traits::Zero;
 use std::{collections::HashMap, hash::Hash};
 
 #[cfg(feature = "serialization")]
@@ -98,9 +97,9 @@ impl<'a, T: VoxelData> OctreeEntry<'a, T> {
     pub fn is_none(&self) -> bool {
         match self {
             OctreeEntry::Empty => true,
-            OctreeEntry::Visual(albedo) => **albedo == Albedo::zero(),
+            OctreeEntry::Visual(albedo) => albedo.is_transparent(),
             OctreeEntry::Informative(data) => data.is_empty(),
-            OctreeEntry::Complex(albedo, data) => **albedo == Albedo::zero() && data.is_empty(),
+            OctreeEntry::Complex(albedo, data) => albedo.is_transparent() && data.is_empty(),
         }
     }
 

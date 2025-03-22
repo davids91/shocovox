@@ -10,6 +10,7 @@ use crate::{
     },
     spatial::lut::OOB_OCTANT,
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use std::{hash::Hash, ops::Range};
 
 //##############################################################################
@@ -409,14 +410,37 @@ impl OctreeGPUDataHandler {
     //##############################################################################
     /// Writes the data of the given node to the first available index
     /// * `returns` - Upon success, returns (meta_index, brick updates, modified_nodes)
-    pub(crate) fn add_node<'a, T>(
+    pub(crate) fn add_node<
+        'a,
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData + Send + Sync + 'static,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData
+            + Send
+            + Sync
+            + 'static,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    >(
         &mut self,
         tree: &'a Octree<T>,
         node_key: usize,
-    ) -> (usize, CacheUpdatePackage<'a>)
-    where
-        T: Default + Copy + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
-    {
+    ) -> (usize, CacheUpdatePackage<'a>) {
         debug_assert!(
             !self.node_key_vs_meta_index.contains_left(&node_key),
             "Trying to add already available node twice!"

@@ -6,9 +6,10 @@ use crate::{
     },
     spatial::{
         lut::OCTANT_OFFSET_REGION_LUT,
-        math::{flat_projection, hash_region, BITMAP_DIMENSION},
+        math::{hash_region, BITMAP_DIMENSION},
     },
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use num_traits::Zero;
 use std::{
     hash::Hash,
@@ -159,9 +160,20 @@ where
     pub(crate) const ROOT_NODE_KEY: u32 = 0;
 }
 
-impl<T> Octree<T>
-where
-    T: Default + Clone + Eq + Hash + VoxelData,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > Octree<T>
 {
     /// Checks the content of the content of the node if it is empty at the given index,
     /// so the corresponding part of the occupied bits of the node can be set. The check targets
@@ -436,51 +448,18 @@ where
                     }
                     BrickData::Parted(brick) => {
                         // Each brick is mapped to take up one subsection of the current data
-                        for octant in 0..8usize {
-                            // Set the data of the new child
-                            let brick_offset =
-                                V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * 2;
-                            let new_brick_flat_offset = flat_projection(
-                                brick_offset.x,
-                                brick_offset.y,
-                                brick_offset.z,
-                                self.brick_dim as usize,
-                            );
-                            let mut new_brick_data = vec![
-                                brick[new_brick_flat_offset];
-                                (self.brick_dim * self.brick_dim * self.brick_dim)
-                                    as usize
-                            ];
-                            for x in 2..self.brick_dim as usize {
-                                for y in 2..self.brick_dim as usize {
-                                    for z in 2..self.brick_dim as usize {
-                                        if x < 2 && y < 2 && z < 2 {
-                                            continue;
-                                        }
-                                        let new_brick_flat_offset =
-                                            flat_projection(x, y, z, self.brick_dim as usize);
-                                        let brick_flat_offset = flat_projection(
-                                            brick_offset.x + x / 2,
-                                            brick_offset.y + y / 2,
-                                            brick_offset.z + z / 2,
-                                            self.brick_dim as usize,
-                                        );
-                                        new_brick_data[new_brick_flat_offset] =
-                                            brick[brick_flat_offset];
-                                    }
-                                }
-                            }
-
+                        let children_bricks = Self::dilute_brick_data(brick, self.brick_dim);
+                        for (octant, new_brick) in children_bricks.into_iter().enumerate() {
                             // Push in the new child
                             let child_occupied_bits = BrickData::calculate_brick_occupied_bits(
-                                &new_brick_data,
+                                &new_brick,
                                 self.brick_dim as usize,
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             );
                             node_new_children[octant] = self
                                 .nodes
-                                .push(NodeContent::UniformLeaf(BrickData::Parted(new_brick_data)))
+                                .push(NodeContent::UniformLeaf(BrickData::Parted(new_brick)))
                                 as u32;
 
                             // Potentially Resize node children array to accomodate the new child
@@ -529,15 +508,15 @@ where
         if let Some(children) = self.node_children[node].iter() {
             for child in children {
                 if self.nodes.key_is_valid(*child as usize) {
-                    to_deallocate.push(*child);
+                    to_deallocate.push(*child as usize);
                 }
             }
             for child in to_deallocate {
-                self.deallocate_children_of(child as usize); // Recursion should be fine as depth is not expceted to be more, than 32
-                self.nodes.free(child as usize);
+                self.deallocate_children_of(child); // Recursion should be fine as depth is not expceted to be more, than 32
+                self.nodes.free(child);
+                self.node_children[child] = NodeChildren::NoChildren;
             }
         }
-        self.node_children[node] = NodeChildren::NoChildren;
     }
 
     /// Calculates the occupied bits of a Node; For empty nodes(Nodecontent::Nothing) as well;

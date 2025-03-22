@@ -13,6 +13,7 @@ use crate::{
         Cube,
     },
 };
+use bendy::{decoding::FromBencode, encoding::ToBencode};
 use std::hash::Hash;
 
 #[derive(Debug)]
@@ -80,9 +81,20 @@ where
     }
 }
 
-impl<T> Octree<T>
-where
-    T: Default + Eq + Clone + Copy + VoxelData + Hash,
+impl<
+        #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
+            + ToBencode
+            + Serialize
+            + DeserializeOwned
+            + Default
+            + Eq
+            + Clone
+            + Hash
+            + VoxelData,
+        #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
+        #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
+    > Octree<T>
 {
     pub(crate) fn get_dda_scale_factors(ray: &Ray) -> V3c<f32> {
         V3c::new(
@@ -263,7 +275,7 @@ where
                         &self.voxel_data_palette,
                     ),
                     *impact_point,
-                    cube_impact_normal(brick_bounds, &impact_point),
+                    cube_impact_normal(brick_bounds, impact_point),
                 ))
             }
             BrickData::Parted(brick) => {
@@ -282,7 +294,7 @@ where
                                 / self.brick_dim as f32,
                     };
                     let impact_point = ray_current_point;
-                    let impact_normal = cube_impact_normal(&hit_bounds, &impact_point);
+                    let impact_normal = cube_impact_normal(&hit_bounds, impact_point);
                     Some((
                         NodeContent::pix_get_ref(
                             &brick[leaf_brick_hit_flat_index],

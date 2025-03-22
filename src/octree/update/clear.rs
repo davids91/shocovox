@@ -69,6 +69,7 @@ impl<
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
+
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
@@ -80,7 +81,6 @@ impl<
                 size: current_bounds.size / 2.,
             };
             let target_child_key = self.node_children[current_node_key].child(target_child_octant);
-
             if clear_size > 1
                 && target_bounds.size <= clear_size as f32
                 && *position <= target_bounds.min_position.into()
@@ -91,6 +91,7 @@ impl<
                 if self.nodes.key_is_valid(target_child_key) {
                     self.deallocate_children_of(target_child_key);
                     *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
+                    self.node_children[target_child_key] = NodeChildren::NoChildren;
                     actual_update_size = target_bounds.size as usize;
 
                     node_stack.push((
@@ -102,7 +103,9 @@ impl<
                 break;
             }
 
-            if target_bounds.size > clear_size.max(self.brick_dim) as f32 {
+            if target_bounds.size > clear_size.max(self.brick_dim) as f32
+                || self.nodes.key_is_valid(target_child_key)
+            {
                 // iteration needs to go deeper, as current Node size is still larger, than the requested clear size
                 if self.nodes.key_is_valid(target_child_key) {
                     //Iteration can go deeper , as target child is valid
@@ -196,6 +199,7 @@ impl<
                             current_node_key,
                             target_child_octant as usize,
                         );
+                        // Note: target_child_key is invalid from this point in scope
 
                         node_stack.push((
                             self.node_children[current_node_key].child(target_child_octant) as u32,
@@ -307,6 +311,7 @@ impl<
                     debug_assert!(self.node_empty_at(node_key as usize, child_octant));
                 }
                 self.deallocate_children_of(node_key as usize);
+                self.node_children[node_key as usize] = NodeChildren::NoChildren;
                 removed_node = Some((node_key, node_bounds));
                 NodeContent::Nothing
             };

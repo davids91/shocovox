@@ -69,7 +69,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 
     let mut host = OctreeGPUHost { tree };
     let mut views = SvxViewSet::default();
-    let output_texture = host.create_new_view(
+    let view_index = host.create_new_view(
         &mut views,
         200,
         Viewport {
@@ -90,6 +90,15 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
         images,
     );
     commands.insert_resource(host);
+    let mut display = Sprite::from_image(
+        views.views[view_index]
+            .lock()
+            .unwrap()
+            .output_texture()
+            .clone(),
+    );
+    display.custom_size = Some(Vec2::new(1024., 768.));
+    commands.spawn(display);
     commands.insert_resource(views);
     commands.spawn((
         Camera {
