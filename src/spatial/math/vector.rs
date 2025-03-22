@@ -116,6 +116,9 @@ impl V3c<i32> {
     pub fn length(&self) -> f32 {
         (((self.x * self.x) + (self.y * self.y) + (self.z * self.z)) as f32).sqrt()
     }
+    pub fn sign(&self) -> V3c<i32> {
+        V3c::new(self.x.signum(), self.y.signum(), self.z.signum())
+    }
 }
 
 impl V3c<u32> {

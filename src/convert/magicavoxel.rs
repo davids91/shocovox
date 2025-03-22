@@ -92,7 +92,7 @@ impl<T> V3c<T>
 where
     T: Num + Clone + Copy + From<i8>,
 {
-    fn clone_transformed(&self, matrix: &Matrix3<i8>) -> V3c<T> {
+    fn transformed(self, matrix: &Matrix3<i8>) -> Self {
         V3c::new(
             self.x * matrix.m11.into() + self.y * matrix.m12.into() + self.z * matrix.m13.into(),
             self.x * matrix.m21.into() + self.y * matrix.m22.into() + self.z * matrix.m23.into(),
@@ -101,6 +101,7 @@ where
     }
 }
 
+/// Iterates the given dot_vox data and calls the given function on every model in the scene
 fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(
     vox_tree: &DotVoxData,
     frame: usize,
@@ -148,7 +149,7 @@ fn iterate_vox_tree<F: FnMut(&Model, &V3c<i32>, &Matrix3<i8>)>(
                                 .expect("Expected valid u8 byte to parse rotation matrix"),
                         )
                 } else {
-                    rotation
+                    Matrix3::identity()
                 };
                 // the index variable for a Transform stores whether to go above or below a level next
                 if 0 == index {
@@ -284,60 +285,56 @@ impl<
     }
 
     /// Loads data from the given filename
-    /// * `returns` - (file_data, voxel_maximum_position_lyup, voxel_maximum_position_lyup)
+    /// * `returns` - (file_data, voxel_minimum_position_lyup, voxel_maximum_position_lyup)
     pub(crate) fn load_vox_file_internal(filename: &str) -> (DotVoxData, V3c<i32>, V3c<i32>) {
         let vox_tree =
             dot_vox::load(filename).expect("Expected file {filename} to be a valid .vox file!");
 
-        let mut min_position_lyup = V3c::<i32>::new(0, 0, 0);
-        let mut max_position_lyup = V3c::<i32>::new(0, 0, 0);
-        iterate_vox_tree(&vox_tree, 0, |model, position, orientation| {
-            let model_size_half_lyup = convert_coordinate(
-                V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::Rzup,
-                CoordinateSystemType::Lyup,
-            ) / 2;
-
-            // If the index is negative, then it is calculated
-            // as model[size - i - 1][..][..], instead of model[i][..][..]
-            // So one needs to be added in every dimension where the index is below 0
-            let position = convert_coordinate(
-                *position,
-                CoordinateSystemType::Rzup,
-                CoordinateSystemType::Lyup,
-            ) + V3c::new(
-                if model_size_half_lyup.x < 0 { -1 } else { 0 },
-                if model_size_half_lyup.y < 0 { -1 } else { 0 },
-                if model_size_half_lyup.z < 0 { -1 } else { 0 },
-            );
-
-            min_position_lyup.x = min_position_lyup
+        let mut min_position_rzup = V3c::<i32>::new(i32::MAX, i32::MAX, i32::MAX);
+        let mut max_position_rzup = V3c::<i32>::new(i32::MIN, i32::MIN, i32::MIN);
+        iterate_vox_tree(&vox_tree, 0, |model, model_position_rzup, orientation| {
+            let model_size_half_rzup = V3c::from(model.size).transformed(orientation) / 2;
+            min_position_rzup.x = min_position_rzup
                 .x
-                .min(position.x - model_size_half_lyup.x)
-                .min(position.x + model_size_half_lyup.x);
-            min_position_lyup.y = min_position_lyup
+                .min(model_position_rzup.x - model_size_half_rzup.x)
+                .min(model_position_rzup.x + model_size_half_rzup.x);
+            min_position_rzup.y = min_position_rzup
                 .y
-                .min(position.y - model_size_half_lyup.y)
-                .min(position.y + model_size_half_lyup.y);
-            min_position_lyup.z = min_position_lyup
+                .min(model_position_rzup.y - model_size_half_rzup.y)
+                .min(model_position_rzup.y + model_size_half_rzup.y);
+            min_position_rzup.z = min_position_rzup
                 .z
-                .min(position.z - model_size_half_lyup.z)
-                .min(position.z + model_size_half_lyup.z);
+                .min(model_position_rzup.z - model_size_half_rzup.z)
+                .min(model_position_rzup.z + model_size_half_rzup.z);
 
-            max_position_lyup.x = max_position_lyup
+            max_position_rzup.x = max_position_rzup
                 .x
-                .max(position.x + model_size_half_lyup.x)
-                .max(position.x - model_size_half_lyup.x);
-            max_position_lyup.y = max_position_lyup
+                .max(model_position_rzup.x + model_size_half_rzup.x)
+                .max(model_position_rzup.x - model_size_half_rzup.x);
+            max_position_rzup.y = max_position_rzup
                 .y
-                .max(position.y + model_size_half_lyup.y)
-                .max(position.y - model_size_half_lyup.y);
-            max_position_lyup.z = max_position_lyup
+                .max(model_position_rzup.y + model_size_half_rzup.y)
+                .max(model_position_rzup.y - model_size_half_rzup.y);
+            max_position_rzup.z = max_position_rzup
                 .z
-                .max(position.z + model_size_half_lyup.z)
-                .max(position.z - model_size_half_lyup.z);
+                .max(model_position_rzup.z + model_size_half_rzup.z)
+                .max(model_position_rzup.z - model_size_half_rzup.z);
         });
-        (vox_tree, min_position_lyup, max_position_lyup)
+
+
+        (
+            vox_tree,
+            convert_coordinate(
+                min_position_rzup,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
+            ),
+            convert_coordinate(
+                max_position_rzup,
+                CoordinateSystemType::Rzup,
+                CoordinateSystemType::Lyup,
+            ),
+        )
     }
 
     pub(crate) fn load_vox_data_internal(
@@ -345,55 +342,43 @@ impl<
         vox_tree: &DotVoxData,
         min_position_lyup: &V3c<i32>,
     ) {
-        iterate_vox_tree(vox_tree, 0, |model, position, orientation| {
-            let model_size_lyup = convert_coordinate(
-                V3c::from(model.size).clone_transformed(orientation),
-                CoordinateSystemType::Rzup,
-                CoordinateSystemType::Lyup,
-            );
-            let position = *position;
-            let position_lyup = convert_coordinate(
-                position,
-                CoordinateSystemType::Rzup,
-                CoordinateSystemType::Lyup,
-            );
-
-            let current_position = position_lyup - *min_position_lyup - (model_size_lyup / 2)
+        let min_position_rzup = convert_coordinate(
+            *min_position_lyup,
+            CoordinateSystemType::Lyup,
+            CoordinateSystemType::Rzup,
+        );
+        iterate_vox_tree(vox_tree, 0, |model, position_rzup, orientation| {
+            let model_size_half_rzup = V3c::from(model.size).transformed(orientation) / 2;
+            let model_bottom_left_rzup = *position_rzup - model_size_half_rzup - min_position_rzup
+                // If the index delta is negative(because of orientation),
+                // voxel is set based on model[size - i - 1][..][..], instead of model[i][..][..]
+                // this requires a correction in every dimension where the index is below 0
                 + V3c::new(
-                    if model_size_lyup.x < 0 { -1 } else { 0 },
-                    if model_size_lyup.y < 0 { -1 } else { 0 },
-                    if model_size_lyup.z < 0 { -1 } else { 0 },
+                    if model_size_half_rzup.x < 0 { -1 } else { 0 },
+                    if model_size_half_rzup.y < 0 { -1 } else { 0 },
+                    if model_size_half_rzup.z < 0 { -1 } else { 0 },
                 );
 
-            let mut vmin = V3c::unit(self.octree_size);
-            let mut vmax = V3c::unit(0u32);
             for voxel in &model.voxels {
-                let voxel_position = convert_coordinate(
-                    V3c::from(*voxel).clone_transformed(orientation),
+                let voxel_position_lyup = convert_coordinate(
+                    model_bottom_left_rzup + V3c::from(*voxel).transformed(orientation),
                     CoordinateSystemType::Rzup,
                     CoordinateSystemType::Lyup,
                 );
-                let cpos = current_position + voxel_position;
-                if cpos.length() < vmin.length() {
-                    vmin = cpos.into();
-                }
-                if cpos.length() > vmax.length() {
-                    vmax = cpos.into();
-                }
-
                 match self.insert(
-                    &V3c::<u32>::from(cpos),
+                    &V3c::from(voxel_position_lyup),
                     OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
                 ) {
                     Ok(_) => {}
-                    Err(octree_error) => {
-                        match octree_error {
-                            OctreeError::InvalidPosition { .. } => {
-                                panic!("inserting into octree at at invalid position: {:?} + {:?} = {:?}", current_position, voxel_position, octree_error)
-                            }
-                            _ => panic!("inserting into octree yielded: {:?}", octree_error),
+                    Err(octree_error) => match octree_error {
+                        OctreeError::InvalidPosition { .. } => {
+                            panic!(
+                                "inserting into octree at at invalid position: {:?}",
+                                octree_error
+                            )
                         }
-                    }
+                        _ => panic!("inserting into octree yielded: {:?}", octree_error),
+                    },
                 }
             }
         });

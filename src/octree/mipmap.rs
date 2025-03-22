@@ -798,7 +798,7 @@ impl<
     pub fn recalculate_mips(&mut self) {
         self.0.node_mips = vec![BrickData::Empty; self.0.nodes.len()];
 
-        // Generating MIPMAPs need to happen while traveling the graph in a DFS
+        // Generating MIPMAPs need to happen while traveling the graph in a DFS manner
         // in order to generate MIPs for the leaf nodes first
         let mut node_stack = vec![(
             Octree::<T>::ROOT_NODE_KEY as usize,
