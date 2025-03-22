@@ -91,7 +91,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
     commands.insert_resource(host);
     commands.insert_resource(views);
-    commands.spawn(Sprite::from_image(output_texture));
     commands.spawn((
         Camera {
             is_active: false,

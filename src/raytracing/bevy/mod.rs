@@ -18,7 +18,8 @@ use bevy::{
     app::{App, Plugin},
     asset::LoadState,
     prelude::{
-        AssetServer, Assets, ExtractSchedule, Handle, Image, IntoSystemConfigs, Res, ResMut, Vec4,
+        AssetServer, Assets, ExtractSchedule, Handle, Image, IntoSystemConfigs, Res, ResMut,
+        Update, Vec4,
     },
     render::{
         extract_resource::ExtractResourcePlugin,
@@ -65,8 +66,23 @@ impl OctreeGPUView {
 
     /// Updates the resolution on which the view operates on.
     /// It will make a new output texture if size is larger, than the current output texture
-    pub fn set_resolution(&mut self, resolution: [u32; 2]) {
-        self.new_resolution = Some(resolution);
+    pub fn set_resolution(
+        &mut self,
+        resolution: [u32; 2],
+        images: &mut ResMut<Assets<Image>>,
+    ) -> Handle<Image> {
+        if self.resolution != resolution {
+            self.new_resolution = Some(resolution);
+            self.new_output_texture = Some(create_output_texture(resolution, images));
+            self.new_output_texture.as_ref().unwrap().clone_weak()
+        } else {
+            self.output_texture.clone_weak()
+        }
+    }
+
+    /// Provides currently used resolution for the view
+    pub fn resolution(&self) -> [u32; 2] {
+        self.resolution
     }
 }
 
@@ -92,51 +108,49 @@ where
     }
 }
 
+pub(crate) fn create_output_texture(
+    resolution: [u32; 2],
+    images: &mut ResMut<Assets<Image>>,
+) -> Handle<Image> {
+    let mut output_texture = Image::new_fill(
+        Extent3d {
+            width: resolution[0],
+            height: resolution[1],
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 255],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    output_texture.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    let new_tex = images.add(output_texture);
+    new_tex
+}
+
 pub(crate) fn handle_resolution_updates(
     viewset: Option<ResMut<SvxViewSet>>,
-    images: Option<ResMut<Assets<Image>>>,
+    images: ResMut<Assets<Image>>,
     server: Res<AssetServer>,
 ) {
-    if let (Some(viewset), Some(mut images)) = (viewset, images) {
-        let mut current_view = viewset.views[0].lock().unwrap();
-
-        // check for resolution update requests
-        if let Some(new_resolution) = current_view.new_resolution {
-            // see if a new output texture is loaded for the requested resolution yet
-            let mut replace_output_texture = false;
-            if let Some(new_out_tex) = &current_view.new_output_texture {
-                match server.get_load_state(new_out_tex) {
-                    None | Some(LoadState::Loading) | Some(LoadState::NotLoaded) => {} // Still not ready
-                    Some(LoadState::Failed(error)) => {
-                        println!("Asset loading error: {:?}", error);
-                    }
-                    Some(LoadState::Loaded) => {
-                        replace_output_texture = true;
-                    }
+    if let Some(viewset) = viewset {
+        {
+            let mut current_view = viewset.views[0].lock().unwrap();
+            // check for resolution update requests
+            if let Some(_) = current_view.new_resolution {
+                // see if a new output texture is loaded for the requested resolution yet
+                let new_out_tex = current_view
+                    .new_output_texture
+                    .as_ref()
+                    .unwrap()
+                    .clone_weak();
+                if images.get(&new_out_tex).is_some()
+                    || matches!(server.get_load_state(&new_out_tex), Some(LoadState::Loaded))
+                {
+                    current_view.resolution = current_view.new_resolution.take().unwrap();
+                    current_view.output_texture = current_view.new_output_texture.take().unwrap();
                 }
-            } else {
-                // not loaded yet! Insert the blank output texture
-                let mut output_texture = Image::new_fill(
-                    Extent3d {
-                        width: new_resolution[0],
-                        height: new_resolution[1],
-                        depth_or_array_layers: 1,
-                    },
-                    TextureDimension::D2,
-                    &[0, 0, 0, 255],
-                    TextureFormat::Rgba8Unorm,
-                    RenderAssetUsages::RENDER_WORLD,
-                );
-                output_texture.texture_descriptor.usage = TextureUsages::COPY_DST
-                    | TextureUsages::STORAGE_BINDING
-                    | TextureUsages::TEXTURE_BINDING;
-                current_view.new_output_texture = Some(images.add(output_texture));
-            }
-
-            if replace_output_texture {
-                current_view.resolution = new_resolution;
-                current_view.output_texture =
-                    current_view.new_output_texture.as_ref().unwrap().clone();
             }
         }
     }
@@ -151,12 +165,12 @@ where
             ExtractResourcePlugin::<OctreeGPUHost<T>>::default(),
             ExtractResourcePlugin::<SvxViewSet>::default(),
         ));
+        app.add_systems(Update, handle_resolution_updates);
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(ExtractSchedule, sync_with_main_world);
         render_app.add_systems(
             Render,
             (
-                handle_resolution_updates.in_set(RenderSet::PrepareAssets),
                 write_to_gpu::<T>.in_set(RenderSet::PrepareResources),
                 prepare_bind_groups.in_set(RenderSet::PrepareBindGroups),
                 handle_gpu_readback.in_set(RenderSet::Cleanup),

@@ -16,10 +16,11 @@ use bevy::{
         render_graph::{self},
         render_resource::{
             encase::{StorageBuffer, UniformBuffer},
-            BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBindingType,
-            BufferDescriptor, BufferInitDescriptor, BufferUsages, CachedPipelineState,
-            ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache, ShaderSize,
-            ShaderStages, ShaderType, StorageTextureAccess, TextureFormat, TextureViewDimension,
+            BindGroup, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, Buffer,
+            BufferBindingType, BufferDescriptor, BufferInitDescriptor, BufferUsages,
+            CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
+            ShaderSize, ShaderStages, ShaderType, StorageTextureAccess, TextureFormat,
+            TextureViewDimension,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::GpuImage,
@@ -230,13 +231,20 @@ impl render_graph::Node for SvxRenderNode {
         let svx_viewset = world.resource::<SvxViewSet>();
         let current_view = svx_viewset.views[0].lock().unwrap();
         let resources = svx_viewset.resources[0].as_ref();
-        if self.ready && current_view.data_ready && resources.is_some() {
+        if self.ready && resources.is_some() {
             let resources = resources.unwrap();
             let pipeline_cache = world.resource::<PipelineCache>();
             let command_encoder = render_context.command_encoder();
             let data_handler = &current_view.data_handler;
-            let current_view = svx_viewset.views[0].lock().unwrap();
-            {
+            if !current_view.data_ready {
+                command_encoder.copy_buffer_to_buffer(
+                    &resources.metadata_buffer,
+                    0,
+                    &resources.readable_metadata_buffer,
+                    0,
+                    (std::mem::size_of_val(&data_handler.render_data.metadata[0])) as u64,
+                );
+            } else {
                 let mut pass =
                     command_encoder.begin_compute_pass(&ComputePassDescriptor::default());
 
@@ -277,6 +285,95 @@ impl render_graph::Node for SvxRenderNode {
         }
         Ok(())
     }
+}
+
+//##############################################################################
+//   █████████  ███████████  █████ █████
+//  ███░░░░░███░░███░░░░░███░░███ ░░███
+// ░███    ░░░  ░███    ░███ ░░███ ███
+// ░░█████████  ░██████████   ░░█████
+//  ░░░░░░░░███ ░███░░░░░░     ░░███
+//  ███    ░███ ░███            ░███
+// ░░█████████  █████           █████
+//  ░░░░░░░░░  ░░░░░           ░░░░░
+//    █████████  █████         █████████    █████████   █████████
+//   ███░░░░░███░░███         ███░░░░░███  ███░░░░░███ ███░░░░░███
+//  ███     ░░░  ░███        ░███    ░███ ░███    ░░░ ░███    ░░░
+// ░███          ░███        ░███████████ ░░█████████ ░░█████████
+// ░███    █████ ░███        ░███░░░░░███  ░░░░░░░░███ ░░░░░░░░███
+// ░░███  ░░███  ░███      █ ░███    ░███  ███    ░███ ███    ░███
+//  ░░█████████  ███████████ █████   █████░░█████████ ░░█████████
+//   ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░   ░░░░░  ░░░░░░░░░   ░░░░░░░░░
+//    █████████  ███████████      ███████    █████  █████ ███████████
+//   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███
+//  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███
+// ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████
+// ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░
+// ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███
+//  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
+//##############################################################################
+pub(crate) fn create_spyglass_bind_group(
+    pipeline: &mut SvxRenderPipeline,
+    render_device: &Res<RenderDevice>,
+    gpu_images: &Res<RenderAssets<GpuImage>>,
+    tree_view: &OctreeGPUView,
+) -> (BindGroup, Buffer, Buffer, Buffer) {
+    let mut buffer = UniformBuffer::new([0u8; Viewport::SHADER_SIZE.get() as usize]);
+    buffer.write(&tree_view.spyglass.viewport).unwrap();
+    let viewport_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Octree Viewport Buffer"),
+        contents: &buffer.into_inner(),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+
+    debug_assert!(
+        !tree_view.spyglass.node_requests.is_empty(),
+        "Expected node requests array to not be empty"
+    );
+    let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+    buffer.write(&tree_view.spyglass.node_requests).unwrap();
+    let node_requests_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Octree Node requests Buffer"),
+        contents: &buffer.into_inner(),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+    });
+
+    let readable_node_requests_buffer = render_device.create_buffer(&BufferDescriptor {
+        mapped_at_creation: false,
+        size: (tree_view.spyglass.node_requests.len()
+            * std::mem::size_of_val(&tree_view.spyglass.node_requests[0])) as u64,
+        label: Some("Octree Node requests staging Buffer"),
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+    });
+
+    (
+        render_device.create_bind_group(
+            "OctreeSpyGlass",
+            &pipeline.spyglass_bind_group_layout,
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &gpu_images
+                            .get(&tree_view.output_texture)
+                            .unwrap()
+                            .texture_view,
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: viewport_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: node_requests_buffer.as_entire_binding(),
+                },
+            ],
+        ),
+        viewport_buffer,
+        node_requests_buffer,
+        readable_node_requests_buffer,
+    )
 }
 
 //##############################################################################
@@ -425,94 +522,21 @@ fn create_view_resources(
         ],
     );
 
-    //##############################################################################
-    //   █████████  ███████████  █████ █████
-    //  ███░░░░░███░░███░░░░░███░░███ ░░███
-    // ░███    ░░░  ░███    ░███ ░░███ ███
-    // ░░█████████  ░██████████   ░░█████
-    //  ░░░░░░░░███ ░███░░░░░░     ░░███
-    //  ███    ░███ ░███            ░███
-    // ░░█████████  █████           █████
-    //  ░░░░░░░░░  ░░░░░           ░░░░░
-    //    █████████  █████         █████████    █████████   █████████
-    //   ███░░░░░███░░███         ███░░░░░███  ███░░░░░███ ███░░░░░███
-    //  ███     ░░░  ░███        ░███    ░███ ░███    ░░░ ░███    ░░░
-    // ░███          ░███        ░███████████ ░░█████████ ░░█████████
-    // ░███    █████ ░███        ░███░░░░░███  ░░░░░░░░███ ░░░░░░░░███
-    // ░░███  ░░███  ░███      █ ░███    ░███  ███    ░███ ███    ░███
-    //  ░░█████████  ███████████ █████   █████░░█████████ ░░█████████
-    //   ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░   ░░░░░  ░░░░░░░░░   ░░░░░░░░░
-    //    █████████  ███████████      ███████    █████  █████ ███████████
-    //   ███░░░░░███░░███░░░░░███   ███░░░░░███ ░░███  ░░███ ░░███░░░░░███
-    //  ███     ░░░  ░███    ░███  ███     ░░███ ░███   ░███  ░███    ░███
-    // ░███          ░██████████  ░███      ░███ ░███   ░███  ░██████████
-    // ░███    █████ ░███░░░░░███ ░███      ░███ ░███   ░███  ░███░░░░░░
-    // ░░███  ░░███  ░███    ░███ ░░███     ███  ░███   ░███  ░███
-    //  ░░█████████  █████   █████ ░░░███████░   ░░████████   █████
-    //##############################################################################
-    let mut buffer = UniformBuffer::new([0u8; Viewport::SHADER_SIZE.get() as usize]);
-    buffer.write(&tree_view.spyglass.viewport).unwrap();
-    let viewport_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("Octree Viewport Buffer"),
-        contents: &buffer.into_inner(),
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-    });
+    let (spyglass_bind_group, viewport_buffer, node_requests_buffer, readable_node_requests_buffer) =
+        create_spyglass_bind_group(pipeline, &render_device, &gpu_images, tree_view);
 
-    debug_assert!(
-        !tree_view.spyglass.node_requests.is_empty(),
-        "Expected node requests array to not be empty"
-    );
-    let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-    buffer.write(&tree_view.spyglass.node_requests).unwrap();
-    let node_requests_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("Octree Node requests Buffer"),
-        contents: &buffer.into_inner(),
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-    });
-
-    let readable_node_requests_buffer = render_device.create_buffer(&BufferDescriptor {
-        mapped_at_creation: false,
-        size: (tree_view.spyglass.node_requests.len()
-            * std::mem::size_of_val(&tree_view.spyglass.node_requests[0])) as u64,
-        label: Some("Octree Node requests staging Buffer"),
-        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-    });
-
-    let output_texture_view = gpu_images
-        .get(&tree_view.output_texture)
-        .unwrap()
-        .texture_view
-        .clone();
-    let spyglass_bind_group = render_device.create_bind_group(
-        "OctreeSpyGlass",
-        &pipeline.spyglass_bind_group_layout,
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::TextureView(&output_texture_view.clone()),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: viewport_buffer.as_entire_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: node_requests_buffer.as_entire_binding(),
-            },
-        ],
-    );
     OctreeRenderDataResources {
-        node_requests_buffer,
         spyglass_bind_group,
-        tree_bind_group,
         viewport_buffer,
+        node_requests_buffer,
+        readable_node_requests_buffer,
+        tree_bind_group,
         metadata_buffer,
         node_children_buffer,
         node_mips_buffer,
         node_ocbits_buffer,
         voxels_buffer,
         color_palette_buffer,
-        readable_node_requests_buffer,
         readable_metadata_buffer,
     }
 }
@@ -550,18 +574,51 @@ pub(crate) fn prepare_bind_groups(
     mut pipeline: ResMut<SvxRenderPipeline>,
     mut svx_viewset: ResMut<SvxViewSet>,
 ) {
-    if svx_viewset.views[0]
-        .lock()
-        .unwrap()
-        .new_resolution
-        .is_some()
-        || (svx_viewset.resources[0].is_some() && !pipeline.update_tree)
     {
-        // No need to update view if a new resolution is requested and the texture is pending still
+        // Handle when no udpates are needed
+        let view = svx_viewset.views[0].lock().unwrap();
+        // No need to update view if
+        if view.spyglass.output_texture == view.output_texture // output texture stored in CPU matches with the one used in the GPU bind group
+            && (view.new_resolution.is_some() // a new resolution is requested and the texture is pending still
+                || (svx_viewset.resources[0].is_some() && !pipeline.update_tree))
         // or tree is up-todate
-        return;
+        {
+            return;
+        }
+    }
+    {
+        // Rebuild view becasue of changed output texture ( most likely resolution change )
+        if {
+            let view = svx_viewset.views[0].lock().unwrap();
+            svx_viewset.resources[0].is_some()
+                && view.spyglass.output_texture != view.output_texture
+                && gpu_images.get(&view.output_texture).is_some()
+        } {
+            let (
+                spyglass_bind_group,
+                viewport_buffer,
+                node_requests_buffer,
+                readable_node_requests_buffer,
+            ) = create_spyglass_bind_group(
+                &mut pipeline,
+                &render_device,
+                &gpu_images,
+                &svx_viewset.views[0].lock().unwrap(),
+            );
+
+            let view_resources = svx_viewset.resources[0].as_mut().unwrap();
+            view_resources.spyglass_bind_group = spyglass_bind_group;
+            view_resources.viewport_buffer = viewport_buffer;
+            view_resources.node_requests_buffer = node_requests_buffer;
+            view_resources.readable_node_requests_buffer = readable_node_requests_buffer;
+
+            // update spyglass output texture too!
+            let mut view = svx_viewset.views[0].lock().unwrap();
+            view.spyglass.output_texture = view.output_texture.clone();
+        }
     }
 
+    // build everything from the ground up
     if let Some(resources) = &svx_viewset.resources[0] {
         let tree_view = &svx_viewset.views[0].lock().unwrap();
         let render_data = &tree_view.data_handler.render_data;

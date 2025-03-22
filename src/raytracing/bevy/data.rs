@@ -4,17 +4,20 @@ use crate::{
         types::{BrickData, NodeContent, PaletteIndexValues},
         Octree, V3c, VoxelData,
     },
-    raytracing::bevy::types::{
-        BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
-        OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
-        VictimPointer, Viewport,
+    raytracing::bevy::{
+        create_output_texture,
+        types::{
+            BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
+            OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
+            VictimPointer, Viewport,
+        },
     },
     spatial::lut::OOB_OCTANT,
 };
 use bevy::{
     ecs::system::{Res, ResMut},
     math::Vec4,
-    prelude::{Handle, Resource},
+    prelude::{Assets, Image},
     render::{
         render_resource::{
             encase::{internal::WriteInto, StorageBuffer, UniformBuffer},
@@ -87,6 +90,7 @@ where
         size: usize,
         viewport: Viewport,
         resolution: [u32; 2],
+        mut images: ResMut<Assets<Image>>,
     ) -> usize {
         let mut gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
@@ -113,19 +117,19 @@ where
             brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
             uploaded_color_palette_size: 0,
         };
-
         gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
-
+        let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
-            resolution: [0, 0],
-            output_texture: Handle::default(),
+            resolution: resolution,
+            output_texture: output_texture.clone(),
             reload: false,
             init_data_sent: false,
             data_ready: false,
-            new_resolution: Some(resolution),
+            new_resolution: None,
             new_output_texture: None,
             data_handler: gpu_data_handler,
             spyglass: OctreeSpyGlass {
+                output_texture,
                 viewport_changed: true,
                 node_requests: vec![empty_marker(); 4],
                 viewport,
@@ -213,7 +217,7 @@ pub(crate) fn handle_gpu_readback(
         let mut view = svx_viewset.views[0].lock().unwrap();
         let resources = svx_viewset.resources[0].as_ref();
 
-        if view.data_ready && resources.is_some() {
+        if resources.is_some() {
             let resources = resources.unwrap();
 
             // init sequence: checking if data is written to the GPU yet
@@ -348,8 +352,6 @@ pub(crate) fn write_to_gpu<T>(
         if !view.init_data_sent || view.reload {
             if let Some(resources) = &svx_view_set.resources[0] {
                 //write data for root node
-                let mut view = svx_view_set.views[0].lock().unwrap();
-
                 if view.reload {
                     view.data_handler
                         .render_data
@@ -359,7 +361,6 @@ pub(crate) fn write_to_gpu<T>(
                         *m = empty_marker();
                     }
                 }
-
                 write_range_to_buffer(
                     &view.data_handler.render_data.metadata,
                     0..1,

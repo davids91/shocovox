@@ -48,7 +48,7 @@ fn main() {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn setup(mut commands: Commands) {
+fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let tree: Octree;
     let tree_path = "example_junk_minecraft";
     if std::path::Path::new(tree_path).exists() {
@@ -81,16 +81,20 @@ fn setup(mut commands: Commands) {
             fov: 6.,
         },
         DISPLAY_RESOLUTION,
+        images,
     );
 
     commands.insert_resource(host);
-    commands.spawn(Sprite::from_image(
+
+    let mut display = Sprite::from_image(
         views.views[view_index]
             .lock()
             .unwrap()
             .output_texture()
             .clone(),
-    ));
+    );
+    display.custom_size = Some(Vec2::new(1024., 768.));
+    commands.spawn(display);
     commands.insert_resource(views);
     commands.spawn((
         Camera {
@@ -151,9 +155,11 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
+    mut images: ResMut<Assets<Image>>,
     tree: ResMut<OctreeGPUHost>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
+    mut sprite_query: Query<&mut Sprite>,
 ) {
     let mut tree_view = view_set.views[0].lock().unwrap();
 
@@ -234,12 +240,30 @@ fn handle_zoom(
         cam.target_focus.y -= 1.;
     }
 
-    if keys.pressed(KeyCode::NumpadAdd) {
-        tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    const RESOLUTION_DELTA: f32 = 0.1;
+    if keys.just_pressed(KeyCode::NumpadAdd) {
+        let res = tree_view.resolution();
+        let new_res = [
+            (res[0] as f32 * (1. + RESOLUTION_DELTA)) as u32,
+            (res[1] as f32 * (1. + RESOLUTION_DELTA)) as u32,
+        ];
+        sprite_query.single_mut().image = tree_view.set_resolution(new_res, &mut images);
     }
-    if keys.pressed(KeyCode::NumpadSubtract) {
-        tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
+    if keys.just_pressed(KeyCode::NumpadSubtract) {
+        let res = tree_view.resolution();
+        let new_res = [
+            (res[0] as f32 * (1. - RESOLUTION_DELTA)).max(4.) as u32,
+            (res[1] as f32 * (1. - RESOLUTION_DELTA)).max(3.) as u32,
+        ];
+        sprite_query.single_mut().image = tree_view.set_resolution(new_res, &mut images);
     }
+
+    // if keys.pressed(KeyCode::NumpadAdd) {
+    //     tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    // }
+    // if keys.pressed(KeyCode::NumpadSubtract) {
+    //     tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
+    // }
 
     if keys.pressed(KeyCode::F3) {
         println!("{:?}", tree_view.spyglass.viewport());

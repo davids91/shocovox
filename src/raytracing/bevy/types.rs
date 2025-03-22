@@ -96,6 +96,7 @@ pub struct SvxViewSet {
 /// The Camera responsible for storing frustum and view related data
 #[derive(Clone)]
 pub struct OctreeSpyGlass {
+    pub(crate) output_texture: Handle<Image>,
     pub(crate) viewport_changed: bool,
     pub(crate) viewport: Viewport,
     pub(crate) node_requests: Vec<u32>,
