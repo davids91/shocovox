@@ -36,7 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -48,7 +48,7 @@ fn main() {
 }
 
 #[cfg(feature = "bevy_wgpu")]
-fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
+fn setup(mut commands: Commands) {
     let tree: Octree;
     let tree_path = "example_junk_minecraft";
     if std::path::Path::new(tree_path).exists() {
@@ -63,7 +63,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 
     let mut host = OctreeGPUHost { tree };
     let mut views = SvxViewSet::default();
-    let output_texture = host.create_new_view(
+    let view_index = host.create_new_view(
         &mut views,
         40,
         Viewport {
@@ -81,12 +81,17 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
             fov: 6.,
         },
         DISPLAY_RESOLUTION,
-        images,
     );
 
     commands.insert_resource(host);
+    commands.spawn(Sprite::from_image(
+        views.views[view_index]
+            .lock()
+            .unwrap()
+            .output_texture()
+            .clone(),
+    ));
     commands.insert_resource(views);
-    commands.spawn(Sprite::from_image(output_texture));
     commands.spawn((
         Camera {
             is_active: false,

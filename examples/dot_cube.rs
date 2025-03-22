@@ -32,7 +32,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins((
             DefaultPlugins.set(WindowPlugin::default()),
-            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,

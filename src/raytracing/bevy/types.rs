@@ -75,7 +75,6 @@ where
     T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
 {
     pub(crate) dummy: std::marker::PhantomData<T>,
-    pub(crate) resolution: [u32; 2],
 }
 
 #[derive(Resource, Clone, TypePath, ExtractResource)]
@@ -91,21 +90,46 @@ where
 #[type_path = "shocovox::gpu::SvxViewSet"]
 pub struct SvxViewSet {
     pub views: Vec<Arc<Mutex<OctreeGPUView>>>,
+    pub(crate) resources: Vec<Option<OctreeRenderDataResources>>,
 }
 
+/// The Camera responsible for storing frustum and view related data
 #[derive(Clone)]
 pub struct OctreeSpyGlass {
-    pub output_texture: Handle<Image>,
     pub(crate) viewport_changed: bool,
     pub(crate) viewport: Viewport,
     pub(crate) node_requests: Vec<u32>,
 }
 
+/// A View of an Octree
 #[derive(Resource, Clone)]
 pub struct OctreeGPUView {
-    pub(crate) reload: bool,
+    /// The camera for casting the rays
     pub spyglass: OctreeSpyGlass,
+
+    /// Set to true if the view needs to be reloaded
+    pub(crate) reload: bool,
+
+    /// True if the initial data already sent to GPU
+    pub init_data_sent: bool,
+
+    /// Sets to true if related data on the GPU matches with CPU
+    pub data_ready: bool,
+
+    /// The data handler responsible for uploading data to the GPU
     pub(crate) data_handler: OctreeGPUDataHandler,
+
+    /// The currently used resolution the raycasting dimensions are based for the base ray
+    pub(crate) resolution: [u32; 2],
+
+    /// The currently used output texture
+    pub(crate) output_texture: Handle<Image>,
+
+    /// The new resolution to be set ASAP if any
+    pub(crate) new_resolution: Option<[u32; 2]>,
+
+    /// The new output texture to be used, if any
+    pub(crate) new_output_texture: Option<Handle<Image>>,
 }
 
 #[derive(Debug, Clone)]
@@ -256,16 +280,10 @@ pub struct OctreeRenderData {
 #[derive(Resource)]
 pub(crate) struct SvxRenderPipeline {
     pub update_tree: bool,
-
-    pub data_ready: bool,
-    pub init_data_sent: bool,
     pub(crate) render_queue: RenderQueue,
     pub(crate) update_pipeline: CachedComputePipelineId,
-
-    // Data layout and data
     pub(crate) spyglass_bind_group_layout: BindGroupLayout,
     pub(crate) render_data_bind_group_layout: BindGroupLayout,
-    pub(crate) resources: Option<OctreeRenderDataResources>,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -273,7 +291,6 @@ pub(crate) struct SvxLabel;
 
 pub(crate) struct SvxRenderNode {
     pub(crate) ready: bool,
-    pub(crate) resolution: [u32; 2],
 }
 
 #[cfg(test)]

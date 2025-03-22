@@ -36,7 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
