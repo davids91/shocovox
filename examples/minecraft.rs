@@ -36,7 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -63,7 +63,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
 
     let mut host = OctreeGPUHost { tree };
     let mut views = SvxViewSet::default();
-    let output_texture = host.create_new_view(
+    let view_index = host.create_new_view(
         &mut views,
         40,
         Viewport {
@@ -85,8 +85,17 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
 
     commands.insert_resource(host);
+
+    let mut display = Sprite::from_image(
+        views.views[view_index]
+            .lock()
+            .unwrap()
+            .output_texture()
+            .clone(),
+    );
+    display.custom_size = Some(Vec2::new(1024., 768.));
+    commands.spawn(display);
     commands.insert_resource(views);
-    commands.spawn(Sprite::from_image(output_texture));
     commands.spawn((
         Camera {
             is_active: false,
@@ -146,9 +155,11 @@ fn set_viewport_for_camera(camera_query: Query<&mut PanOrbitCamera>, view_set: R
 #[cfg(feature = "bevy_wgpu")]
 fn handle_zoom(
     keys: Res<ButtonInput<KeyCode>>,
+    mut images: ResMut<Assets<Image>>,
     tree: ResMut<OctreeGPUHost>,
     view_set: ResMut<SvxViewSet>,
     mut camera_query: Query<&mut PanOrbitCamera>,
+    mut sprite_query: Query<&mut Sprite>,
 ) {
     let mut tree_view = view_set.views[0].lock().unwrap();
 
@@ -229,12 +240,30 @@ fn handle_zoom(
         cam.target_focus.y -= 1.;
     }
 
-    if keys.pressed(KeyCode::NumpadAdd) {
-        tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    const RESOLUTION_DELTA: f32 = 0.1;
+    if keys.just_pressed(KeyCode::NumpadAdd) {
+        let res = tree_view.resolution();
+        let new_res = [
+            (res[0] as f32 * (1. + RESOLUTION_DELTA)) as u32,
+            (res[1] as f32 * (1. + RESOLUTION_DELTA)) as u32,
+        ];
+        sprite_query.single_mut().image = tree_view.set_resolution(new_res, &mut images);
     }
-    if keys.pressed(KeyCode::NumpadSubtract) {
-        tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
+    if keys.just_pressed(KeyCode::NumpadSubtract) {
+        let res = tree_view.resolution();
+        let new_res = [
+            (res[0] as f32 * (1. - RESOLUTION_DELTA)).max(4.) as u32,
+            (res[1] as f32 * (1. - RESOLUTION_DELTA)).max(3.) as u32,
+        ];
+        sprite_query.single_mut().image = tree_view.set_resolution(new_res, &mut images);
     }
+
+    // if keys.pressed(KeyCode::NumpadAdd) {
+    //     tree_view.spyglass.viewport_mut().frustum.z *= 1.01;
+    // }
+    // if keys.pressed(KeyCode::NumpadSubtract) {
+    //     tree_view.spyglass.viewport_mut().frustum.z *= 0.99;
+    // }
 
     if keys.pressed(KeyCode::F3) {
         println!("{:?}", tree_view.spyglass.viewport());

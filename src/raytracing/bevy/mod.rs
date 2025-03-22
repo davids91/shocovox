@@ -16,10 +16,17 @@ use crate::{
 };
 use bevy::{
     app::{App, Plugin},
-    prelude::{ExtractSchedule, IntoSystemConfigs, Vec4},
+    asset::LoadState,
+    prelude::{
+        AssetServer, Assets, ExtractSchedule, Handle, Image, IntoSystemConfigs, Res, ResMut,
+        Update, Vec4,
+    },
     render::{
-        extract_resource::ExtractResourcePlugin, render_graph::RenderGraph, Render, RenderApp,
-        RenderSet,
+        extract_resource::ExtractResourcePlugin,
+        render_asset::RenderAssetUsages,
+        render_graph::RenderGraph,
+        render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
+        Render, RenderApp, RenderSet,
     },
 };
 use std::hash::Hash;
@@ -46,8 +53,36 @@ impl From<Albedo> for Vec4 {
 }
 
 impl OctreeGPUView {
+    /// Erases the whole view to be uploaded to the GPU again
     pub fn reload(&mut self) {
         self.reload = true;
+    }
+
+    /// Provides the handle to the output texture
+    /// Warning! Handle will no longer being updated after resolution change
+    pub fn output_texture(&self) -> &Handle<Image> {
+        &self.output_texture
+    }
+
+    /// Updates the resolution on which the view operates on.
+    /// It will make a new output texture if size is larger, than the current output texture
+    pub fn set_resolution(
+        &mut self,
+        resolution: [u32; 2],
+        images: &mut ResMut<Assets<Image>>,
+    ) -> Handle<Image> {
+        if self.resolution != resolution {
+            self.new_resolution = Some(resolution);
+            self.new_output_texture = Some(create_output_texture(resolution, images));
+            self.new_output_texture.as_ref().unwrap().clone_weak()
+        } else {
+            self.output_texture.clone_weak()
+        }
+    }
+
+    /// Provides currently used resolution for the view
+    pub fn resolution(&self) -> [u32; 2] {
+        self.resolution
     }
 }
 
@@ -66,10 +101,57 @@ impl<T> RenderBevyPlugin<T>
 where
     T: Default + Clone + Eq + VoxelData + Send + Sync + 'static,
 {
-    pub fn new(resolution: [u32; 2]) -> Self {
+    pub fn new() -> Self {
         RenderBevyPlugin {
             dummy: std::marker::PhantomData,
-            resolution,
+        }
+    }
+}
+
+pub(crate) fn create_output_texture(
+    resolution: [u32; 2],
+    images: &mut ResMut<Assets<Image>>,
+) -> Handle<Image> {
+    let mut output_texture = Image::new_fill(
+        Extent3d {
+            width: resolution[0],
+            height: resolution[1],
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 255],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    output_texture.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    let new_tex = images.add(output_texture);
+    new_tex
+}
+
+pub(crate) fn handle_resolution_updates(
+    viewset: Option<ResMut<SvxViewSet>>,
+    images: ResMut<Assets<Image>>,
+    server: Res<AssetServer>,
+) {
+    if let Some(viewset) = viewset {
+        {
+            let mut current_view = viewset.views[0].lock().unwrap();
+            // check for resolution update requests
+            if let Some(_) = current_view.new_resolution {
+                // see if a new output texture is loaded for the requested resolution yet
+                let new_out_tex = current_view
+                    .new_output_texture
+                    .as_ref()
+                    .unwrap()
+                    .clone_weak();
+                if images.get(&new_out_tex).is_some()
+                    || matches!(server.get_load_state(&new_out_tex), Some(LoadState::Loaded))
+                {
+                    current_view.resolution = current_view.new_resolution.take().unwrap();
+                    current_view.output_texture = current_view.new_output_texture.take().unwrap();
+                }
+            }
         }
     }
 }
@@ -83,6 +165,7 @@ where
             ExtractResourcePlugin::<OctreeGPUHost<T>>::default(),
             ExtractResourcePlugin::<SvxViewSet>::default(),
         ));
+        app.add_systems(Update, handle_resolution_updates);
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(ExtractSchedule, sync_with_main_world);
         render_app.add_systems(
@@ -94,13 +177,7 @@ where
             ),
         );
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        render_graph.add_node(
-            SvxLabel,
-            SvxRenderNode {
-                ready: false,
-                resolution: self.resolution,
-            },
-        );
+        render_graph.add_node(SvxLabel, SvxRenderNode { ready: false });
         render_graph.add_node_edge(SvxLabel, bevy::render::graph::CameraDriverLabel);
     }
 

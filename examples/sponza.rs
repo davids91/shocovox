@@ -36,7 +36,7 @@ fn main() {
                 }),
                 ..default()
             }),
-            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(DISPLAY_RESOLUTION),
+            shocovox_rs::raytracing::RenderBevyPlugin::<u32>::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin,
             PanOrbitCameraPlugin,
             PerfUiPlugin,
@@ -91,7 +91,6 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
     commands.insert_resource(host);
     commands.insert_resource(views);
-    commands.spawn(Sprite::from_image(output_texture));
     commands.spawn((
         Camera {
             is_active: false,

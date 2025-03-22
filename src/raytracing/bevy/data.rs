@@ -4,22 +4,24 @@ use crate::{
         types::{BrickData, NodeContent, PaletteIndexValues},
         Octree, V3c, VoxelData,
     },
-    raytracing::bevy::types::{
-        BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
-        OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
-        VictimPointer, Viewport,
+    raytracing::bevy::{
+        create_output_texture,
+        types::{
+            BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
+            OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
+            VictimPointer, Viewport,
+        },
     },
     spatial::lut::OOB_OCTANT,
 };
 use bevy::{
     ecs::system::{Res, ResMut},
     math::Vec4,
-    prelude::{Assets, Handle, Image},
+    prelude::{Assets, Image},
     render::{
-        render_asset::RenderAssetUsages,
         render_resource::{
             encase::{internal::WriteInto, StorageBuffer, UniformBuffer},
-            Buffer, Extent3d, ShaderSize, TextureDimension, TextureFormat, TextureUsages,
+            Buffer, ShaderSize,
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -89,7 +91,7 @@ where
         viewport: Viewport,
         resolution: [u32; 2],
         mut images: ResMut<Assets<Image>>,
-    ) -> Handle<Image> {
+    ) -> usize {
         let mut gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
                 mips_enabled: self.tree.mip_map_strategy.is_enabled(),
@@ -115,36 +117,28 @@ where
             brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
             uploaded_color_palette_size: 0,
         };
-
         gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
-
-        let mut output_texture = Image::new_fill(
-            Extent3d {
-                width: resolution[0],
-                height: resolution[1],
-                depth_or_array_layers: 1,
-            },
-            TextureDimension::D2,
-            &[0, 0, 0, 255],
-            TextureFormat::Rgba8Unorm,
-            RenderAssetUsages::RENDER_WORLD,
-        );
-        output_texture.texture_descriptor.usage = TextureUsages::COPY_DST
-            | TextureUsages::STORAGE_BINDING
-            | TextureUsages::TEXTURE_BINDING;
-        let output_texture = images.add(output_texture);
-
+        let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
+            resolution: resolution,
+            output_texture: output_texture.clone(),
             reload: false,
+            init_data_sent: false,
+            data_ready: false,
+            new_resolution: None,
+            new_output_texture: None,
             data_handler: gpu_data_handler,
             spyglass: OctreeSpyGlass {
+                output_texture,
                 viewport_changed: true,
                 node_requests: vec![empty_marker(); 4],
-                output_texture: output_texture.clone(),
                 viewport,
             },
         })));
-        output_texture
+        svx_view_set.resources.push(None);
+
+        debug_assert_eq!(svx_view_set.resources.len(), svx_view_set.views.len());
+        svx_view_set.views.len() - 1
     }
 }
 
@@ -216,59 +210,58 @@ fn read_buffer(
 /// Based on https://docs.rs/bevy/latest/src/gpu_readback/gpu_readback.rs.html
 pub(crate) fn handle_gpu_readback(
     render_device: Res<RenderDevice>,
-    svx_view_set: ResMut<SvxViewSet>,
-    mut svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
+    svx_viewset: ResMut<SvxViewSet>,
+    svx_pipeline: Option<ResMut<SvxRenderPipeline>>,
 ) {
-    if let Some(ref mut pipeline) = svx_pipeline {
-        let mut view = svx_view_set.views[0].lock().unwrap();
+    if let Some(_) = svx_pipeline {
+        let mut view = svx_viewset.views[0].lock().unwrap();
+        let resources = svx_viewset.resources[0].as_ref();
 
-        // init sequence: checking if data is written to the GPU yet
-        if pipeline.init_data_sent && !pipeline.data_ready {
-            let mut received_value = Vec::new();
-            read_buffer(
-                &render_device,
-                &pipeline
-                    .resources
-                    .as_ref()
-                    .unwrap()
-                    .readable_metadata_buffer,
-                0..1,
-                &mut received_value,
-            );
-            if view.data_handler.render_data.metadata[0] == received_value[0] {
-                pipeline.data_ready = true;
-            }
-        }
+        if resources.is_some() {
+            let resources = resources.unwrap();
 
-        let resources = pipeline.resources.as_ref().unwrap();
-
-        // Read node requests
-        read_buffer(
-            &render_device,
-            &resources.readable_node_requests_buffer,
-            0..view.spyglass.node_requests.len(),
-            &mut view.spyglass.node_requests,
-        );
-
-        let is_metadata_required_this_loop = {
-            let mut is_metadata_required_this_loop = false;
-            for node_request in &view.spyglass.node_requests {
-                if *node_request != empty_marker::<u32>() {
-                    is_metadata_required_this_loop = true;
-                    break;
+            // init sequence: checking if data is written to the GPU yet
+            if view.init_data_sent && !view.data_ready {
+                let mut received_value = Vec::new();
+                read_buffer(
+                    &render_device,
+                    &resources.readable_metadata_buffer,
+                    0..1,
+                    &mut received_value,
+                );
+                if view.data_handler.render_data.metadata[0] == received_value[0] {
+                    view.data_ready = true;
                 }
             }
-            is_metadata_required_this_loop
-        };
 
-        // read metadata is requested
-        if is_metadata_required_this_loop && pipeline.data_ready {
+            // Read node requests
             read_buffer(
                 &render_device,
-                &resources.readable_metadata_buffer,
-                0..view.data_handler.render_data.metadata.len(),
-                &mut view.data_handler.render_data.metadata,
+                &resources.readable_node_requests_buffer,
+                0..view.spyglass.node_requests.len(),
+                &mut view.spyglass.node_requests,
             );
+
+            let is_metadata_required_this_loop = {
+                let mut is_metadata_required_this_loop = false;
+                for node_request in &view.spyglass.node_requests {
+                    if *node_request != empty_marker::<u32>() {
+                        is_metadata_required_this_loop = true;
+                        break;
+                    }
+                }
+                is_metadata_required_this_loop
+            };
+
+            // read metadata is requested
+            if is_metadata_required_this_loop && view.data_ready {
+                read_buffer(
+                    &render_device,
+                    &resources.readable_metadata_buffer,
+                    0..view.data_handler.render_data.metadata.len(),
+                    &mut view.data_handler.render_data.metadata,
+                );
+            }
         }
     }
 }
@@ -352,13 +345,13 @@ pub(crate) fn write_to_gpu<T>(
 ) where
     T: Default + Clone + Copy + Eq + Send + Sync + Hash + VoxelData + 'static,
 {
-    if let (Some(mut pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
-        // Initial octree data upload
-        if !pipeline.init_data_sent || svx_view_set.views[0].lock().unwrap().reload {
-            if let Some(resources) = &pipeline.resources {
-                //write data for root node
-                let mut view = svx_view_set.views[0].lock().unwrap();
+    if let (Some(pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
+        let mut view = svx_view_set.views[0].lock().unwrap();
 
+        // Initial octree data upload
+        if !view.init_data_sent || view.reload {
+            if let Some(resources) = &svx_view_set.resources[0] {
+                //write data for root node
                 if view.reload {
                     view.data_handler
                         .render_data
@@ -368,7 +361,6 @@ pub(crate) fn write_to_gpu<T>(
                         *m = empty_marker();
                     }
                 }
-
                 write_range_to_buffer(
                     &view.data_handler.render_data.metadata,
                     0..1,
@@ -393,18 +385,17 @@ pub(crate) fn write_to_gpu<T>(
                     &resources.node_ocbits_buffer,
                     &pipeline.render_queue,
                 );
-                pipeline.init_data_sent = true;
+                view.init_data_sent = true;
                 view.reload = false;
             }
         }
-        let resources = if let Some(resources) = &pipeline.resources {
+        let resources = if let Some(resources) = &svx_view_set.resources[0] {
             resources
         } else {
             // No resources available yet, can't write to them
             return;
         };
         let render_queue = &pipeline.render_queue;
-        let mut view = svx_view_set.views[0].lock().unwrap();
 
         // Data updates for spyglass viewport
         if view.spyglass.viewport_changed {
@@ -663,7 +654,7 @@ pub(crate) fn write_to_gpu<T>(
             let host_color_count = tree.map_to_color_index_in_palette.keys().len();
             let color_palette_size_diff =
                 host_color_count - view.data_handler.uploaded_color_palette_size;
-            let resources = &pipeline.resources.as_ref().unwrap();
+            let resources = &svx_view_set.resources[0].as_ref().unwrap();
 
             debug_assert!(
                 host_color_count >= view.data_handler.uploaded_color_palette_size,
