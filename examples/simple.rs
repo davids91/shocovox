@@ -1,5 +1,5 @@
 use shocovox_rs::{
-    octree::{Albedo, Octree, OctreeEntry, V3c, VoxelData},
+    octree::{Albedo, BoxTree, OctreeEntry, V3c, VoxelData},
     voxel_data,
 };
 
@@ -8,7 +8,7 @@ fn main() {
     const TREE_SIZE: u32 = 64; // The length of the edges of the cube the octree covers ( number of voxels )
     const BRICK_DIMENSION: u32 = 8; // How big should one "group of voxels" should be refer to docs @Octree::new
                                     // If you have no idea what size it should be, 32 is a good reference
-    let mut tree: Octree = Octree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
+    let mut tree: BoxTree = BoxTree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 
     // The visual data the octree contains are provided through the ALbedo type
     let voxel_color_red: Albedo = 0xFF0000FF.into(); // RGBA hex codes can be used like this
@@ -137,7 +137,7 @@ fn main() {
 
     // You can also use your own data types to be stored in an octree
     // You have to implement some traits(e.g. VoxelData) for it though. See below!
-    let _custom_octree: Octree<MyAwesomeData> = Octree::new(8, 2).ok().unwrap();
+    let _custom_octree: BoxTree<MyAwesomeData> = BoxTree::new(8, 2).ok().unwrap();
 }
 
 // The trait VoxelData is required in order to differentiate between empty and non-empty contents of a voxel

@@ -13,7 +13,7 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{Albedo, Octree, OctreeEntry, V3c, V3cf32},
+    octree::{Albedo, BoxTree, OctreeEntry, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -52,7 +52,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     );
 
     // fill octree with data
-    let mut tree: Octree = shocovox_rs::octree::Octree::new(TREE_SIZE, BRICK_DIMENSION)
+    let mut tree: BoxTree = shocovox_rs::octree::BoxTree::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
 

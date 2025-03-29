@@ -88,18 +88,18 @@ mod wgpu_tests {
 #[cfg(test)]
 mod bitmap_tests {
     use crate::octree::V3c;
-    use crate::spatial::math::set_occupancy_in_bitmap_64bits;
+    use crate::spatial::math::set_occupied_bitmap_value;
 
     #[test]
     fn test_occupancy_bitmap_aligned_dim() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 1, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 1, 4, true, &mut mask);
         assert_eq!(0x0000000000000001, mask);
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(3, 3, 3), 1, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(3, 3, 3), 1, 4, true, &mut mask);
         assert_eq!(0x8000000000000001, mask);
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(2, 2, 2), 1, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(2, 2, 2), 1, 4, true, &mut mask);
         assert_eq!(0x8000040000000001, mask);
     }
 
@@ -107,10 +107,10 @@ mod bitmap_tests {
     fn test_occupancy_bitmap_where_dim_is_1() {
         let mut mask = u64::MAX;
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 1, 1, false, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 1, 1, false, &mut mask);
         assert_eq!(0, mask);
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 1, 1, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 1, 1, true, &mut mask);
         assert_eq!(u64::MAX, mask);
     }
 
@@ -118,10 +118,10 @@ mod bitmap_tests {
     fn test_occupancy_bitmap_where_dim_is_2() {
         let mut mask = 0;
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 1, 2, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 1, 2, true, &mut mask);
         assert_eq!(0x0000000000330033, mask);
 
-        set_occupancy_in_bitmap_64bits(&V3c::new(1, 1, 1), 1, 2, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(1, 1, 1), 1, 2, true, &mut mask);
         assert_eq!(0xCC00CC0000330033, mask);
     }
 
@@ -129,7 +129,7 @@ mod bitmap_tests {
     #[should_panic(expected = "Expected coordinate 5 < brick size(4)")]
     fn test_occupancy_bitmap_aligned_dim_pos_overflow() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(5, 5, 5), 1, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(5, 5, 5), 1, 4, true, &mut mask);
         assert_eq!(0, mask);
     }
 
@@ -137,7 +137,7 @@ mod bitmap_tests {
     #[should_panic(expected = "Expected coordinate 9 < brick size(4)")]
     fn test_occupancy_bitmap_aligned_dim_pos_partial_overflow() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(3, 1, 9), 1, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(3, 1, 9), 1, 4, true, &mut mask);
         assert_eq!(0, mask);
     }
 
@@ -145,7 +145,7 @@ mod bitmap_tests {
     #[should_panic(expected = "Expected coordinate 2 < brick size(1)")]
     fn test_occupancy_bitmap_where_dim_is_1_pos_overflow() {
         let mut mask = u64::MAX;
-        set_occupancy_in_bitmap_64bits(&V3c::new(2, 2, 3), 1, 1, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(2, 2, 3), 1, 1, true, &mut mask);
         assert_eq!(0, mask);
     }
 
@@ -153,35 +153,35 @@ mod bitmap_tests {
     #[should_panic(expected = "Expected coordinate 4 < brick size(2)")]
     fn test_occupancy_bitmap_where_dim_is_2_pos_overflow() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(4, 4, 4), 1, 2, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(4, 4, 4), 1, 2, true, &mut mask);
         assert_eq!(0, mask);
     }
 
     #[test]
     fn test_occupancy_bitmap_sized_set_aligned_dim() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 3, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 3, 4, true, &mut mask);
         assert_eq!(0x77707770777, mask);
     }
 
     #[test]
     fn test_occupancy_bitmap_sized_set_where_dim_is_2() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 2, 2, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 2, 2, true, &mut mask);
         assert_eq!(0xFFFFFFFFFFFFFFFF, mask);
     }
 
     #[test]
     fn test_occupancy_bitmap_sized_set_aligned_dim_overflow() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 5, 4, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 5, 4, true, &mut mask);
         assert_eq!(0xFFFFFFFFFFFFFFFF, mask);
     }
 
     #[test]
     fn test_occupancy_bitmap_sized_set_where_dim_is_2_overflow() {
         let mut mask = 0;
-        set_occupancy_in_bitmap_64bits(&V3c::new(0, 0, 0), 3, 2, true, &mut mask);
+        set_occupied_bitmap_value(&V3c::new(0, 0, 0), 3, 2, true, &mut mask);
         assert_eq!(0xFFFFFFFFFFFFFFFF, mask);
     }
 }

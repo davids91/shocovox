@@ -8,7 +8,9 @@ pub mod raytracing;
 
 mod tests;
 
-use crate::spatial::{lut::OCTANT_OFFSET_REGION_LUT, math::vector::V3c};
+use crate::{
+    octree::BOX_NODE_DIMENSION, spatial::lut::SECTANT_OFFSET_LUT, spatial::math::vector::V3c,
+};
 
 #[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(
@@ -28,13 +30,11 @@ impl Cube {
         }
     }
 
-    /// Creates a bounding box within an area described by the min_position and size, for the given octant
-    pub(crate) fn child_bounds_for(&self, octant: u8) -> Cube {
-        let child_size = self.size / 2.;
+    /// Creates a bounding box within an area described by the min_position and size, for the given sectant
+    pub(crate) fn child_bounds_for(&self, sectant: u8) -> Cube {
         Cube {
-            min_position: (self.min_position
-                + (OCTANT_OFFSET_REGION_LUT[octant as usize] * child_size)),
-            size: child_size,
+            min_position: (self.min_position + (SECTANT_OFFSET_LUT[sectant as usize] * self.size)),
+            size: self.size / BOX_NODE_DIMENSION as f32,
         }
     }
 }

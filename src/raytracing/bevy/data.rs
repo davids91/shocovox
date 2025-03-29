@@ -2,7 +2,7 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{BrickData, NodeContent, PaletteIndexValues},
-        Octree, V3c, VoxelData,
+        BoxTree, V3c, VoxelData, OOB_SECTANT,
     },
     raytracing::bevy::{
         create_output_texture,
@@ -12,7 +12,6 @@ use crate::{
             VictimPointer, Viewport,
         },
     },
-    spatial::lut::OOB_OCTANT,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 use bevy::{
@@ -49,7 +48,7 @@ fn octree_properties<
     #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
     #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
 >(
-    tree: &Octree<T>,
+    tree: &BoxTree<T>,
 ) -> u32 {
     (tree.brick_dim & 0x0000FFFF) | ((tree.mip_map_strategy.is_enabled() as u32) << 16)
 }
@@ -120,13 +119,13 @@ impl<
             render_data: OctreeRenderData {
                 mips_enabled: self.tree.mip_map_strategy.is_enabled(),
                 octree_meta: OctreeMetaData {
-                    octree_size: self.tree.octree_size,
+                    octree_size: self.tree.boxtree_size,
                     tree_properties: octree_properties(&self.tree),
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
-                        self.tree.octree_size as f32,
-                        self.tree.octree_size as f32,
-                        self.tree.octree_size as f32,
+                        self.tree.boxtree_size as f32,
+                        self.tree.boxtree_size as f32,
+                        self.tree.boxtree_size as f32,
                     ),
                 },
                 metadata: vec![0; size],
@@ -141,7 +140,7 @@ impl<
             brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
             uploaded_color_palette_size: 0,
         };
-        gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
+        gpu_data_handler.add_node(&self.tree, BoxTree::<T>::ROOT_NODE_KEY as usize);
         let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
             resolution,
@@ -517,11 +516,11 @@ pub(crate) fn write_to_gpu<
                 }
 
                 // In case MIP is requested, not node child
-                if OOB_OCTANT == requested_child_octant {
+                if OOB_SECTANT == requested_child_octant {
                     // Upload MIP to bricks
                     let (child_index, cache_update) =
                         view.data_handler
-                            .add_brick(tree, requested_parent_node_key, OOB_OCTANT);
+                            .add_brick(tree, requested_parent_node_key, OOB_SECTANT);
 
                     meta_updated.start = meta_updated
                         .start

@@ -10,17 +10,17 @@ mod tests;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{
-    Albedo, MIPMapStrategy, MIPResamplingMethods, Octree, OctreeEntry, StrategyUpdater, VoxelData,
+    Albedo, BoxTree, MIPMapStrategy, MIPResamplingMethods, OctreeEntry, StrategyUpdater, VoxelData,
 };
 
 use crate::{
     object_pool::{empty_marker, ObjectPool},
     octree::{
-        detail::{bound_contains, child_octant_for},
+        detail::{bound_contains, child_sectant_for},
         types::{BrickData, NodeChildren, NodeContent, OctreeError},
     },
     spatial::{
-        math::{flat_projection, matrix_index_for, BITMAP_DIMENSION},
+        math::{flat_projection, matrix_index_for},
         Cube,
     },
 };
@@ -31,9 +31,6 @@ use serde::{de::DeserializeOwned, Serialize};
 
 #[cfg(feature = "bytecode")]
 use bendy::{decoding::FromBencode, encoding::ToBencode};
-
-#[cfg(debug_assertions)]
-use crate::spatial::math::position_in_bitmap_64bits;
 
 //####################################################################################
 //     ███████      █████████  ███████████ ███████████   ██████████ ██████████
@@ -118,6 +115,10 @@ impl<'a, T: VoxelData> OctreeEntry<'a, T> {
 //  ░░░███████░   ░░█████████     █████    █████   █████ ██████████ ██████████
 //    ░░░░░░░      ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░
 //####################################################################################
+pub(crate) const OOB_SECTANT: u8 = 64;
+pub(crate) const BOX_NODE_DIMENSION: usize = 4;
+pub(crate) const BOX_NODE_CHILDREN_COUNT: usize = 64;
+
 impl<
         #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
             + ToBencode
@@ -131,7 +132,7 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     /// converts the data structure to a byte representation
     #[cfg(feature = "bytecode")]
@@ -169,7 +170,7 @@ impl<
 
     /// creates an octree with the given size
     /// * `brick_dimension` - must be one of `(2^x)` and smaller than the size of the octree
-    /// * `size` - must be `brick_dimension * (2^x)`, e.g: brick_dimension == 2 --> size can be 2,4,8,16,32...
+    /// * `size` - must be `brick_dimension * 4 * (2^x)`, e.g: brick_dimension == 2 --> size can be 8,16,32,64...
     pub fn new(size: u32, brick_dimension: u32) -> Result<Self, OctreeError> {
         if 0 == size || (brick_dimension as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidBrickDimension(brick_dimension));
@@ -180,9 +181,9 @@ impl<
         {
             return Err(OctreeError::InvalidSize(size));
         }
-        if size < (brick_dimension * 2) {
+        if size < (brick_dimension * BOX_NODE_DIMENSION as u32) {
             return Err(OctreeError::InvalidStructure(
-                "Octree size must be larger, than 2 * brick dimension".into(),
+                "Octree size must be larger, than BOX_NODE_DIMENSION * brick dimension".into(),
             ));
         }
         let node_count_estimation = (size / brick_dimension).pow(3);
@@ -191,7 +192,7 @@ impl<
         assert!(root_node_key == 0);
         Ok(Self {
             auto_simplify: true,
-            octree_size: size,
+            boxtree_size: size,
             brick_dim: brick_dimension,
             nodes,
             node_children: vec![NodeChildren::default()],
@@ -209,7 +210,7 @@ impl<
     pub fn get(&self, position: &V3c<u32>) -> OctreeEntry<T> {
         self.get_internal(
             Self::ROOT_NODE_KEY as usize,
-            Cube::root_bounds(self.octree_size as f32),
+            Cube::root_bounds(self.boxtree_size as f32),
             position,
         )
     }
@@ -232,19 +233,19 @@ impl<
                 NodeContent::Nothing => return OctreeEntry::Empty,
                 NodeContent::Leaf(bricks) => {
                     // In case brick_dimension == octree size, the root node can not be a leaf...
-                    debug_assert!(self.brick_dim < self.octree_size);
+                    debug_assert!(self.brick_dim < self.boxtree_size);
 
                     // Hash the position to the target child
-                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+                    let child_sectant_at_position = child_sectant_for(&current_bounds, &position);
 
                     // If the child exists, query it for the voxel
-                    match &bricks[child_octant_at_position as usize] {
+                    match &bricks[child_sectant_at_position as usize] {
                         BrickData::Empty => {
                             return OctreeEntry::Empty;
                         }
                         BrickData::Parted(brick) => {
                             current_bounds =
-                                Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                                Cube::child_bounds_for(&current_bounds, child_sectant_at_position);
                             let mat_index = matrix_index_for(
                                 &current_bounds,
                                 &V3c::from(position),
@@ -321,47 +322,27 @@ impl<
                 },
                 NodeContent::Internal(occupied_bits) => {
                     // Hash the position to the target child
-                    let child_octant_at_position = child_octant_for(&current_bounds, &position);
+                    let child_sectant_at_position = child_sectant_for(&current_bounds, &position);
                     let child_at_position =
-                        self.node_children[current_node_key].child(child_octant_at_position);
+                        self.node_children[current_node_key].child(child_sectant_at_position);
 
                     // There is a valid child at the given position inside the node, recurse into it
                     if self.nodes.key_is_valid(child_at_position as usize) {
-                        #[cfg(debug_assertions)]
-                        {
-                            // calculate the corresponding position in the nodes occupied bits
-                            let pos_in_node = matrix_index_for(
-                                &current_bounds,
-                                &(position.into()),
-                                BITMAP_DIMENSION as u32,
-                            );
-
-                            let should_bit_be_empty = self.should_bitmap_be_empty_at_position(
-                                current_node_key,
-                                &current_bounds,
-                                &position,
-                            );
-
-                            let pos_in_bitmap = position_in_bitmap_64bits(&pos_in_node, 4);
-                            let is_bit_empty = 0 == (occupied_bits & (0x01 << pos_in_bitmap));
-
-                            // the corresponding bit should be set
-                            debug_assert!(
-                                 should_bit_be_empty == is_bit_empty,
-                                  "Node[{:?}] under {:?} \n has a child(node[{:?}]) in octant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X};\nbecause: (should be empty: {} <> is empty: {})\n child node: {:?}; child node children: {:?};",
-                                  current_node_key,
-                                  current_bounds,
-                                  self.node_children[current_node_key].child(child_octant_at_position),
-                                  child_octant_at_position,
-                                  position, occupied_bits,
-                                  should_bit_be_empty, is_bit_empty,
-                                  self.nodes.get(self.node_children[current_node_key].child(child_octant_at_position)),
-                                  self.node_children[self.node_children[current_node_key].child(child_octant_at_position)]
-                            );
-                        }
+                        debug_assert_ne!(
+                            0,
+                            occupied_bits & (0x01 << child_sectant_at_position),
+                            "Node[{:?}] under {:?} \n has a child(node[{:?}]) in sectant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}; \n child node: {:?}; child node children: {:?};",
+                            current_node_key,
+                            current_bounds,
+                            self.node_children[current_node_key].child(child_sectant_at_position),
+                            child_sectant_at_position,
+                            position, occupied_bits,
+                            self.nodes.get(self.node_children[current_node_key].child(child_sectant_at_position)),
+                            self.node_children[self.node_children[current_node_key].child(child_sectant_at_position)]
+                        );
                         current_node_key = child_at_position as usize;
                         current_bounds =
-                            Cube::child_bounds_for(&current_bounds, child_octant_at_position);
+                            Cube::child_bounds_for(&current_bounds, child_sectant_at_position);
                     } else {
                         return OctreeEntry::Empty;
                     }
@@ -372,7 +353,7 @@ impl<
 
     /// Tells the radius of the area covered by the octree
     pub fn get_size(&self) -> u32 {
-        self.octree_size
+        self.boxtree_size
     }
 
     /// Object to set the MIP map strategy for each MIP level inside the octree

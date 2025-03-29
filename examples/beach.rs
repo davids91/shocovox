@@ -6,7 +6,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{Octree, V3c, V3cf32},
+    octree::{BoxTree, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -52,10 +52,10 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // fill octree with data
 
     use shocovox_rs::octree::MIPMapStrategy;
-    let tree: Octree;
+    let tree: BoxTree;
     let tree_path = "example_junk_beach";
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::load(&tree_path).ok().unwrap();
+        tree = BoxTree::load(&tree_path).ok().unwrap();
     } else {
         tree = match MIPMapStrategy::default()
             .set_enabled(true)

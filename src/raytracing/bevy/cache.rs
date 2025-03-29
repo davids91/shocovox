@@ -2,13 +2,12 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{BrickData, NodeContent},
-        Octree, VoxelData,
+        BoxTree, VoxelData, OOB_SECTANT,
     },
     raytracing::bevy::types::{
         BrickOwnedBy, BrickUpdate, CacheUpdatePackage, OctreeGPUDataHandler, OctreeRenderData,
         VictimPointer,
     },
-    spatial::lut::OOB_OCTANT,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 use std::{hash::Hash, ops::Range};
@@ -196,7 +195,7 @@ impl OctreeGPUDataHandler {
     }
 
     /// Creates the descriptor bytes for the given node
-    fn create_node_properties<T>(tree: &Octree<T>, node_key: usize) -> u32
+    fn create_node_properties<T>(tree: &BoxTree<T>, node_key: usize) -> u32
     where
         T: Default + Clone + Eq + VoxelData + Hash,
     {
@@ -278,7 +277,7 @@ impl OctreeGPUDataHandler {
         &mut self,
         meta_index: usize,
         child_octant: usize,
-        tree: &'a Octree<T>,
+        tree: &'a BoxTree<T>,
     ) -> (Vec<BrickUpdate<'a>>, Vec<usize>)
     where
         T: Default + Clone + Eq + VoxelData + Hash,
@@ -438,7 +437,7 @@ impl OctreeGPUDataHandler {
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
     >(
         &mut self,
-        tree: &'a Octree<T>,
+        tree: &'a BoxTree<T>,
         node_key: usize,
     ) -> (usize, CacheUpdatePackage<'a>) {
         debug_assert!(
@@ -584,7 +583,7 @@ impl OctreeGPUDataHandler {
     /// * `returns` - brick/palette index where the brick data is found, brick updates applied, nodes updated during insertion
     pub(crate) fn add_brick<'a, T>(
         &mut self,
-        tree: &'a Octree<T>,
+        tree: &'a BoxTree<T>,
         node_key: usize,
         target_octant: u8,
     ) -> (usize, CacheUpdatePackage<'a>)
@@ -592,7 +591,7 @@ impl OctreeGPUDataHandler {
         T: Default + Clone + Eq + Send + Sync + Hash + VoxelData + 'static,
     {
         // In case OOB octant, the target brick to add is the MIP for the node
-        let (brick, node_entry) = if target_octant == OOB_OCTANT {
+        let (brick, node_entry) = if target_octant == OOB_SECTANT {
             (
                 &tree.node_mips[node_key],
                 BrickOwnedBy::NodeAsMIP(node_key as u32),

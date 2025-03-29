@@ -1,7 +1,7 @@
 use crate::{
     octree::{
         types::{MIPMapStrategy, OctreeError},
-        Albedo, Octree, OctreeEntry, V3c, VoxelData,
+        Albedo, BoxTree, OctreeEntry, V3c, VoxelData,
     },
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
@@ -219,16 +219,16 @@ impl MIPMapStrategy {
         self,
         brick_dimension: u32,
         filename: &str,
-    ) -> Result<Octree<T>, &'static str> {
+    ) -> Result<BoxTree<T>, &'static str> {
         let (vox_data, min_position, mut max_position) =
-            Octree::<T>::load_vox_file_internal(filename);
+            BoxTree::<T>::load_vox_file_internal(filename);
         max_position -= min_position;
         let tree_size = max_position.x.max(max_position.y).max(max_position.z);
         let tree_size = (tree_size as f32).log2().ceil() as u32;
         let tree_size = 2_u32.pow(tree_size);
 
         let mut shocovox_octree =
-            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
+            BoxTree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
                 panic!(
                     "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
                     tree_size,
@@ -261,7 +261,7 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let (vox_data, min_position, mut max_position) = Self::load_vox_file_internal(filename);
@@ -271,7 +271,7 @@ impl<
         let tree_size = 2_u32.pow(tree_size);
 
         let mut shocovox_octree =
-            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
+            BoxTree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
                 panic!(
                     "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
                     tree_size,
@@ -320,7 +320,6 @@ impl<
                 .max(model_position_rzup.z + model_size_half_rzup.z)
                 .max(model_position_rzup.z - model_size_half_rzup.z);
         });
-
 
         (
             vox_tree,

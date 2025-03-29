@@ -9,16 +9,16 @@ use crate::{
     octree::{
         detail::bound_contains,
         types::{BrickData, NodeChildren, NodeContent, OctreeEntry, PaletteIndexValues},
-        Albedo, Octree, VoxelData,
+        Albedo, BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
-        lut::{BITMAP_MASK_FOR_OCTANT_LUT, OCTANT_OFFSET_REGION_LUT},
-        math::{flat_projection, matrix_index_for, vector::V3c},
+        lut::SECTANT_OFFSET_LUT,
+        math::{flat_projection, matrix_index_for, octant_in_sectants, vector::V3c},
         Cube,
     },
 };
 use num_traits::Zero;
-use std::hash::Hash;
+use std::{fmt::Debug, hash::Hash};
 
 #[cfg(feature = "bytecode")]
 use bendy::{decoding::FromBencode, encoding::ToBencode};
@@ -36,7 +36,7 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     //####################################################################################
     // ███████████    █████████   █████       ██████████ ███████████ ███████████ ██████████
@@ -163,7 +163,7 @@ impl<
         node_key: usize,
         node_bounds: &Cube,
         target_bounds: &Cube,
-        target_child_octant: usize,
+        target_child_sectant: usize,
         position: &V3c<u32>,
         size: u32,
         target_content: PaletteIndexValues,
@@ -173,15 +173,14 @@ impl<
         match self.nodes.get_mut(node_key) {
             NodeContent::Leaf(bricks) => {
                 // In case brick_dimension == octree size, the 0 can not be a leaf...
-                debug_assert!(self.brick_dim < self.octree_size);
-                match &mut bricks[target_child_octant] {
+                debug_assert!(self.brick_dim < self.boxtree_size);
+                match &mut bricks[target_child_sectant] {
                     //If there is no brick in the target position of the leaf, create one
                     BrickData::Empty => {
-                        // Create a new empty brick at the given octant
+                        // Create a new empty brick at the given sectant
                         let mut new_brick = vec![
                             empty_marker::<PaletteIndexValues>();
-                            (self.brick_dim * self.brick_dim * self.brick_dim)
-                                as usize
+                            self.brick_dim.pow(3) as usize
                         ];
                         // update the new empty brick at the given position
                         let update_size = Self::update_brick(
@@ -193,7 +192,7 @@ impl<
                             size,
                             &target_content,
                         );
-                        bricks[target_child_octant] = BrickData::Parted(new_brick);
+                        bricks[target_child_sectant] = BrickData::Parted(new_brick);
                         update_size
                     }
                     BrickData::Solid(voxel) => {
@@ -214,11 +213,7 @@ impl<
                         ) && *voxel != target_content)
                         {
                             // create new brick and update it at the given position
-                            let mut new_brick = vec![
-                                *voxel;
-                                (self.brick_dim * self.brick_dim * self.brick_dim)
-                                    as usize
-                            ];
+                            let mut new_brick = vec![*voxel; self.brick_dim.pow(3) as usize];
                             update_size = Self::update_brick(
                                 overwrite_if_empty,
                                 &mut new_brick,
@@ -228,7 +223,7 @@ impl<
                                 size,
                                 &target_content,
                             );
-                            bricks[target_child_octant] = BrickData::Parted(new_brick);
+                            bricks[target_child_sectant] = BrickData::Parted(new_brick);
                         } else {
                             // Since the Voxel already equals the data to be set, no need to update anything
                             update_size = 0;
@@ -263,22 +258,16 @@ impl<
                             &self.voxel_color_palette,
                             &self.voxel_data_palette,
                         ) {
-                            let mut new_leaf_content = [
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                                BrickData::Empty,
-                            ];
+                            let mut new_leaf_content: [BrickData<PaletteIndexValues>;
+                                BOX_NODE_CHILDREN_COUNT] =
+                                vec![BrickData::Empty; BOX_NODE_CHILDREN_COUNT]
+                                    .try_into()
+                                    .unwrap();
 
-                            // Add a brick to the target octant and update with the given data
+                            // Add a brick to the target sectant and update with the given data
                             let mut new_brick = vec![
                                 self.add_to_palette(&OctreeEntry::Empty);
-                                (self.brick_dim * self.brick_dim * self.brick_dim)
-                                    as usize
+                                self.brick_dim.pow(3) as usize
                             ];
                             let update_size = Self::update_brick(
                                 overwrite_if_empty,
@@ -289,7 +278,7 @@ impl<
                                 size,
                                 &target_content,
                             );
-                            new_leaf_content[target_child_octant] = BrickData::Parted(new_brick);
+                            new_leaf_content[target_child_sectant] = BrickData::Parted(new_brick);
                             *self.nodes.get_mut(node_key) = NodeContent::Leaf(new_leaf_content);
                             return update_size;
                         }
@@ -355,7 +344,7 @@ impl<
                                 node_key,
                                 node_bounds,
                                 target_bounds,
-                                target_child_octant,
+                                target_child_sectant,
                                 position,
                                 size,
                                 target_content,
@@ -419,62 +408,32 @@ impl<
 
                         // the data at the position inside the brick doesn't match the given data,
                         // so the leaf needs to be divided into a NodeContent::Leaf(bricks)
-                        let mut leaf_data: [BrickData<PaletteIndexValues>; 8] = [
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                            BrickData::Empty,
-                        ];
+                        let mut leaf_data: [BrickData<PaletteIndexValues>;
+                            BOX_NODE_CHILDREN_COUNT] =
+                            vec![BrickData::Empty; BOX_NODE_CHILDREN_COUNT]
+                                .try_into()
+                                .unwrap();
 
                         // Each brick is mapped to take up one subsection of the current data
+                        let child_bricks =
+                            Self::dilute_brick_data(std::mem::take(brick), self.brick_dim);
                         let mut update_size = 0;
-                        if 1 == self.brick_dim {
-                            leaf_data = [
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                                BrickData::Parted(brick.clone()),
-                            ];
-
-                            // Also update the target brick
-                            let mut new_brick = brick.clone();
-                            update_size = Self::update_brick(
-                                overwrite_if_empty,
-                                &mut new_brick,
-                                target_bounds,
-                                self.brick_dim,
-                                *position,
-                                size,
-                                &target_content,
-                            );
-                            leaf_data[target_child_octant] = BrickData::Parted(new_brick);
-                        } else {
-                            let child_bricks =
-                                Self::dilute_brick_data(std::mem::take(brick), self.brick_dim);
-                            for (octant, mut new_brick) in child_bricks.into_iter().enumerate() {
-                                // Also update the brick if it is the target
-                                if octant == target_child_octant {
-                                    update_size = Self::update_brick(
-                                        overwrite_if_empty,
-                                        &mut new_brick,
-                                        target_bounds,
-                                        self.brick_dim,
-                                        *position,
-                                        size,
-                                        &target_content,
-                                    );
-                                }
-                                leaf_data[octant] = BrickData::Parted(new_brick);
+                        for (sectant, mut new_brick) in child_bricks.into_iter().enumerate() {
+                            // Also update the brick if it is the target
+                            if sectant == target_child_sectant {
+                                update_size = Self::update_brick(
+                                    overwrite_if_empty,
+                                    &mut new_brick,
+                                    target_bounds,
+                                    self.brick_dim,
+                                    *position,
+                                    size,
+                                    &target_content,
+                                );
                             }
+                            leaf_data[sectant] = BrickData::Parted(new_brick);
                         }
+
                         *self.nodes.get_mut(node_key) = NodeContent::Leaf(leaf_data);
                         debug_assert_ne!(
                             0, update_size,
@@ -488,7 +447,7 @@ impl<
                     node_key,
                     node_bounds,
                     target_bounds,
-                    target_child_octant,
+                    target_child_sectant,
                     position,
                     size,
                     target_content,
@@ -497,23 +456,24 @@ impl<
             NodeContent::Internal(ocbits) => {
                 // Warning: Calling leaf update to an internal node might induce data loss - see #69
                 self.node_children[node_key] = NodeChildren::OccupancyBitmap(*ocbits);
-                *self.nodes.get_mut(node_key) = NodeContent::Leaf([
-                    self.try_brick_from_node(self.node_children[node_key].child(0)),
-                    self.try_brick_from_node(self.node_children[node_key].child(1)),
-                    self.try_brick_from_node(self.node_children[node_key].child(2)),
-                    self.try_brick_from_node(self.node_children[node_key].child(3)),
-                    self.try_brick_from_node(self.node_children[node_key].child(4)),
-                    self.try_brick_from_node(self.node_children[node_key].child(5)),
-                    self.try_brick_from_node(self.node_children[node_key].child(6)),
-                    self.try_brick_from_node(self.node_children[node_key].child(7)),
-                ]);
+                *self.nodes.get_mut(node_key) = NodeContent::Leaf(
+                    (0..BOX_NODE_CHILDREN_COUNT)
+                        .map(|sectant| {
+                            self.try_brick_from_node(
+                                self.node_children[node_key].child(sectant as u8),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap(),
+                );
                 self.deallocate_children_of(node_key);
                 self.leaf_update(
                     overwrite_if_empty,
                     node_key,
                     node_bounds,
                     target_bounds,
-                    target_child_octant,
+                    target_child_sectant,
                     position,
                     size,
                     target_content,
@@ -523,23 +483,24 @@ impl<
                 // Calling leaf update on Nothing is an odd thing to do..
                 // But possible, if this call is mid-update
                 // So let's try to gather all the information possible
-                *self.nodes.get_mut(node_key) = NodeContent::Leaf([
-                    self.try_brick_from_node(self.node_children[node_key].child(0)),
-                    self.try_brick_from_node(self.node_children[node_key].child(1)),
-                    self.try_brick_from_node(self.node_children[node_key].child(2)),
-                    self.try_brick_from_node(self.node_children[node_key].child(3)),
-                    self.try_brick_from_node(self.node_children[node_key].child(4)),
-                    self.try_brick_from_node(self.node_children[node_key].child(5)),
-                    self.try_brick_from_node(self.node_children[node_key].child(6)),
-                    self.try_brick_from_node(self.node_children[node_key].child(7)),
-                ]);
+                *self.nodes.get_mut(node_key) = NodeContent::Leaf(
+                    (0..BOX_NODE_CHILDREN_COUNT)
+                        .map(|sectant| {
+                            self.try_brick_from_node(
+                                self.node_children[node_key].child(sectant as u8),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap(),
+                );
                 self.deallocate_children_of(node_key);
                 self.leaf_update(
                     overwrite_if_empty,
                     node_key,
                     node_bounds,
                     target_bounds,
-                    target_child_octant,
+                    target_child_sectant,
                     position,
                     size,
                     target_content,
@@ -560,43 +521,52 @@ impl<
     //####################################################################################
     /// Provides an array of bricks, based on the given brick data, with the same size of the original brick,
     /// each voxel mapped as the new bricks were the children of the given brick
-    pub(crate) fn dilute_brick_data<B>(brick_data: Vec<B>, brick_dim: u32) -> [Vec<B>; 8]
+    pub(crate) fn dilute_brick_data<B>(
+        brick_data: Vec<B>,
+        brick_dim: u32,
+    ) -> [Vec<B>; BOX_NODE_CHILDREN_COUNT]
     where
-        B: Clone + Copy + PartialEq,
+        B: Debug + Clone + Copy + PartialEq,
     {
         debug_assert_eq!(brick_data.len(), brick_dim.pow(3) as usize);
 
         if 1 == brick_dim {
-            return [
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data.clone(),
-                brick_data,
-            ];
+            debug_assert_eq!(brick_data.len(), 1);
+            return vec![brick_data.clone(); BOX_NODE_CHILDREN_COUNT]
+                .try_into()
+                .unwrap();
         }
 
-        let mut result = [
-            vec![brick_data[0]; brick_dim.pow(3) as usize],
-            vec![brick_data[1]; brick_dim.pow(3) as usize],
-            vec![brick_data[2]; brick_dim.pow(3) as usize],
-            vec![brick_data[3]; brick_dim.pow(3) as usize],
-            vec![brick_data[4]; brick_dim.pow(3) as usize],
-            vec![brick_data[5]; brick_dim.pow(3) as usize],
-            vec![brick_data[6]; brick_dim.pow(3) as usize],
-            vec![brick_data[7]; brick_dim.pow(3) as usize],
-        ];
-
         if 2 == brick_dim {
+            debug_assert_eq!(brick_data.len(), 8);
+            return (0..BOX_NODE_CHILDREN_COUNT)
+                .map(|sectant| {
+                    vec![brick_data[octant_in_sectants(sectant)]; brick_dim.pow(3) as usize]
+                })
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+        };
+
+        debug_assert!(brick_data.len() <= BOX_NODE_CHILDREN_COUNT);
+        let mut result: [Vec<B>; BOX_NODE_CHILDREN_COUNT] = (0..BOX_NODE_CHILDREN_COUNT)
+            .map(|sectant| vec![brick_data[sectant]; brick_dim.pow(3) as usize])
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        // in case one child can be mapped 1:1 to an element in the brick
+        if 4 == brick_dim {
+            debug_assert_eq!(brick_data.len(), BOX_NODE_CHILDREN_COUNT);
             return result;
         }
 
-        for octant in 0..8usize {
+        // Generic case
+        // Note: Each value in @result will be overwritten
+        for sectant in 0..BOX_NODE_CHILDREN_COUNT {
             // Set the data of the new child
-            let brick_offset = V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant]) * 2;
+            let brick_offset: V3c<usize> =
+                V3c::from(SECTANT_OFFSET_LUT[sectant] * brick_dim as f32);
             let new_brick_flat_offset = flat_projection(
                 brick_offset.x,
                 brick_offset.y,
@@ -608,21 +578,24 @@ impl<
             for x in 0..brick_dim as usize {
                 for y in 0..brick_dim as usize {
                     for z in 0..brick_dim as usize {
-                        if x < 2 && y < 2 && z < 2 {
+                        if x < BOX_NODE_DIMENSION
+                            && y < BOX_NODE_DIMENSION
+                            && z < BOX_NODE_DIMENSION
+                        {
                             continue;
                         }
                         let new_brick_flat_offset = flat_projection(x, y, z, brick_dim as usize);
                         let brick_flat_offset = flat_projection(
-                            brick_offset.x + x / 2,
-                            brick_offset.y + y / 2,
-                            brick_offset.z + z / 2,
+                            brick_offset.x + x / BOX_NODE_DIMENSION,
+                            brick_offset.y + y / BOX_NODE_DIMENSION,
+                            brick_offset.z + z / BOX_NODE_DIMENSION,
                             brick_dim as usize,
                         );
                         new_brick_data[new_brick_flat_offset] = brick_data[brick_flat_offset];
                     }
                 }
             }
-            result[octant] = new_brick_data;
+            result[sectant] = new_brick_data;
         }
         result
     }
@@ -691,17 +664,17 @@ impl<
             #[cfg(debug_assertions)]
             {
                 if let NodeContent::Internal(ocbits) = self.nodes.get(node_key) {
-                    for octant in 1..8 {
+                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
                         if self
                             .nodes
-                            .key_is_valid(self.node_children[node_key].child(octant))
+                            .key_is_valid(self.node_children[node_key].child(sectant as u8))
                         {
                             debug_assert_ne!(
                                 0,
-                                *ocbits & BITMAP_MASK_FOR_OCTANT_LUT[octant as usize],
-                                "Expected ocbits({:#10X}) to represent child at octant[{:?}]",
+                                *ocbits & (0x01 << sectant),
+                                "Expected ocbits({:#10X}) to represent child at sectant[{:?}]",
                                 ocbits,
-                                octant
+                                sectant
                             )
                         }
                     }
@@ -788,22 +761,18 @@ impl<
                 NodeContent::Leaf(bricks) => {
                     #[cfg(debug_assertions)]
                     {
-                        for octant in 0..8 {
-                            if let BrickData::Solid(_) | BrickData::Empty = bricks[octant] {
+                        for sectant in 0..BOX_NODE_CHILDREN_COUNT {
+                            if let BrickData::Solid(_) | BrickData::Empty = bricks[sectant] {
                                 // with solid and empty bricks, the relevant occupied bits should either be empty or full
                                 if let NodeChildren::OccupancyBitmap(occupied_bits) =
                                     self.node_children[node_key]
                                 {
+                                    let sectant_bitmask = 0x01 << sectant;
                                     debug_assert!(
-                                        0 == occupied_bits & BITMAP_MASK_FOR_OCTANT_LUT[octant]
-                                            || BITMAP_MASK_FOR_OCTANT_LUT[octant]
-                                                == occupied_bits
-                                                    & BITMAP_MASK_FOR_OCTANT_LUT[octant],
-                                        "Brickdata at octant[{:?}] doesn't match occupied bits: {:?} <> ({:#10X} & {:#10X})",
-                                        octant,
-                                        bricks[octant],
-                                        occupied_bits,
-                                        BITMAP_MASK_FOR_OCTANT_LUT[octant]
+                                        0 == occupied_bits & sectant_bitmask
+                                            || sectant_bitmask == occupied_bits & sectant_bitmask,
+                                        "Brickdata at sectant[{:?}] doesn't match occupied bits: {:?} <> {:#10X}",
+                                        sectant, bricks[sectant], occupied_bits,
                                     );
                                 }
                             }
@@ -823,12 +792,12 @@ impl<
                     let mut simplified = false;
                     let mut is_leaf_uniform_solid = true;
                     let mut uniform_solid_value = None;
-                    for octant in 0..8 {
-                        simplified |= bricks[octant]
+                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
+                        simplified |= bricks[sectant]
                             .simplify(&self.voxel_color_palette, &self.voxel_data_palette);
 
                         if is_leaf_uniform_solid {
-                            if let BrickData::Solid(voxel) = bricks[octant] {
+                            if let BrickData::Solid(voxel) = bricks[sectant] {
                                 if let Some(uniform_solid_value) = uniform_solid_value {
                                     if uniform_solid_value != voxel {
                                         is_leaf_uniform_solid = false;
@@ -861,19 +830,22 @@ impl<
                     let mut unified_brick_data =
                         vec![empty_marker::<PaletteIndexValues>(); self.brick_dim.pow(3) as usize];
                     let mut is_leaf_uniform = true;
-                    for octant in 0..8 {
-                        let brick_half = self.brick_dim as usize / 2;
-                        let octant_offset: V3c<usize> =
-                            (OCTANT_OFFSET_REGION_LUT[octant] * brick_half as f32).into();
-                        match &bricks[octant] {
+                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
+                        let child_brick_size = self.brick_dim as usize / BOX_NODE_DIMENSION;
+                        let sectant_offset: V3c<usize> =
+                            V3c::from(SECTANT_OFFSET_LUT[sectant] * child_brick_size as f32);
+                        match &bricks[sectant] {
                             BrickData::Empty => {
-                                is_leaf_uniform &= bricks[octant] == bricks[0];
+                                is_leaf_uniform &= bricks[sectant] == bricks[0];
                             } // No need to update unified brick, because empty values are already set
                             BrickData::Solid(voxel) => {
-                                is_leaf_uniform &= bricks[octant] == bricks[0];
-                                for x in octant_offset.x..(octant_offset.x + brick_half) {
-                                    for y in octant_offset.y..(octant_offset.y + brick_half) {
-                                        for z in octant_offset.z..(octant_offset.z + brick_half) {
+                                is_leaf_uniform &= bricks[sectant] == bricks[0];
+                                for x in sectant_offset.x..(sectant_offset.x + child_brick_size) {
+                                    for y in sectant_offset.y..(sectant_offset.y + child_brick_size)
+                                    {
+                                        for z in
+                                            sectant_offset.z..(sectant_offset.z + child_brick_size)
+                                        {
                                             let flat_index =
                                                 flat_projection(x, y, z, self.brick_dim as usize);
                                             unified_brick_data[flat_index] = *voxel;
@@ -883,9 +855,9 @@ impl<
                             }
                             BrickData::Parted(brick) => {
                                 // check every second index if the one after has the same value
-                                for x in 0..brick_half {
-                                    for y in 0..brick_half {
-                                        for z in 0..brick_half {
+                                for x in 0..child_brick_size {
+                                    for y in 0..child_brick_size {
+                                        for z in 0..child_brick_size {
                                             if !is_leaf_uniform {
                                                 break;
                                             }
@@ -961,9 +933,9 @@ impl<
                                                 self.brick_dim as usize,
                                             )] {
                                                 unified_brick_data[flat_projection(
-                                                    octant_offset.x + x,
-                                                    octant_offset.y + y,
-                                                    octant_offset.z + z,
+                                                    sectant_offset.x + x,
+                                                    sectant_offset.y + y,
+                                                    sectant_offset.z + z,
                                                     self.brick_dim as usize,
                                                 )] = brick[flat_projection(
                                                     x * 2,
@@ -1031,13 +1003,13 @@ impl<
                         return false;
                     }
 
-                    for octant in 1..8 {
-                        self.simplify(child_keys[octant] as usize);
-                        if !self.nodes.key_is_valid(child_keys[octant] as usize)
+                    for sectant in 1..BOX_NODE_CHILDREN_COUNT {
+                        self.simplify(child_keys[sectant] as usize);
+                        if !self.nodes.key_is_valid(child_keys[sectant] as usize)
                             || !self
                                 .nodes
                                 .get(child_keys[0] as usize)
-                                .compare(self.nodes.get(child_keys[octant] as usize))
+                                .compare(self.nodes.get(child_keys[sectant] as usize))
                         {
                             return false;
                         }
