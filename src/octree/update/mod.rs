@@ -7,6 +7,7 @@ mod tests;
 use crate::{
     object_pool::empty_marker,
     octree::{
+        child_sectant_for,
         detail::bound_contains,
         types::{BrickData, NodeChildren, NodeContent, OctreeEntry, PaletteIndexValues},
         Albedo, BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
@@ -14,7 +15,7 @@ use crate::{
     spatial::{
         lut::SECTANT_OFFSET_LUT,
         math::{flat_projection, matrix_index_for, octant_in_sectants, vector::V3c},
-        Cube,
+        update_size_within, Cube,
     },
 };
 use num_traits::Zero;
@@ -507,6 +508,80 @@ impl<
                 )
             }
         }
+    }
+
+    /// Calls the given function for every child position inside the given update range
+    /// The function is called at least once
+    /// * `node_bounds` - The bounds of the updated node
+    /// * `position` - The position of the intended update
+    /// * `update_size` - Range of the intended update starting from position
+    /// * `target_size` - The size of one child inside the updated node
+    /// * `fun` - The function to execute
+    /// returns with update size
+    fn execute_for_relevant_sectants<F: FnMut(V3c<u32>, u32, u8, &Cube) -> ()>(
+        node_bounds: &Cube,
+        position: &V3c<u32>,
+        update_size: u32,
+        target_size: f32,
+        mut fun: F,
+    ) -> usize {
+        let children_updated_dimension =
+            (update_size_within(&node_bounds, position, update_size) as f32 / target_size).ceil()
+                as u32;
+        for x in 0..children_updated_dimension {
+            for y in 0..children_updated_dimension {
+                for z in 0..children_updated_dimension {
+                    let shifted_position = V3c::from(*position)
+                        + V3c::unit(target_size) * V3c::new(x as f32, y as f32, z as f32);
+                    let target_child_sectant = child_sectant_for(&node_bounds, &shifted_position);
+                    let target_bounds = node_bounds.child_bounds_for(target_child_sectant);
+
+                    // In case smaller brick dimensions, it might happen that one update affects multiple sectants
+                    // e.g. when a uniform leaf has a parted brick of 2x2x2 --> Setting a value in one element
+                    // affects multiple sectants. In these cases, the target size is 0.5, and positions
+                    // also move inbetween voxels. Logically this is needed for e.g. setting the correct occupied bits
+                    // for a given node. The worst case scenario is some cells are given a value multiple times,
+                    // which is acceptable for the time being
+                    let target_bounds = Cube {
+                        min_position: target_bounds.min_position.floor(),
+                        size: target_bounds.size.ceil(),
+                    };
+                    let (position_in_target, update_size_in_target) = if 0 == x && 0 == y && 0 == z
+                    {
+                        // Update starts from the start position, goes until end of first target cell
+                        (
+                            *position,
+                            update_size_within(&target_bounds, position, update_size),
+                        )
+                    } else {
+                        // Update starts from the start from update position projected onto target bound edge
+                        let update_position = V3c::new(
+                            position.x.max(target_bounds.min_position.x as u32),
+                            position.y.max(target_bounds.min_position.y as u32),
+                            position.z.max(target_bounds.min_position.z as u32),
+                        );
+                        let trimmed_update_vector =
+                            *position + V3c::unit(update_size) - update_position;
+                        let update_size_left = trimmed_update_vector
+                            .x
+                            .min(trimmed_update_vector.y)
+                            .min(trimmed_update_vector.z);
+                        (
+                            update_position,
+                            update_size_within(&target_bounds, &update_position, update_size_left),
+                        )
+                    };
+
+                    fun(
+                        position_in_target,
+                        update_size_in_target,
+                        target_child_sectant,
+                        &target_bounds,
+                    );
+                }
+            }
+        }
+        (target_size * children_updated_dimension as f32) as usize
     }
 
     //####################################################################################

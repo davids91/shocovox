@@ -6,7 +6,7 @@ use crate::{
         BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT,
     },
     spatial::{
-        math::{flat_projection, vector::V3c},
+        math::{flat_projection, set_occupied_bitmap_value, vector::V3c},
         Cube,
     },
 };
@@ -71,26 +71,43 @@ impl<
             let current_node_key = current_node_key as usize;
             let target_child_sectant = child_sectant_for(&current_bounds, &V3c::from(*position));
             let target_bounds = current_bounds.child_bounds_for(target_child_sectant);
-            let target_child_key = self.node_children[current_node_key].child(target_child_sectant);
+            let mut target_child_key =
+                self.node_children[current_node_key].child(target_child_sectant);
             if clear_size > 1
                 && target_bounds.size <= clear_size as f32
                 && *position <= target_bounds.min_position.into()
-                && self.nodes.key_is_valid(target_child_key)
+                && matches!(self.nodes.get(current_node_key), NodeContent::Internal(_))
             {
-                // The whole node to be erased
                 // Parent occupied bits are correctly set in post-processing
-                if self.nodes.key_is_valid(target_child_key) {
-                    self.deallocate_children_of(target_child_key);
-                    *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
-                    self.node_children[target_child_key] = NodeChildren::NoChildren;
-                    actual_update_size = target_bounds.size as usize;
+                actual_update_size = Self::execute_for_relevant_sectants(
+                    &current_bounds,
+                    &((*position).into()),
+                    clear_size,
+                    target_bounds.size,
+                    |position_in_target,
+                     update_size_in_target,
+                     child_sectant,
+                     child_target_bounds| {
+                        if position_in_target == child_target_bounds.min_position.into()
+                            && update_size_in_target == child_target_bounds.size as u32
+                        {
+                            target_child_key =
+                                self.node_children[current_node_key].child(child_sectant);
 
-                    node_stack.push((
-                        self.node_children[current_node_key].child(target_child_sectant) as u32,
-                        target_bounds,
-                    ));
-                }
-                // If the target child is empty, there's nothing to do and the targeted area is empty already
+                            if self.nodes.key_is_valid(target_child_key) {
+                                // The whole node to be erased
+                                if self.nodes.key_is_valid(target_child_key) {
+                                    self.deallocate_children_of(target_child_key);
+                                    *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
+                                    self.node_children[target_child_key] = NodeChildren::NoChildren;
+
+                                }
+                                node_stack.push((target_child_key as u32, target_bounds));
+                            }
+                            // If the target child is empty(invalid key), there's nothing to do as the targeted area is empty already
+                        }
+                    },
+                );
                 break;
             }
 
@@ -205,15 +222,27 @@ impl<
             } else {
                 // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
-                actual_update_size = self.leaf_update(
-                    true,
-                    current_node_key,
+
+                actual_update_size = Self::execute_for_relevant_sectants(
                     &current_bounds,
-                    &target_bounds,
-                    target_child_sectant as usize,
-                    position,
+                    &((*position).into()),
                     clear_size,
-                    empty_marker::<PaletteIndexValues>(),
+                    target_bounds.size,
+                    |position_in_target,
+                     update_size_in_target,
+                     child_sectant,
+                     child_target_bounds| {
+                        self.leaf_update(
+                            true,
+                            current_node_key,
+                            &current_bounds,
+                            &child_target_bounds,
+                            child_sectant as usize,
+                            &position_in_target,
+                            update_size_in_target,
+                            empty_marker::<PaletteIndexValues>(),
+                        );
+                    },
                 );
 
                 break;
@@ -254,13 +283,13 @@ impl<
             if node_bounds.size as usize == actual_update_size {
                 new_occupied_bits = 0;
             } else {
-                // Calculate the new occupied bits of the node
-                let updated_sectant = child_sectant_for(&node_bounds, &V3c::from(*position));
-                if self.node_empty_at(node_key as usize, updated_sectant) {
-                    new_occupied_bits &= !(0x01 << updated_sectant);
-                } else {
-                    new_occupied_bits |= 0x01 << updated_sectant;
-                }
+                set_occupied_bitmap_value(
+                    &((V3c::from(*position) - node_bounds.min_position).into()),
+                    actual_update_size,
+                    node_bounds.size as usize,
+                    false,
+                    &mut new_occupied_bits,
+                );
             }
 
             *self.nodes.get_mut(node_key as usize) = if 0 != new_occupied_bits

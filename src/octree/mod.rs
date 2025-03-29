@@ -170,14 +170,14 @@ impl<
 
     /// creates an octree with the given size
     /// * `brick_dimension` - must be one of `(2^x)` and smaller than the size of the octree
-    /// * `size` - must be `brick_dimension * 4 * (2^x)`, e.g: brick_dimension == 2 --> size can be 8,16,32,64...
+    /// * `size` - must be `brick_dimension * (4^x)`, e.g: brick_dimension == 2 --> size can be 8,32,128...
     pub fn new(size: u32, brick_dimension: u32) -> Result<Self, OctreeError> {
         if 0 == size || (brick_dimension as f32).log(2.0).fract() != 0.0 {
             return Err(OctreeError::InvalidBrickDimension(brick_dimension));
         }
         if brick_dimension > size
             || 0 == size
-            || (size as f32 / brick_dimension as f32).log(2.0).fract() != 0.0
+            || (size as f32 / brick_dimension as f32).log(4.0).fract() != 0.0
         {
             return Err(OctreeError::InvalidSize(size));
         }

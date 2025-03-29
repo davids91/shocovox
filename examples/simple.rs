@@ -5,9 +5,9 @@ use shocovox_rs::{
 
 fn main() {
     // To create an empty octree the size and brick dimension needs to be set
-    const TREE_SIZE: u32 = 64; // The length of the edges of the cube the octree covers ( number of voxels )
+    const TREE_SIZE: u32 = 128; // The length of the edges of the cube the BoxTree covers ( number of voxels )
     const BRICK_DIMENSION: u32 = 8; // How big should one "group of voxels" should be refer to docs @Octree::new
-                                    // If you have no idea what size it should be, 32 is a good reference
+                                    // If you have no idea what it should be, 32 is a good reference
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 
     // The visual data the octree contains are provided through the ALbedo type
@@ -79,7 +79,7 @@ fn main() {
         (&voxel_color_red, &0xFACEFEED).into()
     );
 
-    // The below will do nothing though..
+    // The below will do nothing
     tree.insert(&V3c::new(1, 0, 0), voxel_data!()).ok().unwrap();
     tree.insert(&V3c::new(1, 0, 0), &Albedo::default())
         .ok()
@@ -91,7 +91,7 @@ fn main() {
     tree.clear(&V3c::new(1, 0, 0)).ok().unwrap();
     assert_eq!(tree.get(&V3c::new(1, 0, 0)), voxel_data!());
 
-    // data can also be inserted in bulk..
+    // data can also be inserted in bulk!
     tree.insert_at_lod(&V3c::new(0, 0, 0), 16, &voxel_color_blue)
         .ok()
         .unwrap();
@@ -104,10 +104,10 @@ fn main() {
     }
 
     // ..or cleared in bulk!
-    // Both insert and clear bulk operations update the data until the end of one target brick
-    // In the below example, voxel from 5,5,5 until 8,8,8 will be cleared
-    // instead of 5,5,5 -/-> 13,13,13.
-    tree.clear_at_lod(&V3c::new(5, 5, 5), 8).ok().unwrap();
+    // Both insert and clear bulk operations update the data until the end of one target node
+    // In the below example, voxel from 5,5,5 until 32,32,32 will be cleared
+    // instead of 5,5,5 -/-> 69,69,69
+    tree.clear_at_lod(&V3c::new(5, 5, 5), 64).ok().unwrap();
     for x in 5..8 {
         for y in 5..8 {
             for z in 5..8 {
@@ -116,9 +116,14 @@ fn main() {
         }
     }
 
-    // The update size in a bulk operation is always 2^x (1,2,4,8,16,32) etc..
-    // The maximum it can overwrite is half of the tree size,
-    // if the target position is aligned with the tree nodes! See below
+    // The update size in a bulk operation aligns to node boundaries
+    // It sounds a bit tricky at first:
+    // - One node contains 64 other nodes
+    // - Nodes are packed together into 4x4x4 cubes
+    // - A leaf node is the size of 64 voxel bricks, strucutre as above
+    // - Any node might be a leaf node
+    // - Each node starts at a multiple of its size, which is the smallest corner of it
+    // - e.g. a node of size 16 might start at (0,0,0), (16,0,0), (0,16,0), (0,0,32), ... etc..
     tree.clear_at_lod(&V3c::new(0, 0, 0), 32).ok().unwrap();
     for x in 0..32 {
         for y in 0..32 {
@@ -127,13 +132,6 @@ fn main() {
             }
         }
     }
-
-    // It sounds a bit tricky at first, but totally managable:
-    // One node contains 8 other nodes, packed together into a cube
-    // Contained node might be a leaf node
-    // One leaf node is the size of 8 voxel bricks, also packed together into a cube
-    // Each node starts at a multiple of its size, which is the smallest corner of it
-    // e.g. a node of size 16 might start at (0,0,0), (16,0,0), (0,16,0), (0,0,32), ... etc..
 
     // You can also use your own data types to be stored in an octree
     // You have to implement some traits(e.g. VoxelData) for it though. See below!
