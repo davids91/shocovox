@@ -3,7 +3,7 @@ use criterion::{criterion_group, criterion_main};
 use shocovox_rs::octree::{Albedo, BoxTree, V3c};
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::octree::raytracing::Ray;
+use shocovox_rs::raytracing::Ray;
 
 fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]

@@ -5,10 +5,7 @@ use crate::octree::{
     },
     OctreeEntry, V3c, BOX_NODE_CHILDREN_COUNT,
 };
-use crate::spatial::{
-    lut::SECTANT_OFFSET_LUT,
-    math::{flat_projection, set_occupied_bitmap_value},
-};
+use crate::spatial::math::{flat_projection, set_occupied_bitmap_value};
 use std::{
     fmt::{Debug, Error, Formatter},
     matches,
@@ -170,6 +167,27 @@ impl BrickData<PaletteIndexValues> {
                     }
                 }
                 Some(&brick[0])
+            }
+        }
+    }
+
+    pub(crate) fn contains_nothing<V: VoxelData>(
+        &self,
+        color_palette: &[Albedo],
+        data_palette: &[V],
+    ) -> bool {
+        match self {
+            BrickData::Empty => true,
+            BrickData::Solid(voxel) => {
+                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
+            }
+            BrickData::Parted(brick) => {
+                for voxel in brick.iter() {
+                    if !NodeContent::pix_points_to_empty(voxel, color_palette, data_palette) {
+                        return false;
+                    }
+                }
+                true
             }
         }
     }

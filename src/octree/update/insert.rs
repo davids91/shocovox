@@ -1,13 +1,11 @@
 use crate::{
     octree::{
-        detail::{bound_contains, child_sectant_for},
-        types::{
-            BrickData, NodeChildren, NodeContent, OctreeEntry, OctreeError, PaletteIndexValues,
-        },
-        BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT,
+        detail::child_sectant_for,
+        types::{BrickData, NodeChildren, NodeContent, OctreeEntry, OctreeError},
+        BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
-        math::{flat_projection, matrix_index_for, set_occupied_bitmap_value, vector::V3c},
+        math::{flat_projection, matrix_index_for, vector::V3c},
         Cube,
     },
 };
@@ -106,7 +104,7 @@ impl<
     ) -> Result<(), OctreeError> {
         let root_bounds = Cube::root_bounds(self.boxtree_size as f32);
         let position = V3c::<f32>::from(*position_u32);
-        if !bound_contains(&root_bounds, &position) {
+        if !root_bounds.contains(&position) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x as u32,
                 y: position.y as u32,
@@ -114,8 +112,8 @@ impl<
             });
         }
 
-        // Nothing to do when data is empty
-        if data.is_none() {
+        // Nothing to do when no operations are requested
+        if data.is_none() || insert_size == 0 {
             return Ok(());
         }
 
@@ -128,19 +126,20 @@ impl<
             let current_node_key = current_node_key as usize;
             let target_child_sectant = child_sectant_for(&current_bounds, &position);
             let target_bounds = current_bounds.child_bounds_for(target_child_sectant);
-
             let mut target_child_key =
                 self.node_children[current_node_key].child(target_child_sectant);
             debug_assert!(
                 target_bounds.size >= 1.
                     || matches!(
-                        self.nodes.get(current_node_key as usize),
+                        self.nodes.get(current_node_key),
                         NodeContent::UniformLeaf(_)
                     ),
                 "Invalid target bounds(too small): {:?}",
                 target_bounds
             );
-            if insert_size > 1
+
+            if target_bounds.size > 1.
+                && insert_size > 1
                 && target_bounds.size <= insert_size as f32
                 && position <= target_bounds.min_position
             {
@@ -330,7 +329,7 @@ impl<
             } else {
                 actual_update_size = Self::execute_for_relevant_sectants(
                     &current_bounds,
-                    &position_u32,
+                    position_u32,
                     insert_size,
                     target_bounds.size,
                     |position_in_target,
@@ -341,7 +340,7 @@ impl<
                             overwrite_if_empty,
                             current_node_key,
                             &current_bounds,
-                            &child_target_bounds,
+                            child_target_bounds,
                             child_sectant as usize,
                             &position_in_target,
                             update_size_in_target,
@@ -371,28 +370,35 @@ impl<
             if node_bounds.size as usize == actual_update_size {
                 new_occupied_bits = u64::MAX;
             } else {
-                set_occupied_bitmap_value(
-                    &((position - node_bounds.min_position).into()),
-                    actual_update_size,
-                    node_bounds.size as usize,
-                    true,
-                    &mut new_occupied_bits,
+                Self::execute_for_relevant_sectants(
+                    &node_bounds,
+                    position_u32,
+                    insert_size,
+                    node_bounds.size / BOX_NODE_DIMENSION as f32,
+                    |_position_in_target,
+                     _update_size_in_target,
+                     child_sectant,
+                     _child_target_bounds| {
+                        if !self.node_empty_at(node_key as usize, child_sectant) {
+                            new_occupied_bits |= 0x01 << child_sectant;
+                        }
+                    },
                 );
             }
+            debug_assert!(
+                0 != new_occupied_bits,
+                "Occupied bits 0x000000 during insert operation"
+            );
             self.store_occupied_bits(node_key as usize, new_occupied_bits);
             #[cfg(debug_assertions)]
             {
-                if let NodeContent::Leaf(bricks) = self.nodes.get(node_key as usize) {
-                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                        if matches!(
-                            bricks[sectant], // empty_marker::<PaletteIndexValues>() should be used instead of PaletteIndexValues::MAX, If it would be possible
-                            BrickData::Solid(PaletteIndexValues::MAX) | BrickData::Empty
-                        ) {
-                            // with empty bricks, the relevant occupied bits should be 0
-                            if let NodeChildren::OccupancyBitmap(occupied_bits) =
-                                self.node_children[node_key as usize]
-                            {
-                                debug_assert_eq!(
+                for sectant in 0..BOX_NODE_CHILDREN_COUNT {
+                    // with empty children, the relevant occupied bits should be 0
+                    if let NodeChildren::OccupancyBitmap(occupied_bits) =
+                        self.node_children[node_key as usize]
+                    {
+                        if self.node_empty_at(node_key as usize, sectant as u8) {
+                            debug_assert_eq!(
                                     0,
                                     occupied_bits & (0x01 << sectant),
                                     "Node[{:?}] under {:?} \n has an empty child in sectant[{:?}](global position: {:?}), which is incompatible with the occupancy bitmap: {:#10X}",
@@ -401,7 +407,6 @@ impl<
                                     sectant,
                                     position, occupied_bits,
                                 );
-                            }
                         }
                     }
                 }
@@ -416,12 +421,14 @@ impl<
                 NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
             ) {
                 // In case of leaf nodes, just try to simplify and continue
-                simplifyable = self.simplify(node_key as usize);
+                simplifyable = self.simplify(node_key as usize, &node_bounds);
                 continue;
             }
 
             if simplifyable {
-                simplifyable = self.simplify(node_key as usize); // If any Nodes fail to simplify, no need to continue because their parents can not be simplified because of it
+                // If any Nodes fail to simplify, no need to continue because
+                // their parents can not be simplified anyway because of it
+                simplifyable = self.simplify(node_key as usize, &node_bounds);
             }
         }
         Ok(())

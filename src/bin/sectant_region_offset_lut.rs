@@ -1,4 +1,3 @@
-use shocovox_rs;
 use shocovox_rs::octree::V3c;
 
 pub(crate) const BOX_NODE_DIMENSION: usize = 4;

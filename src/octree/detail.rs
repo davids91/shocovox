@@ -2,9 +2,12 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{Albedo, BoxTree, NodeChildren, NodeContent, PaletteIndexValues, VoxelData},
-        BrickData, Cube, V3c, BOX_NODE_CHILDREN_COUNT,
+        BrickData, Cube, V3c, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
-    spatial::math::hash_region,
+    spatial::{
+        lut::SECTANT_OFFSET_LUT,
+        math::{flat_projection, hash_region},
+    },
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 use num_traits::Zero;
@@ -13,20 +16,10 @@ use std::{
     ops::{Add, Div},
 };
 
-/// Returns whether the given bound contains the given position.
-pub(crate) fn bound_contains(bounds: &Cube, position: &V3c<f32>) -> bool {
-    position.x >= bounds.min_position.x
-        && position.x < bounds.min_position.x + bounds.size
-        && position.y >= bounds.min_position.y
-        && position.y < bounds.min_position.y + bounds.size
-        && position.z >= bounds.min_position.z
-        && position.z < bounds.min_position.z + bounds.size
-}
-
 /// Returns with the sectant value(i.e. index) of the child for the given position
 pub(crate) fn child_sectant_for(bounds: &Cube, position: &V3c<f32>) -> u8 {
     debug_assert!(
-        bound_contains(bounds, position),
+        bounds.contains(position),
         "Position {:?}, out of {:?}",
         position,
         bounds
@@ -172,7 +165,7 @@ impl<
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
     > BoxTree<T>
 {
-    /// Returns with true if Node is empty at the given target sectant. Uses occupied bits for Internal nodes.
+    /// Returns with true if Node is empty at the given target sectant
     pub(crate) fn node_empty_at(&self, node_key: usize, target_sectant: u8) -> bool {
         match self.nodes.get(node_key) {
             NodeContent::Nothing => true,
@@ -202,16 +195,27 @@ impl<
                     &self.voxel_color_palette,
                     &self.voxel_data_palette,
                 ),
-                BrickData::Parted(_brick) => {
-                    if let Some(data) = brick.get_homogeneous_data() {
-                        NodeContent::pix_points_to_empty(
-                            data,
-                            &self.voxel_color_palette,
-                            &self.voxel_data_palette,
-                        )
-                    } else {
-                        false
+                BrickData::Parted(brick) => {
+                    let check_start = V3c::from(
+                        (SECTANT_OFFSET_LUT[target_sectant as usize] * self.brick_dim as f32)
+                            .floor(),
+                    );
+                    let check_size =
+                        (self.brick_dim as f32 / BOX_NODE_DIMENSION as f32).max(1.) as usize;
+                    for x in check_start.x..(check_start.x + check_size) {
+                        for y in check_start.y..(check_start.y + check_size) {
+                            for z in check_start.z..(check_start.z + check_size) {
+                                if !NodeContent::pix_points_to_empty(
+                                    &brick[flat_projection(x, y, z, self.brick_dim as usize)],
+                                    &self.voxel_color_palette,
+                                    &self.voxel_data_palette,
+                                ) {
+                                    return false;
+                                }
+                            }
+                        }
                     }
+                    true
                 }
             },
             NodeContent::Internal(_occupied_bits) => {
@@ -262,19 +266,32 @@ impl<
                 for sectant in 0..BOX_NODE_CHILDREN_COUNT {
                     let mut brick = BrickData::Empty;
                     std::mem::swap(&mut brick, &mut bricks[sectant]);
-                    let new_child = match brick {
-                        BrickData::Empty => {
-                            if sectant == target_sectant {
-                                Some(NodeContent::Nothing)
-                            } else {
-                                None
-                            }
-                        }
+
+                    if !brick.contains_nothing(&self.voxel_color_palette, &self.voxel_data_palette)
+                        || sectant == target_sectant
+                    // Push in a new child even if the brick is empty for the target sectant
+                    {
+                        // Push in the new(placeholder) child
+                        node_new_children[sectant] = self.nodes.push(NodeContent::Nothing) as u32;
+                        // Potentially Resize node children array to accomodate the new child
+                        self.node_children.resize(
+                            self.node_children
+                                .len()
+                                .max(node_new_children[sectant] as usize + 1),
+                            NodeChildren::default(),
+                        );
+                        self.node_mips
+                            .resize(self.node_mips.len().max(self.nodes.len()), BrickData::Empty);
+                    }
+
+                    match brick {
+                        BrickData::Empty => {}
                         BrickData::Solid(voxel) => {
                             // Set the occupancy bitmap for the new leaf child node
                             self.node_children[node_new_children[sectant] as usize] =
                                 NodeChildren::OccupancyBitmap(u64::MAX);
-                            Some(NodeContent::UniformLeaf(BrickData::Solid(voxel)))
+                            *self.nodes.get_mut(node_new_children[sectant] as usize) =
+                                NodeContent::UniformLeaf(BrickData::Solid(voxel));
                         }
                         BrickData::Parted(brick) => {
                             // Calculcate the occupancy bitmap for the new leaf child node
@@ -287,22 +304,9 @@ impl<
                                         &self.voxel_data_palette,
                                     ),
                                 );
-                            Some(NodeContent::UniformLeaf(BrickData::Parted(brick.clone())))
+                            *self.nodes.get_mut(node_new_children[sectant] as usize) =
+                                NodeContent::UniformLeaf(BrickData::Parted(brick.clone()));
                         }
-                    };
-
-                    if let Some(new_child) = new_child {
-                        // Push in the new child
-                        node_new_children[sectant] = self.nodes.push(new_child) as u32;
-                        // Potentially Resize node children array to accomodate the new child
-                        self.node_children.resize(
-                            self.node_children
-                                .len()
-                                .max(node_new_children[sectant] as usize + 1),
-                            NodeChildren::default(),
-                        );
-                        self.node_mips
-                            .resize(self.node_mips.len().max(self.nodes.len()), BrickData::Empty);
                     }
                 }
             }
@@ -327,18 +331,17 @@ impl<
                     }
                     BrickData::Solid(voxel) => {
                         // Push in all solid children for child sectants
-                        for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                            node_new_children[sectant] = self
+                        for new_child in node_new_children.iter_mut().take(BOX_NODE_CHILDREN_COUNT)
+                        {
+                            *new_child = self
                                 .nodes
                                 .push(NodeContent::UniformLeaf(BrickData::Solid(voxel)))
                                 as u32;
                             self.node_children.resize(
-                                self.node_children
-                                    .len()
-                                    .max(node_new_children[sectant] as usize + 1),
+                                self.node_children.len().max(*new_child as usize + 1),
                                 NodeChildren::default(),
                             );
-                            self.node_children[node_new_children[sectant] as usize] =
+                            self.node_children[*new_child as usize] =
                                 NodeChildren::OccupancyBitmap(u64::MAX);
                         }
                     }

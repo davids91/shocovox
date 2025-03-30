@@ -8,7 +8,6 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         child_sectant_for,
-        detail::bound_contains,
         types::{BrickData, NodeChildren, NodeContent, OctreeEntry, PaletteIndexValues},
         Albedo, BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
@@ -231,7 +230,7 @@ impl<
                         }
                         update_size
                     }
-                    BrickData::Parted(ref mut brick) => {
+                    BrickData::Parted(brick) => {
                         // Simply update the brick at the given position
                         Self::update_brick(
                             overwrite_if_empty,
@@ -517,8 +516,9 @@ impl<
     /// * `update_size` - Range of the intended update starting from position
     /// * `target_size` - The size of one child inside the updated node
     /// * `fun` - The function to execute
+    ///
     /// returns with update size
-    fn execute_for_relevant_sectants<F: FnMut(V3c<u32>, u32, u8, &Cube) -> ()>(
+    fn execute_for_relevant_sectants<F: FnMut(V3c<u32>, u32, u8, &Cube)>(
         node_bounds: &Cube,
         position: &V3c<u32>,
         update_size: u32,
@@ -526,14 +526,14 @@ impl<
         mut fun: F,
     ) -> usize {
         let children_updated_dimension =
-            (update_size_within(&node_bounds, position, update_size) as f32 / target_size).ceil()
+            (update_size_within(node_bounds, position, update_size) as f32 / target_size).ceil()
                 as u32;
         for x in 0..children_updated_dimension {
             for y in 0..children_updated_dimension {
                 for z in 0..children_updated_dimension {
                     let shifted_position = V3c::from(*position)
                         + V3c::unit(target_size) * V3c::new(x as f32, y as f32, z as f32);
-                    let target_child_sectant = child_sectant_for(&node_bounds, &shifted_position);
+                    let target_child_sectant = child_sectant_for(node_bounds, &shifted_position);
                     let target_bounds = node_bounds.child_bounds_for(target_child_sectant);
 
                     // In case smaller brick dimensions, it might happen that one update affects multiple sectants
@@ -692,7 +692,7 @@ impl<
         data: &PaletteIndexValues,
     ) -> usize {
         debug_assert!(
-            bound_contains(brick_bounds, &(position.into())),
+            brick_bounds.contains(&(position.into())),
             "Expected position {:?} to be contained in brick bounds {:?}",
             position,
             brick_bounds
@@ -734,22 +734,19 @@ impl<
     //####################################################################################
     /// Updates the given node recursively to collapse nodes with uniform children into a leaf
     /// Returns with true if the given node was simplified
-    pub(crate) fn simplify(&mut self, node_key: usize) -> bool {
+    pub(crate) fn simplify(&mut self, node_key: usize, node_bounds: &Cube) -> bool {
         if self.nodes.key_is_valid(node_key) {
             #[cfg(debug_assertions)]
             {
                 if let NodeContent::Internal(ocbits) = self.nodes.get(node_key) {
-                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                        if self
-                            .nodes
-                            .key_is_valid(self.node_children[node_key].child(sectant as u8))
-                        {
-                            debug_assert_ne!(
+                    for sectant in 0..BOX_NODE_CHILDREN_COUNT as u8 {
+                        if self.node_empty_at(node_key, sectant) {
+                            debug_assert_eq!(
                                 0,
                                 *ocbits & (0x01 << sectant),
-                                "Expected ocbits({:#10X}) to represent child at sectant[{:?}]",
-                                ocbits,
-                                sectant
+                                "Expected node[{:?}] ocbits({:#10X}) to represent child at sectant[{:?}]: \n{:?}",
+                                node_key, ocbits, sectant,
+                                self.nodes.get(self.node_children[node_key].child(sectant))
                             )
                         }
                     }
@@ -824,7 +821,9 @@ impl<
                                     self.node_children[node_key]
                                         == NodeChildren::OccupancyBitmap(u64::MAX)
                                         || self.node_children[node_key]
-                                            == NodeChildren::OccupancyBitmap(0)
+                                            == NodeChildren::OccupancyBitmap(0),
+                                    "Expected brick occuped bits( inside {:?}) to be either full or empty, becasue it could be simplified",
+                                    self.node_children[node_key]
                                 );
                                 true
                             } else {
@@ -836,8 +835,10 @@ impl<
                 NodeContent::Leaf(bricks) => {
                     #[cfg(debug_assertions)]
                     {
-                        for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                            if let BrickData::Solid(_) | BrickData::Empty = bricks[sectant] {
+                        for (sectant, brick) in
+                            bricks.iter().enumerate().take(BOX_NODE_CHILDREN_COUNT)
+                        {
+                            if let BrickData::Solid(_) | BrickData::Empty = brick {
                                 // with solid and empty bricks, the relevant occupied bits should either be empty or full
                                 if let NodeChildren::OccupancyBitmap(occupied_bits) =
                                     self.node_children[node_key]
@@ -847,7 +848,7 @@ impl<
                                         0 == occupied_bits & sectant_bitmask
                                             || sectant_bitmask == occupied_bits & sectant_bitmask,
                                         "Brickdata at sectant[{:?}] doesn't match occupied bits: {:?} <> {:#10X}",
-                                        sectant, bricks[sectant], occupied_bits,
+                                        sectant, brick, occupied_bits,
                                     );
                                 }
                             }
@@ -867,14 +868,15 @@ impl<
                     let mut simplified = false;
                     let mut is_leaf_uniform_solid = true;
                     let mut uniform_solid_value = None;
-                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                        simplified |= bricks[sectant]
-                            .simplify(&self.voxel_color_palette, &self.voxel_data_palette);
+
+                    for brick in bricks.iter_mut().take(BOX_NODE_CHILDREN_COUNT) {
+                        simplified |=
+                            brick.simplify(&self.voxel_color_palette, &self.voxel_data_palette);
 
                         if is_leaf_uniform_solid {
-                            if let BrickData::Solid(voxel) = bricks[sectant] {
-                                if let Some(uniform_solid_value) = uniform_solid_value {
-                                    if uniform_solid_value != voxel {
+                            if let BrickData::Solid(voxel) = brick {
+                                if let Some(ref uniform_solid_value) = uniform_solid_value {
+                                    if *uniform_solid_value != voxel {
                                         is_leaf_uniform_solid = false;
                                     }
                                 } else {
@@ -896,138 +898,58 @@ impl<
                             "Expected Leaf with uniform solid value to have u64::MAX value"
                         );
                         *self.nodes.get_mut(node_key) = NodeContent::UniformLeaf(BrickData::Solid(
-                            uniform_solid_value.unwrap(),
+                            *uniform_solid_value.unwrap(),
                         ));
                         return true;
+                    }
+
+                    // Do not try to unite bricks into a uniform brick
+                    // since contents are not solid, it is not unifyable
+                    // into a 1x1x1 brick ( that's equivalent to a solid brick )
+                    if self.brick_dim == 1 {
+                        return false;
                     }
 
                     // Try to unite bricks into a Uniform parted brick
                     let mut unified_brick_data =
                         vec![empty_marker::<PaletteIndexValues>(); self.brick_dim.pow(3) as usize];
                     let mut is_leaf_uniform = true;
-                    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                        let child_brick_size = self.brick_dim as usize / BOX_NODE_DIMENSION;
-                        let sectant_offset: V3c<usize> =
-                            V3c::from(SECTANT_OFFSET_LUT[sectant] * child_brick_size as f32);
-                        match &bricks[sectant] {
-                            BrickData::Empty => {
-                                is_leaf_uniform &= bricks[sectant] == bricks[0];
-                            } // No need to update unified brick, because empty values are already set
-                            BrickData::Solid(voxel) => {
-                                is_leaf_uniform &= bricks[sectant] == bricks[0];
-                                for x in sectant_offset.x..(sectant_offset.x + child_brick_size) {
-                                    for y in sectant_offset.y..(sectant_offset.y + child_brick_size)
-                                    {
-                                        for z in
-                                            sectant_offset.z..(sectant_offset.z + child_brick_size)
-                                        {
-                                            let flat_index =
-                                                flat_projection(x, y, z, self.brick_dim as usize);
-                                            unified_brick_data[flat_index] = *voxel;
-                                        }
-                                    }
-                                }
-                            }
-                            BrickData::Parted(brick) => {
-                                // check every second index if the one after has the same value
-                                for x in 0..child_brick_size {
-                                    for y in 0..child_brick_size {
-                                        for z in 0..child_brick_size {
+                    let unified_cell_size = (node_bounds.size / self.brick_dim as f32) as u32;
+                    'brick_process: for x in 0..self.brick_dim {
+                        for y in 0..self.brick_dim {
+                            for z in 0..self.brick_dim {
+                                // see if all voxels are the same in this cell
+                                let ref_position = V3c::from(node_bounds.min_position)
+                                    + V3c::new(
+                                        x * unified_cell_size,
+                                        y * unified_cell_size,
+                                        z * unified_cell_size,
+                                    );
+                                let ref_voxel =
+                                    self.get_internal(node_key, *node_bounds, &ref_position);
+                                for cx in 0..unified_cell_size {
+                                    for cy in 0..unified_cell_size {
+                                        for cz in 0..unified_cell_size {
                                             if !is_leaf_uniform {
-                                                break;
+                                                break 'brick_process;
                                             }
-                                            if brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2 + 1,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2,
-                                                y * 2 + 1,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2 + 1,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2 + 1,
-                                                y * 2 + 1,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2,
-                                                y * 2 + 1,
-                                                z * 2 + 1,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2 + 1,
-                                                y * 2,
-                                                z * 2 + 1,
-                                                self.brick_dim as usize,
-                                            )] && brick[flat_projection(
-                                                x * 2,
-                                                y * 2,
-                                                z * 2,
-                                                self.brick_dim as usize,
-                                            )] == brick[flat_projection(
-                                                x * 2 + 1,
-                                                y * 2 + 1,
-                                                z * 2 + 1,
-                                                self.brick_dim as usize,
-                                            )] {
-                                                unified_brick_data[flat_projection(
-                                                    sectant_offset.x + x,
-                                                    sectant_offset.y + y,
-                                                    sectant_offset.z + z,
-                                                    self.brick_dim as usize,
-                                                )] = brick[flat_projection(
-                                                    x * 2,
-                                                    y * 2,
-                                                    z * 2,
-                                                    self.brick_dim as usize,
-                                                )]
-                                            } else {
-                                                is_leaf_uniform = false;
-                                            }
+                                            let voxel = self.get_internal(
+                                                node_key,
+                                                *node_bounds,
+                                                &(ref_position + V3c::new(cx, cy, cz)),
+                                            );
+                                            is_leaf_uniform &= voxel == ref_voxel;
                                         }
                                     }
                                 }
+                                // All voxel are the same in this cell! set value in unified brick
+                                unified_brick_data[flat_projection(
+                                    x as usize,
+                                    y as usize,
+                                    z as usize,
+                                    self.brick_dim as usize,
+                                )] = ref_voxel;
                             }
-                        }
-                        if !is_leaf_uniform {
-                            break;
                         }
                     }
 
@@ -1068,18 +990,24 @@ impl<
                         };
 
                     // Try to simplify each child of the node
-                    self.simplify(child_keys[0] as usize);
+                    self.simplify(child_keys[0] as usize, &node_bounds.child_bounds_for(0));
 
                     if !self.nodes.key_is_valid(child_keys[0] as usize) {
                         // Try to simplify siblings, even if the first child wasn't simplifiable
-                        for child_key in child_keys.iter().skip(1) {
-                            self.simplify(*child_key as usize);
+                        for (sectant, child_key) in child_keys.iter().skip(1).enumerate() {
+                            self.simplify(
+                                *child_key as usize,
+                                &node_bounds.child_bounds_for(sectant as u8),
+                            );
                         }
                         return false;
                     }
 
                     for sectant in 1..BOX_NODE_CHILDREN_COUNT {
-                        self.simplify(child_keys[sectant] as usize);
+                        self.simplify(
+                            child_keys[sectant] as usize,
+                            &node_bounds.child_bounds_for(sectant as u8),
+                        );
                         if !self.nodes.key_is_valid(child_keys[sectant] as usize)
                             || !self
                                 .nodes

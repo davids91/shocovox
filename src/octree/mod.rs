@@ -16,8 +16,8 @@ pub use types::{
 use crate::{
     object_pool::{empty_marker, ObjectPool},
     octree::{
-        detail::{bound_contains, child_sectant_for},
-        types::{BrickData, NodeChildren, NodeContent, OctreeError},
+        detail::child_sectant_for,
+        types::{BrickData, NodeChildren, NodeContent, OctreeError, PaletteIndexValues},
     },
     spatial::{
         math::{flat_projection, matrix_index_for},
@@ -208,10 +208,14 @@ impl<
     /// Getter function for the octree
     /// * Returns immutable reference to the data at the given position, if there is any
     pub fn get(&self, position: &V3c<u32>) -> OctreeEntry<T> {
-        self.get_internal(
-            Self::ROOT_NODE_KEY as usize,
-            Cube::root_bounds(self.boxtree_size as f32),
-            position,
+        NodeContent::pix_get_ref(
+            &self.get_internal(
+                Self::ROOT_NODE_KEY as usize,
+                Cube::root_bounds(self.boxtree_size as f32),
+                position,
+            ),
+            &self.voxel_color_palette,
+            &self.voxel_data_palette,
         )
     }
 
@@ -222,15 +226,15 @@ impl<
         mut current_node_key: usize,
         mut current_bounds: Cube,
         position: &V3c<u32>,
-    ) -> OctreeEntry<T> {
+    ) -> PaletteIndexValues {
         let position = V3c::from(*position);
-        if !bound_contains(&current_bounds, &position) {
-            return OctreeEntry::Empty;
+        if !current_bounds.contains(&position) {
+            return empty_marker();
         }
 
         loop {
             match self.nodes.get(current_node_key) {
-                NodeContent::Nothing => return OctreeEntry::Empty,
+                NodeContent::Nothing => return empty_marker(),
                 NodeContent::Leaf(bricks) => {
                     // In case brick_dimension == octree size, the root node can not be a leaf...
                     debug_assert!(self.brick_dim < self.boxtree_size);
@@ -241,7 +245,7 @@ impl<
                     // If the child exists, query it for the voxel
                     match &bricks[child_sectant_at_position as usize] {
                         BrickData::Empty => {
-                            return OctreeEntry::Empty;
+                            return empty_marker();
                         }
                         BrickData::Parted(brick) => {
                             current_bounds =
@@ -262,26 +266,18 @@ impl<
                                 &self.voxel_color_palette,
                                 &self.voxel_data_palette,
                             ) {
-                                return NodeContent::pix_get_ref(
-                                    &brick[mat_index],
-                                    &self.voxel_color_palette,
-                                    &self.voxel_data_palette,
-                                );
+                                return brick[mat_index];
                             }
-                            return OctreeEntry::Empty;
+                            return empty_marker();
                         }
                         BrickData::Solid(voxel) => {
-                            return NodeContent::pix_get_ref(
-                                voxel,
-                                &self.voxel_color_palette,
-                                &self.voxel_data_palette,
-                            );
+                            return *voxel;
                         }
                     }
                 }
                 NodeContent::UniformLeaf(brick) => match brick {
                     BrickData::Empty => {
-                        return OctreeEntry::Empty;
+                        return empty_marker();
                     }
                     BrickData::Parted(brick) => {
                         let mat_index =
@@ -292,32 +288,10 @@ impl<
                             mat_index.z as usize,
                             self.brick_dim as usize,
                         );
-                        if NodeContent::pix_points_to_empty(
-                            &brick[mat_index],
-                            &self.voxel_color_palette,
-                            &self.voxel_data_palette,
-                        ) {
-                            return OctreeEntry::Empty;
-                        }
-                        return NodeContent::pix_get_ref(
-                            &brick[mat_index],
-                            &self.voxel_color_palette,
-                            &self.voxel_data_palette,
-                        );
+                        return brick[mat_index];
                     }
                     BrickData::Solid(voxel) => {
-                        if NodeContent::pix_points_to_empty(
-                            voxel,
-                            &self.voxel_color_palette,
-                            &self.voxel_data_palette,
-                        ) {
-                            return OctreeEntry::Empty;
-                        }
-                        return NodeContent::pix_get_ref(
-                            voxel,
-                            &self.voxel_color_palette,
-                            &self.voxel_data_palette,
-                        );
+                        return *voxel;
                     }
                 },
                 NodeContent::Internal(occupied_bits) => {
@@ -344,7 +318,7 @@ impl<
                         current_bounds =
                             Cube::child_bounds_for(&current_bounds, child_sectant_at_position);
                     } else {
-                        return OctreeEntry::Empty;
+                        return empty_marker();
                     }
                 }
             }

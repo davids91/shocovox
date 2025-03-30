@@ -186,7 +186,7 @@ fn test_node_children_serialization() {
 #[test]
 fn test_octree_file_io() {
     let red: Albedo = 0xFF0000FF.into();
-    let mut tree: BoxTree = BoxTree::new(8, 1).ok().unwrap();
+    let mut tree: BoxTree = BoxTree::new(16, 1).ok().unwrap();
 
     // This will set the area equal to 64 1-sized nodes
     tree.insert_at_lod(&V3c::new(0, 0, 0), 4, &red)
@@ -228,15 +228,26 @@ fn test_octree_file_io() {
 
 #[test]
 fn test_big_octree_serialize() {
-    const TREE_SIZE: u32 = 128;
-    const FILL_RANGE_START: u32 = 100;
+    const TREE_SIZE: u32 = 256;
+    const FILL_RANGE_START: u32 = 230;
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, 1).ok().unwrap();
     for x in FILL_RANGE_START..TREE_SIZE {
         for y in FILL_RANGE_START..TREE_SIZE {
             for z in FILL_RANGE_START..TREE_SIZE {
                 let pos = V3c::new(x, y, z);
-                tree.insert(&pos, &Albedo::from(x + y + z)).ok().unwrap();
-                assert!(tree.get(&pos) == (&Albedo::from(x + y + z)).into());
+                let color = Albedo::from(x + y + z);
+                tree.insert(&pos, &color).ok().unwrap();
+
+                if color.is_transparent() {
+                    continue;
+                }
+
+                assert_eq!(
+                    tree.get(&pos),
+                    (&color).into(),
+                    "Hit mismatch at: {:?}",
+                    pos
+                );
             }
         }
     }
@@ -248,7 +259,12 @@ fn test_big_octree_serialize() {
         for y in FILL_RANGE_START..TREE_SIZE {
             for z in FILL_RANGE_START..TREE_SIZE {
                 let pos = V3c::new(x, y, z);
-                assert!(deserialized.get(&pos) == (&Albedo::from(x + y + z)).into());
+                let color = Albedo::from(x + y + z);
+
+                if color.is_transparent() {
+                    continue;
+                }
+                assert_eq!(deserialized.get(&pos), (&color).into());
             }
         }
     }

@@ -1,4 +1,3 @@
-use shocovox_rs;
 use shocovox_rs::octree::{V3c, V3cf32};
 
 pub(crate) const OOB_SECTANT: u8 = 64;
@@ -98,12 +97,16 @@ fn main() {
     // LUT to be generated for every sectant and for every direction
     // --> usage: sectant_step_result[sectant][direction_x_signum][direction_y_signum][direction_z_signum];
     let mut sectant_step_result = [[[[0u8; 3]; 3]; 3]; BOX_NODE_CHILDREN_COUNT];
-    for sectant in 0..BOX_NODE_CHILDREN_COUNT {
+    for (sectant, step_result) in sectant_step_result
+        .iter_mut()
+        .enumerate()
+        .take(BOX_NODE_CHILDREN_COUNT)
+    {
         for z in -1i32..=1 {
             for y in -1i32..=1 {
                 for x in -1i32..=1 {
-                    sectant_step_result[sectant][(x + 1) as usize][(y + 1) as usize]
-                        [(z + 1) as usize] = sectant_after_step(&V3c::new(x, y, z), sectant);
+                    step_result[(x + 1) as usize][(y + 1) as usize][(z + 1) as usize] =
+                        sectant_after_step(&V3c::new(x, y, z), sectant);
                 }
             }
         }

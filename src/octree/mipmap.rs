@@ -408,7 +408,7 @@ impl<
                 (sample_start, sample_size)
             }
             NodeContent::Internal(_occupied_bits) => {
-                let sample_size = BOX_NODE_DIMENSION as u32;
+                let sample_size = (self.brick_dim as f32 / BOX_NODE_DIMENSION as f32).ceil() as u32;
                 let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
                 let sample_start =
                     pos_in_bounds * BOX_NODE_DIMENSION as f32 * self.brick_dim as f32
@@ -445,33 +445,41 @@ impl<
             NodeContent::Nothing | NodeContent::UniformLeaf(_) => None,
             NodeContent::Leaf(_) => {
                 sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                    self.get_internal(node_key, *node_bounds, pos)
-                        .albedo()
-                        .copied()
+                    NodeContent::pix_get_ref(
+                        &self.get_internal(node_key, *node_bounds, pos),
+                        &self.voxel_color_palette,
+                        &self.voxel_data_palette,
+                    )
+                    .albedo()
+                    .copied()
                 })
             }
             NodeContent::Internal(_occupied_bits) if dominant_bottom => {
                 sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                    self.get_internal(node_key, *node_bounds, pos)
-                        .albedo()
-                        .copied()
+                    NodeContent::pix_get_ref(
+                        &self.get_internal(node_key, *node_bounds, pos),
+                        &self.voxel_color_palette,
+                        &self.voxel_data_palette,
+                    )
+                    .albedo()
+                    .copied()
                 })
             }
             NodeContent::Internal(_occupied_bits) => {
-                // the sampling range spans 0 --> (BOX_NODE_DIMENSION * brick_dimension)
-                if empty_marker::<u32>() as usize
-                    == self.node_children[node_key]
-                        .child(hash_region(&V3c::from(sample_start), self.brick_dim as f32))
-                {
-                    None
-                } else {
-                    sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                        // Current position spans 2 bricks, but in special cases the brick dimension might be smaller,
-                        // than the sample size, e.g. when brick_dim == 1
+                sampler.execute(
+                    &sample_start,
+                    sample_size,
+                    |pos_in_parent_mip| -> Option<Albedo> {
+                        // Current position spans BOX_NODE_DIMENSION bricks, but in special cases
+                        // the brick dimension might be smaller, than the sample size, e.g. when brick_dim == 1
                         // In this case the target child_sectant needs to be updated dynamically to accomodate this
                         // It would be possible to use an if condition to handle when brick_dim == 1
                         // but the performance gain is neglegible
-                        let child_sectant = hash_region(&((*pos).into()), self.brick_dim as f32);
+                        let child_sectant = hash_region(
+                            &((*pos_in_parent_mip).into()),
+                            (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32,
+                        );
+
 
                         if empty_marker::<u32>() as usize
                             == self.node_children[node_key].child(child_sectant)
@@ -479,10 +487,14 @@ impl<
                             return None;
                         }
 
-                        let pos = V3c::from(*pos)
-                            - SECTANT_OFFSET_LUT[child_sectant as usize] * self.brick_dim as f32;
+                        let pos_in_child_mip = V3c::from(*pos_in_parent_mip)
+                            - SECTANT_OFFSET_LUT[child_sectant as usize]
+                                * (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32;
 
-                        match &self.node_mips[self.node_children[node_key].child(child_sectant)] {
+
+                        let sample = match &self.node_mips
+                            [self.node_children[node_key].child(child_sectant)]
+                        {
                             BrickData::Empty => None,
                             BrickData::Solid(voxel) => NodeContent::pix_get_ref(
                                 voxel,
@@ -493,9 +505,9 @@ impl<
                             .copied(),
                             BrickData::Parted(brick) => {
                                 let mip_index = flat_projection(
-                                    pos.x as usize,
-                                    pos.y as usize,
-                                    pos.z as usize,
+                                    pos_in_child_mip.x as usize,
+                                    pos_in_child_mip.y as usize,
+                                    pos_in_child_mip.z as usize,
                                     self.brick_dim as usize,
                                 );
                                 NodeContent::pix_get_ref(
@@ -506,9 +518,10 @@ impl<
                                 .albedo()
                                 .copied()
                             }
-                        }
-                    })
-                }
+                        };
+                        sample
+                    },
+                )
             }
         };
 

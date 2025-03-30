@@ -13,7 +13,7 @@ mod mipmap_tests {
         )
         .into();
 
-        let mut tree: BoxTree = BoxTree::new(2, 1).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(4, 1).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
             .switch_albedo_mip_maps(true)
@@ -204,7 +204,7 @@ mod mipmap_tests {
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
 
-        let mut tree: BoxTree = BoxTree::new(16, 4).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(64, 4).ok().unwrap();
         tree.auto_simplify = false;
         tree.albedo_mip_map_resampling_strategy()
             .switch_albedo_mip_maps(true)
@@ -223,17 +223,17 @@ mod mipmap_tests {
         tree.insert(&V3c::new(1, 0, 1), &green)
             .expect("octree insert");
 
-        tree.insert(&V3c::new(8, 0, 0), &red)
+        tree.insert(&V3c::new(16, 0, 0), &red)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 0, 1), &green)
+        tree.insert(&V3c::new(16, 0, 1), &green)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 1, 0), &blue)
+        tree.insert(&V3c::new(16, 1, 0), &blue)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 1, 1), &green)
+        tree.insert(&V3c::new(16, 1, 1), &green)
             .expect("octree insert");
-        tree.insert(&V3c::new(9, 1, 0), &red)
+        tree.insert(&V3c::new(17, 1, 0), &red)
             .expect("octree insert");
-        tree.insert(&V3c::new(9, 0, 1), &blue)
+        tree.insert(&V3c::new(17, 0, 1), &blue)
             .expect("octree insert");
 
         // For child position 0,0,0
@@ -258,7 +258,7 @@ mod mipmap_tests {
                 .unwrap()
         );
 
-        // For child position 8,0,0
+        // For child position 16,0,0
         let rgb_mix: Albedo = (
             // Gamma corrected values follow mip = ((a^2 + b^2) / 2).sqrt()
             (((255_f32.powf(2.) / 3.).sqrt() as u32) << 8)
@@ -296,17 +296,17 @@ mod mipmap_tests {
                 .unwrap()
         );
 
-        // root mip position 8,0,0
+        // root mip position 16,0,0
         assert!(tree
             .albedo_mip_map_resampling_strategy()
-            .sample_root_mip(OOB_SECTANT, &V3c::new(2, 0, 0))
+            .sample_root_mip(OOB_SECTANT, &V3c::new(1, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
                 .albedo_mip_map_resampling_strategy()
-                .sample_root_mip(OOB_SECTANT, &V3c::new(2, 0, 0))
+                .sample_root_mip(OOB_SECTANT, &V3c::new(1, 0, 0))
                 .albedo()
                 .unwrap()
         );
@@ -318,7 +318,7 @@ mod mipmap_tests {
         let green: Albedo = 0x00FF00FF.into();
         let blue: Albedo = 0x0000FFFF.into();
 
-        let mut tree: BoxTree = BoxTree::new(16, 4).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(64, 4).ok().unwrap();
         tree.auto_simplify = false;
         tree.insert(&V3c::new(0, 0, 0), &red)
             .expect("octree insert");
@@ -333,17 +333,17 @@ mod mipmap_tests {
         tree.insert(&V3c::new(1, 0, 1), &green)
             .expect("octree insert");
 
-        tree.insert(&V3c::new(8, 0, 0), &red)
+        tree.insert(&V3c::new(16, 0, 0), &red)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 0, 1), &green)
+        tree.insert(&V3c::new(16, 0, 1), &green)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 1, 0), &blue)
+        tree.insert(&V3c::new(16, 1, 0), &blue)
             .expect("octree insert");
-        tree.insert(&V3c::new(8, 1, 1), &green)
+        tree.insert(&V3c::new(16, 1, 1), &green)
             .expect("octree insert");
-        tree.insert(&V3c::new(9, 1, 0), &red)
+        tree.insert(&V3c::new(17, 1, 0), &red)
             .expect("octree insert");
-        tree.insert(&V3c::new(9, 0, 1), &blue)
+        tree.insert(&V3c::new(17, 0, 1), &blue)
             .expect("octree insert");
 
         // Switch MIP maps on, calculate the correct values
@@ -413,17 +413,17 @@ mod mipmap_tests {
                 .unwrap()
         );
 
-        // root mip position 8,0,0
+        // root mip position 16,0,0
         assert!(tree
             .albedo_mip_map_resampling_strategy()
-            .sample_root_mip(OOB_SECTANT, &V3c::new(2, 0, 0))
+            .sample_root_mip(OOB_SECTANT, &V3c::new(1, 0, 0))
             .albedo()
             .is_some());
         assert_eq!(
             rgb_mix,
             *tree
                 .albedo_mip_map_resampling_strategy()
-                .sample_root_mip(OOB_SECTANT, &V3c::new(2, 0, 0))
+                .sample_root_mip(OOB_SECTANT, &V3c::new(1, 0, 0))
                 .albedo()
                 .unwrap()
         );

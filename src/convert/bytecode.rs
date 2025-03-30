@@ -218,8 +218,8 @@ where
             }),
             NodeContent::Leaf(bricks) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                    e.emit(bricks[sectant].clone())?;
+                for brick in bricks.iter().take(BOX_NODE_CHILDREN_COUNT) {
+                    e.emit(brick.clone())?;
                 }
                 Ok(())
             }),
@@ -348,8 +348,8 @@ impl ToBencode for NodeChildren<u32> {
         match &self {
             NodeChildren::Children(c) => encoder.emit_list(|e| {
                 e.emit_str("##c##")?;
-                for sectant in 0..BOX_NODE_CHILDREN_COUNT {
-                    e.emit(c[sectant])?;
+                for child in c.iter().take(BOX_NODE_CHILDREN_COUNT) {
+                    e.emit(child)?;
                 }
                 Ok(())
             }),
@@ -629,15 +629,15 @@ where
                 let voxel_color_palette =
                     Vec::<Albedo>::decode_bencode_object(list.next_object()?.unwrap())?;
                 let mut map_to_color_index_in_palette = HashMap::new();
-                for i in 0..voxel_color_palette.len() {
-                    map_to_color_index_in_palette.insert(voxel_color_palette[i], i);
+                for (i, voxel_color) in voxel_color_palette.iter().enumerate() {
+                    map_to_color_index_in_palette.insert(*voxel_color, i);
                 }
 
                 let voxel_data_palette =
                     Vec::<T>::decode_bencode_object(list.next_object()?.unwrap())?;
                 let mut map_to_data_index_in_palette = HashMap::new();
-                for i in 0..voxel_data_palette.len() {
-                    map_to_data_index_in_palette.insert(voxel_data_palette[i].clone(), i);
+                for (i, voxel_data) in voxel_data_palette.iter().enumerate() {
+                    map_to_data_index_in_palette.insert(voxel_data.clone(), i);
                 }
 
                 let mip_map_strategy =
@@ -645,7 +645,7 @@ where
 
                 Ok(Self {
                     auto_simplify,
-                    boxtree_size: boxtree_size,
+                    boxtree_size,
                     brick_dim,
                     nodes,
                     node_children,

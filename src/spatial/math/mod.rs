@@ -40,6 +40,7 @@ pub(crate) fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
     flat_projection(index.x, index.y, index.z, BOX_NODE_DIMENSION) as u8
 }
 
+#[cfg(feature = "raytracing")]
 /// Maps direction vector to the octant it points to for indexing within RAY_TO_NODE_OCCUPANCY_BITMASK_LUT
 pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
     debug_assert!((1. - direction.length()).abs() < 0.1);

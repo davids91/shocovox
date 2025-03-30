@@ -43,6 +43,7 @@ pub(crate) struct Cube {
 }
 
 impl Cube {
+    /// Creates boundaries starting from (0,0,0), with the given size
     pub(crate) fn root_bounds(size: f32) -> Self {
         Self {
             min_position: V3c::unit(0.),
@@ -50,7 +51,6 @@ impl Cube {
         }
     }
 
-    #[cfg(debug_assertions)]
     pub(crate) fn contains(&self, position: &V3c<f32>) -> bool {
         position.x >= self.min_position.x
             && position.y >= self.min_position.y

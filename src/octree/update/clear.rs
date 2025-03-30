@@ -1,12 +1,12 @@
 use crate::{
     object_pool::empty_marker,
     octree::{
-        detail::{bound_contains, child_sectant_for},
+        detail::child_sectant_for,
         types::{BrickData, NodeChildren, NodeContent, OctreeError, PaletteIndexValues},
-        BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT,
+        BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
-        math::{flat_projection, set_occupied_bitmap_value, vector::V3c},
+        math::{flat_projection, vector::V3c},
         Cube,
     },
 };
@@ -54,7 +54,7 @@ impl<
         clear_size: u32,
     ) -> Result<(), OctreeError> {
         let root_bounds = Cube::root_bounds(self.boxtree_size as f32);
-        if !bound_contains(&root_bounds, &V3c::from(*position)) {
+        if !root_bounds.contains(&V3c::from(*position)) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
                 y: position.y,
@@ -62,6 +62,10 @@ impl<
             });
         }
 
+        // Nothing to do when no operations are requested
+        if clear_size == 0 {
+            return Ok(());
+        }
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
@@ -73,6 +77,16 @@ impl<
             let target_bounds = current_bounds.child_bounds_for(target_child_sectant);
             let mut target_child_key =
                 self.node_children[current_node_key].child(target_child_sectant);
+            debug_assert!(
+                target_bounds.size >= 1.
+                    || matches!(
+                        self.nodes.get(current_node_key),
+                        NodeContent::UniformLeaf(_)
+                    ),
+                "Invalid target bounds(too small): {:?}",
+                target_bounds
+            );
+
             if clear_size > 1
                 && target_bounds.size <= clear_size as f32
                 && *position <= target_bounds.min_position.into()
@@ -81,7 +95,7 @@ impl<
                 // Parent occupied bits are correctly set in post-processing
                 actual_update_size = Self::execute_for_relevant_sectants(
                     &current_bounds,
-                    &((*position).into()),
+                    position,
                     clear_size,
                     target_bounds.size,
                     |position_in_target,
@@ -225,7 +239,7 @@ impl<
 
                 actual_update_size = Self::execute_for_relevant_sectants(
                     &current_bounds,
-                    &((*position).into()),
+                    position,
                     clear_size,
                     target_bounds.size,
                     |position_in_target,
@@ -236,7 +250,7 @@ impl<
                             true,
                             current_node_key,
                             &current_bounds,
-                            &child_target_bounds,
+                            child_target_bounds,
                             child_sectant as usize,
                             &position_in_target,
                             update_size_in_target,
@@ -283,12 +297,19 @@ impl<
             if node_bounds.size as usize == actual_update_size {
                 new_occupied_bits = 0;
             } else {
-                set_occupied_bitmap_value(
-                    &((V3c::from(*position) - node_bounds.min_position).into()),
-                    actual_update_size,
-                    node_bounds.size as usize,
-                    false,
-                    &mut new_occupied_bits,
+                Self::execute_for_relevant_sectants(
+                    &node_bounds,
+                    position,
+                    clear_size,
+                    node_bounds.size / BOX_NODE_DIMENSION as f32,
+                    |_position_in_target,
+                     _update_size_in_target,
+                     child_sectant,
+                     _child_target_bounds| {
+                        if self.node_empty_at(node_key as usize, child_sectant) {
+                            new_occupied_bits &= !(0x01 << child_sectant);
+                        }
+                    },
                 );
             }
 
@@ -334,7 +355,7 @@ impl<
             // Decide to continue or not
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because their parents can not be simplified further
-                simplifyable = self.simplify(node_key as usize);
+                simplifyable = self.simplify(node_key as usize, &node_bounds);
             }
             if previous_occupied_bits == new_occupied_bits {
                 // In case the occupied bits were not modified, there's no need to continue

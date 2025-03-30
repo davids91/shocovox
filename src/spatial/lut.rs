@@ -1,4 +1,7 @@
-use crate::octree::{V3c, V3cf32, BOX_NODE_CHILDREN_COUNT};
+use crate::octree::{V3c, V3cf32};
+
+#[cfg(feature = "raytracing")]
+use crate::octree::BOX_NODE_CHILDREN_COUNT;
 
 #[rustfmt::skip]
 pub(crate) const SECTANT_OFFSET_LUT: [V3cf32; 64] = [
@@ -23,6 +26,7 @@ pub(crate) const SECTANT_OFFSET_LUT: [V3cf32; 64] = [
     V3c { x: 0.0, y: 0.75, z: 0.75 }, V3c { x: 0.25, y: 0.75, z: 0.75 }, V3c { x: 0.5, y: 0.75, z: 0.75 }, V3c { x: 0.75, y: 0.75, z: 0.75 }
 ];
 
+#[cfg(feature = "raytracing")]
 pub(crate) const BITMAP_INDEX_LUT: [[[usize; 4]; 4]; 4] = [
     [
         [0, 16, 32, 48],
@@ -51,6 +55,7 @@ pub(crate) const BITMAP_INDEX_LUT: [[[usize; 4]; 4]; 4] = [
 ];
 
 #[rustfmt::skip]
+#[cfg(feature = "raytracing")]
 pub(crate) const SECTANT_STEP_RESULT_LUT: [[[[u8; 3]; 3]; 3]; BOX_NODE_CHILDREN_COUNT] = [
     [[[64, 64, 64], [64, 64, 64], [64, 64, 64]], [[64, 64, 64], [64, 0, 16],  [64, 4, 20]],  [[64, 64, 64], [64, 1, 17], [64, 5, 21]]],
     [[[64, 64, 64], [64, 0, 16],  [64, 4, 20]],  [[64, 64, 64], [64, 1, 17],  [64, 5, 21]],  [[64, 64, 64], [64, 2, 18], [64, 6, 22]]],
@@ -118,6 +123,8 @@ pub(crate) const SECTANT_STEP_RESULT_LUT: [[[[u8; 3]; 3]; 3]; BOX_NODE_CHILDREN_
     [[[42, 58, 64], [46, 62, 64], [64, 64, 64]], [[43, 59, 64], [47, 63, 64], [64, 64, 64]], [[64, 64, 64], [64, 64, 64], [64, 64, 64]]]
 ];
 
+#[rustfmt::skip]
+#[cfg(feature = "raytracing")]
 pub(crate) const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: [[u64; 8]; 64] = [
     [
         1,
