@@ -3,11 +3,7 @@ pub mod vector;
 
 use crate::{
     octree::BOX_NODE_DIMENSION,
-    spatial::{
-        lut::{BOX_NODE_INDEX_TO_SECTANT_LUT, SECTANT_OFFSET_LUT},
-        math::vector::V3c,
-        Cube,
-    },
+    spatial::{lut::SECTANT_OFFSET_LUT, math::vector::V3c, Cube},
 };
 use std::ops::Neg;
 
@@ -40,10 +36,15 @@ pub(crate) fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
         "Expected relative offset {:?} to be inside {size}^3",
         offset
     );
-    let index: V3c<usize> = (*offset * BOX_NODE_DIMENSION as f32 / size).floor().into();
+    // let index: V3c<usize> = (*offset * BOX_NODE_DIMENSION as f32 / size).floor().into();
+    // // During raytracing, positions on cube boundaries need to be mapped to an index inside @BOX_NODE_DIMENSION
+    // let index = index.cut_each_component(BOX_NODE_DIMENSION - 1);
+    // BOX_NODE_INDEX_TO_SECTANT_LUT[index.x][index.y][index.z]
+    let index = (*offset * BOX_NODE_DIMENSION as f32 / size).floor();
     // During raytracing, positions on cube boundaries need to be mapped to an index inside @BOX_NODE_DIMENSION
-    let index = index.cut_each_component(BOX_NODE_DIMENSION - 1);
-    BOX_NODE_INDEX_TO_SECTANT_LUT[index.x][index.y][index.z]
+    let index = index.cut_each_component((BOX_NODE_DIMENSION - 1) as f32);
+    (index.x + (index.y * BOX_NODE_DIMENSION as f32) + (index.z * BOX_NODE_DIMENSION.pow(2) as f32))
+        as u8 //flat_projection_f32
 }
 
 #[cfg(feature = "raytracing")]

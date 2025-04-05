@@ -206,15 +206,8 @@ impl<
             // iteration needs to go deeper, as current node is not a leaf,
             // and target size is still larger, than brick dimension.
             // The whole node can't be overwritten because that case was handled before this
-            let data_bounds = match self.nodes.get(current_node_key) {
-                NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::Leaf(_) => {
-                    target_bounds
-                }
-                NodeContent::UniformLeaf(_) => current_bounds,
-            };
-
             if target_bounds.size > 1.
-                && (data_bounds.size > self.brick_dim as f32
+                && (target_bounds.size > self.brick_dim as f32
                     || self.nodes.key_is_valid(target_child_key))
             {
                 // the child at the queried position exists and valid, recurse into it
@@ -421,14 +414,14 @@ impl<
                 NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
             ) {
                 // In case of leaf nodes, just try to simplify and continue
-                simplifyable = self.simplify(node_key as usize, &node_bounds);
+                simplifyable = self.simplify(node_key as usize);
                 continue;
             }
 
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because
                 // their parents can not be simplified anyway because of it
-                simplifyable = self.simplify(node_key as usize, &node_bounds);
+                simplifyable = self.simplify(node_key as usize);
             }
         }
         Ok(())

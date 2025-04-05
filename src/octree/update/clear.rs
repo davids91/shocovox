@@ -114,7 +114,6 @@ impl<
                                     self.deallocate_children_of(target_child_key);
                                     *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
                                     self.node_children[target_child_key] = NodeChildren::NoChildren;
-
                                 }
                                 node_stack.push((target_child_key as u32, target_bounds));
                             }
@@ -355,7 +354,7 @@ impl<
             // Decide to continue or not
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because their parents can not be simplified further
-                simplifyable = self.simplify(node_key as usize, &node_bounds);
+                simplifyable = self.simplify(node_key as usize);
             }
             if previous_occupied_bits == new_occupied_bits {
                 // In case the occupied bits were not modified, there's no need to continue

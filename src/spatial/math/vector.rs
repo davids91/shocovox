@@ -110,6 +110,13 @@ impl V3c<f32> {
         self.z = self.z.round();
         *self
     }
+
+    pub fn cut_each_component(mut self, value: f32) -> Self {
+        self.x = self.x.min(value);
+        self.y = self.y.min(value);
+        self.z = self.z.min(value);
+        self
+    }
 }
 
 impl V3c<i32> {
