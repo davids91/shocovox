@@ -3,11 +3,15 @@ pub mod vector;
 
 use crate::{
     octree::BOX_NODE_DIMENSION,
-    spatial::{math::vector::V3c, Cube},
+    spatial::{
+        lut::{BOX_NODE_INDEX_TO_SECTANT_LUT, SECTANT_OFFSET_LUT},
+        math::vector::V3c,
+        Cube,
+    },
 };
 use std::ops::Neg;
 
-use super::SECTANT_OFFSET_LUT;
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
 
 /// Maps 3 dimensional space limited by `size` to 1 dimension
 /// This mapping function supposes that the coordinates are bound inside
@@ -25,19 +29,21 @@ pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usiz
 /// * `offset` - From range 0..size in each dimensions
 /// * `size` - Size of the region to check for child sectants
 pub(crate) fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
-    // Scale to 0..BOX_NODE_DIMENSION, then project to an unique index
+    // Scale to 0..BOX_NODE_CHILDREN_COUNT, then project to an unique index
     debug_assert!(
-        offset.x <= size
-            && offset.y <= size
-            && offset.z <= size
-            && offset.x >= 0.
-            && offset.y >= 0.
-            && offset.z >= 0.,
+        offset.x <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.y <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.z <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.x >= (-FLOAT_ERROR_TOLERANCE)
+            && offset.y >= (-FLOAT_ERROR_TOLERANCE)
+            && offset.z >= (-FLOAT_ERROR_TOLERANCE),
         "Expected relative offset {:?} to be inside {size}^3",
         offset
     );
     let index: V3c<usize> = (*offset * BOX_NODE_DIMENSION as f32 / size).floor().into();
-    flat_projection(index.x, index.y, index.z, BOX_NODE_DIMENSION) as u8
+    // During raytracing, positions on cube boundaries need to be mapped to an index inside @BOX_NODE_DIMENSION
+    let index = index.cut_each_component(BOX_NODE_DIMENSION - 1);
+    BOX_NODE_INDEX_TO_SECTANT_LUT[index.x][index.y][index.z]
 }
 
 #[cfg(feature = "raytracing")]

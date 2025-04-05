@@ -156,11 +156,11 @@ impl V3c<usize> {
         result / self.length()
     }
 
-    pub fn cut_each_component(&mut self, value: &usize) -> Self {
-        self.x = self.x.min(*value);
-        self.y = self.y.min(*value);
-        self.z = self.z.min(*value);
-        *self
+    pub fn cut_each_component(mut self, value: usize) -> Self {
+        self.x = self.x.min(value);
+        self.y = self.y.min(value);
+        self.z = self.z.min(value);
+        self
     }
 
     pub fn cut_by(&mut self, value: V3c<usize>) -> Self {

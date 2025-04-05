@@ -1,9 +1,8 @@
 use crate::{
     octree::V3c,
     spatial::{
-        raytracing::{
-            Ray, {plane_line_intersection, FLOAT_ERROR_TOLERANCE},
-        },
+        math::FLOAT_ERROR_TOLERANCE,
+        raytracing::{plane_line_intersection, Ray},
         Cube,
     },
 };
@@ -78,10 +77,7 @@ mod octree_raytracing_tests {
     use crate::{
         octree::{Albedo, BoxTree, OctreeEntry, V3c},
         raytracing::tests::get_step_to_next_sibling,
-        spatial::{
-            raytracing::{Ray, FLOAT_ERROR_TOLERANCE},
-            Cube,
-        },
+        spatial::{math::FLOAT_ERROR_TOLERANCE, raytracing::Ray, Cube},
         voxel_data,
     };
 
@@ -166,7 +162,7 @@ mod octree_raytracing_tests {
     #[test]
     fn test_get_by_ray_from_outside_where_dim_is_2() {
         let mut rng = rand::thread_rng();
-        let mut tree: BoxTree = BoxTree::new(4, 2).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(8, 2).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
@@ -200,7 +196,7 @@ mod octree_raytracing_tests {
     #[test]
     fn test_get_by_ray_from_edge() {
         let mut rng = rand::thread_rng();
-        let mut tree: BoxTree = BoxTree::new(8, 1).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(16, 1).ok().unwrap();
         let mut filled = Vec::new();
         for x in 1..4 {
             for y in 1..4 {
@@ -629,7 +625,7 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_deep_stack() {
-        let tree_size = 512;
+        let tree_size = 1024;
         const BRICK_DIMENSION: u32 = 1;
         let mut tree: BoxTree = BoxTree::new(tree_size, BRICK_DIMENSION).ok().unwrap();
 
@@ -730,7 +726,7 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_cube_flaps() {
-        const TREE_SIZE: u32 = 32;
+        const TREE_SIZE: u32 = 64;
         const BRICK_DIMENSION: u32 = 1;
         let mut tree: BoxTree = BoxTree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 
@@ -771,7 +767,7 @@ mod octree_raytracing_tests {
 
     #[test]
     fn test_edge_case_context_bleed() {
-        const TREE_SIZE: u32 = 32;
+        const TREE_SIZE: u32 = 64;
         const BRICK_DIMENSION: u32 = 1;
         let mut tree: BoxTree = BoxTree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 

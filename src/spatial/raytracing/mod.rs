@@ -2,8 +2,6 @@ use crate::spatial::{lut::SECTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
 
 mod tests;
 
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
-
 #[derive(Debug)]
 pub struct Ray {
     pub origin: V3c<f32>,
