@@ -15,20 +15,37 @@ mod vector_tests {
 }
 
 #[cfg(test)]
-mod octant_tests {
+mod detail_tests {
+    use crate::octree::V3c;
+    use crate::spatial::{update_size_within, Cube};
+
+    #[test]
+    fn test_update_size() {
+        let bounds = Cube {
+            min_position: V3c::unit(5.),
+            size: 5.,
+        };
+        assert_eq!(update_size_within(&bounds, &V3c::new(5, 5, 5), 5), 5);
+        assert_eq!(update_size_within(&bounds, &V3c::new(5, 5, 6), 5), 4);
+        assert_eq!(update_size_within(&bounds, &V3c::new(8, 8, 8), 5), 2);
+        assert_eq!(update_size_within(&bounds, &V3c::new(8, 8, 8), 2), 2);
+        assert_eq!(update_size_within(&bounds, &V3c::new(6, 5, 6), 3), 3);
+        assert_eq!(update_size_within(&bounds, &V3c::new(5, 5, 5), 2), 2);
+    }
+}
+
+#[cfg(test)]
+mod sectant_tests {
     use crate::spatial::math::hash_region;
     use crate::spatial::V3c;
 
     #[test]
     fn test_hash_region() {
-        assert!(hash_region(&V3c::new(0.0, 0.0, 0.0), 5.0) == 0);
-        assert!(hash_region(&V3c::new(6.0, 0.0, 0.0), 5.0) == 1);
-        assert!(hash_region(&V3c::new(0.0, 0.0, 6.0), 5.0) == 2);
-        assert!(hash_region(&V3c::new(6.0, 0.0, 6.0), 5.0) == 3);
-        assert!(hash_region(&V3c::new(0.0, 6.0, 0.0), 5.0) == 4);
-        assert!(hash_region(&V3c::new(6.0, 6.0, 0.0), 5.0) == 5);
-        assert!(hash_region(&V3c::new(0.0, 6.0, 6.0), 5.0) == 6);
-        assert!(hash_region(&V3c::new(6.0, 6.0, 6.0), 5.0) == 7);
+        assert_eq!(hash_region(&V3c::new(0.0, 0.0, 0.0), 12.0), 0);
+        assert_eq!(hash_region(&V3c::new(3.0, 0.0, 0.0), 12.0), 1);
+        assert_eq!(hash_region(&V3c::new(0.0, 3.0, 0.0), 12.0), 4);
+        assert_eq!(hash_region(&V3c::new(0.0, 0.0, 3.0), 12.0), 16);
+        assert_eq!(hash_region(&V3c::new(10.0, 10.0, 10.0), 12.0), 63);
     }
 }
 
@@ -36,7 +53,7 @@ mod octant_tests {
 mod bitmask_tests {
 
     use crate::octree::V3c;
-    use crate::spatial::math::{flat_projection, position_in_bitmap_64bits};
+    use crate::spatial::math::{flat_projection, hash_region};
     use std::collections::HashSet;
 
     #[test]
@@ -67,28 +84,28 @@ mod bitmask_tests {
 
     #[test]
     fn test_bitmap_flat_projection_exact_size_match() {
-        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 4));
-        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 2), 4));
-        assert!(63 == position_in_bitmap_64bits(&V3c::new(3, 3, 3), 4));
+        assert_eq!(0, hash_region(&V3c::new(0., 0., 0.), 4.));
+        assert_eq!(32, hash_region(&V3c::new(0., 0., 2.), 4.));
+        assert_eq!(63, hash_region(&V3c::new(3., 3., 3.), 4.));
     }
 
     #[test]
     fn test_bitmap_flat_projection_greater_dimension() {
-        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 10));
-        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 5), 10));
-        assert!(42 == position_in_bitmap_64bits(&V3c::new(5, 5, 5), 10));
-        assert!(63 == position_in_bitmap_64bits(&V3c::new(9, 9, 9), 10));
+        assert_eq!(0, hash_region(&V3c::new(0., 0., 0.), 10.));
+        assert_eq!(32, hash_region(&V3c::new(0., 0., 5.), 10.));
+        assert_eq!(42, hash_region(&V3c::new(5., 5., 5.), 10.));
+        assert_eq!(63, hash_region(&V3c::new(9., 9., 9.), 10.));
     }
 
     #[test]
     fn test_bitmap_flat_projection_smaller_dimension() {
-        assert!(0 == position_in_bitmap_64bits(&V3c::new(0, 0, 0), 2));
-        assert!(2 == position_in_bitmap_64bits(&V3c::new(1, 0, 0), 2));
-        assert!(8 == position_in_bitmap_64bits(&V3c::new(0, 1, 0), 2));
-        assert!(10 == position_in_bitmap_64bits(&V3c::new(1, 1, 0), 2));
-        assert!(32 == position_in_bitmap_64bits(&V3c::new(0, 0, 1), 2));
-        assert!(34 == position_in_bitmap_64bits(&V3c::new(1, 0, 1), 2));
-        assert!(40 == position_in_bitmap_64bits(&V3c::new(0, 1, 1), 2));
-        assert!(42 == position_in_bitmap_64bits(&V3c::new(1, 1, 1), 2));
+        assert_eq!(0, hash_region(&V3c::new(0., 0., 0.), 2.));
+        assert_eq!(2, hash_region(&V3c::new(1., 0., 0.), 2.));
+        assert_eq!(8, hash_region(&V3c::new(0., 1., 0.), 2.));
+        assert_eq!(10, hash_region(&V3c::new(1., 1., 0.), 2.));
+        assert_eq!(32, hash_region(&V3c::new(0., 0., 1.), 2.));
+        assert_eq!(34, hash_region(&V3c::new(1., 0., 1.), 2.));
+        assert_eq!(40, hash_region(&V3c::new(0., 1., 1.), 2.));
+        assert_eq!(42, hash_region(&V3c::new(1., 1., 1.), 2.));
     }
 }

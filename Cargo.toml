@@ -1,6 +1,6 @@
 [package]
 name = "shocovox-rs"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 authors = ["Dávid Tóth <toth.david.munka@gmail.com>"]
 license = "MIT OR Apache-2.0"

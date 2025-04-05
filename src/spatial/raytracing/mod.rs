@@ -1,8 +1,6 @@
-use crate::spatial::{lut::OCTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
+use crate::spatial::{lut::SECTANT_STEP_RESULT_LUT, math::vector::V3c, Cube};
 
 mod tests;
-
-pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
 
 #[derive(Debug)]
 pub struct Ray {
@@ -61,22 +59,13 @@ impl Cube {
     }
 }
 
-/// Provides the resulting octant based on the given octant and a direction it is stepping to
-/// It returns with 8 if the resulting octant is out of bounds.
+/// Provides the resulting sectant based on the given sectant
+/// It returns with OOB_SECTANT if the result is out of bounds.
 /// Important note: the specs of `signum` behvaes differently for f32 and i32
 /// So the conversion to i32 is absolutely required
-pub(crate) fn step_octant(octant: u8, step: V3c<f32>) -> u8 {
-    // Each octant takes up 4 bits in one item inside the LUT
-    // The step is encoded in the index values, while the source octant
-    // is encoded in the bit position. e.g:
-    // source octant is 3, the step directions: x: negative, y: no delta, z: positive
-    // --> in OCTANT_STEP_RESULT_LUT[0][1][2]
-    // --> the data under position (3 * 4) is the result of the above step for octant 3
-    let octant_pos_in_32bits = 4 * octant;
-    ((OCTANT_STEP_RESULT_LUT[((step.x as i32).signum() + 1) as usize]
+pub(crate) fn step_sectant(sectant: u8, step: V3c<f32>) -> u8 {
+    SECTANT_STEP_RESULT_LUT[sectant as usize][((step.x as i32).signum() + 1) as usize]
         [((step.y as i32).signum() + 1) as usize][((step.z as i32).signum() + 1) as usize]
-        & (0x0F << octant_pos_in_32bits))
-        >> octant_pos_in_32bits) as u8
 }
 
 /// calculates the distance between the line, and the plane both described by a ray
