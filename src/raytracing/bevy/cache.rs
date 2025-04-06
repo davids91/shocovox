@@ -440,7 +440,7 @@ impl OctreeGPUDataHandler {
 
         // Add MIP entry
         self.render_data.node_mips[node_element_index] = match tree.node_mips[node_key] {
-            BrickData::Solid(voxel) => voxel, // In case MIP is solid, it is pointing to the color palette
+            BrickData::Solid(voxel) => 0x80000000 | voxel, // In case MIP is solid, it is pointing to the color palette
             BrickData::Empty | BrickData::Parted(_) => empty_marker(), // parted bricks need to be uploaded; empty MIPS are stored with empty_marker
         };
 

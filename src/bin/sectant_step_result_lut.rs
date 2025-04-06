@@ -112,8 +112,42 @@ fn main() {
         }
     }
 
-    println!("{:?}", sectant_step_result);
+    println!("CPU LUT:{:?}", sectant_step_result);
+    println!("WGSL LUT:");
+    println!(
+        "//const\nvar<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,{}> = array<array<array<array<u32, 3>, 3>, 3>,{}>(",
+        BOX_NODE_CHILDREN_COUNT, BOX_NODE_CHILDREN_COUNT
+    );
 
+    for (sectant, step_lut) in sectant_step_result.iter().enumerate() {
+        print!("\tarray<array<array<u32, 3>, 3>, 3>(");
+        for (x, xarr) in step_lut.iter().enumerate() {
+            print!("array<array<u32, 3>, 3>");
+            for (y, yarr) in xarr.iter().enumerate() {
+                print!("array<u32, 3>(");
+                for (idx, step_result) in yarr.iter().enumerate() {
+                    print!("{:?}", step_result);
+                    if idx < 2 {
+                        print!(",");
+                    }
+                }
+                print!(")");
+                if y < 2 {
+                    print!(",");
+                }
+            }
+            print!(")");
+            if x < 2 {
+                print!(",");
+            }
+        }
+        print!(")");
+        if sectant < (OOB_SECTANT as usize - 1) {
+            print!(",");
+        }
+        println!();
+    }
+    println!("\n);");
     #[rustfmt::skip]
     let _sectant_step_result_lut = [
         [[[64, 64, 64], [64, 64, 64], [64, 64, 64]], [[64, 64, 64], [64, 0, 16],  [64, 4, 20]],  [[64, 64, 64], [64, 1, 17], [64, 5, 21]]],

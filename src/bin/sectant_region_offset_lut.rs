@@ -24,7 +24,26 @@ fn main() {
             }
         }
     }
-    println!("{:?}", sectant_offset);
+    println!("CPU LUT: {:?}", sectant_offset);
+    println!("WGSL LUT:");
+    println!(
+        "//const\nvar<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, {}> = array<u32, {}>(",
+        BOX_NODE_CHILDREN_COUNT, BOX_NODE_CHILDREN_COUNT
+    );
+
+    for (sectant, offset) in sectant_offset.iter().enumerate() {
+        if 0 == (sectant % 4) && 0 != sectant {
+            println!();
+        }
+        if 0 == (sectant % 16) && 0 != sectant {
+            println!();
+        }
+        if 0 == (sectant % 4) {
+            print!("\t");
+        }
+        print!("vec3f({:?}, {:?}, {:?}),", offset.x, offset.y, offset.z);
+    }
+    println!("\n);");
 
     #[rustfmt::skip]
     let _sectant_offset = [
