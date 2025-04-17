@@ -4,18 +4,18 @@ use shocovox_rs::{
 };
 
 fn main() {
-    // To create an empty octree the size and brick dimension needs to be set
+    // To create an empty boxtree the size and brick dimension needs to be set
     const TREE_SIZE: u32 = 128; // The length of the edges of the cube the BoxTree covers ( number of voxels )
     const BRICK_DIMENSION: u32 = 8; // How big should one "group of voxels" should be refer to docs @Octree::new
                                     // If you have no idea what it should be, 32 is a good reference
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, BRICK_DIMENSION).ok().unwrap();
 
-    // The visual data the octree contains are provided through the ALbedo type
+    // The visual data the boxtree contains are provided through the ALbedo type
     let voxel_color_red: Albedo = 0xFF0000FF.into(); // RGBA hex codes can be used like this
     let voxel_color_green: Albedo = 0x00FF00FF.into();
     let voxel_color_blue: Albedo = 0x0000FFFF.into();
 
-    // Data can be inserted through a reference to a position inside bounds of the octree
+    // Data can be inserted through a reference to a position inside bounds of the boxtree
     tree.insert(&V3c::new(0, 0, 0), &voxel_color_red)
         .ok()
         .unwrap();
@@ -45,7 +45,7 @@ fn main() {
     assert_eq!(tree.get(&V3c::new(0, 0, 0)), (&voxel_color_green).into());
     assert_eq!(tree.get(&V3c::new(0, 0, 1)), (&voxel_color_green).into());
 
-    // custom data can also be stored inside the octree, e.g. u32 ( most number types by default )
+    // custom data can also be stored inside the boxtree, e.g. u32 ( most number types by default )
     tree.insert(&V3c::new(0, 1, 1), voxel_data!(&0xBEEF))
         .ok()
         .unwrap();
@@ -133,9 +133,9 @@ fn main() {
         }
     }
 
-    // You can also use your own data types to be stored in an octree
+    // You can also use your own data types to be stored in an boxtree
     // You have to implement some traits(e.g. VoxelData) for it though. See below!
-    let _custom_octree: BoxTree<MyAwesomeData> = BoxTree::new(8, 2).ok().unwrap();
+    let _custom_boxtree: BoxTree<MyAwesomeData> = BoxTree::new(8, 2).ok().unwrap();
 }
 
 // The trait VoxelData is required in order to differentiate between empty and non-empty contents of a voxel
@@ -149,7 +149,7 @@ impl VoxelData for MyAwesomeData {
 #[cfg(feature = "serialization")]
 use serde::{Deserialize, Serialize};
 
-// ..And to be able to save and load the data in the octree, the bendy crate is used.
+// ..And to be able to save and load the data in the boxtree, the bendy crate is used.
 // The traits below need to be implemented for bytecode serialization
 // This is used instead of serde, as the contents are much more thightly packed,
 // and there a significant difference in performance

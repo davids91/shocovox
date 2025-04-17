@@ -184,7 +184,7 @@ fn test_node_children_serialization() {
 }
 
 #[test]
-fn test_octree_file_io() {
+fn test_boxtree_file_io() {
     let red: Albedo = 0xFF0000FF.into();
     let mut tree: BoxTree = BoxTree::new(16, 1).ok().unwrap();
 
@@ -197,8 +197,8 @@ fn test_octree_file_io() {
     tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok().unwrap();
 
     // save andd load into a new tree
-    tree.save("test_junk_octree").ok().unwrap();
-    let tree_copy = BoxTree::load("test_junk_octree").ok().unwrap();
+    tree.save("test_junk_boxtree").ok().unwrap();
+    let tree_copy = BoxTree::load("test_junk_boxtree").ok().unwrap();
 
     let mut hits = 0;
     for x in 0..4 {
@@ -227,7 +227,7 @@ fn test_octree_file_io() {
 }
 
 #[test]
-fn test_big_octree_serialize() {
+fn test_big_boxtree_serialize() {
     const TREE_SIZE: u32 = 256;
     const FILL_RANGE_START: u32 = 230;
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, 1).ok().unwrap();
@@ -271,7 +271,7 @@ fn test_big_octree_serialize() {
 }
 
 #[test]
-fn test_small_octree_serialize_where_dim_is_1() {
+fn test_small_boxtree_serialize_where_dim_is_1() {
     const TREE_SIZE: u32 = 4;
     let color: Albedo = 1.into();
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, 1).ok().unwrap();
@@ -288,7 +288,7 @@ fn test_small_octree_serialize_where_dim_is_1() {
 }
 
 #[test]
-fn test_octree_serialize_where_dim_is_1() {
+fn test_boxtree_serialize_where_dim_is_1() {
     const TREE_SIZE: u32 = 4;
     let mut tree: BoxTree = BoxTree::new(TREE_SIZE, 1).ok().unwrap();
     for x in 0..TREE_SIZE {
@@ -322,7 +322,7 @@ fn test_octree_serialize_where_dim_is_1() {
 }
 
 #[test]
-fn test_octree_serialize_where_dim_is_2() {
+fn test_boxtree_serialize_where_dim_is_2() {
     let mut tree: BoxTree = BoxTree::new(8, 2).ok().unwrap();
     for x in 0..4 {
         for y in 0..4 {
@@ -355,7 +355,7 @@ fn test_octree_serialize_where_dim_is_2() {
 }
 
 #[test]
-fn test_big_octree_serialize_where_dim_is_2() {
+fn test_big_boxtree_serialize_where_dim_is_2() {
     let mut tree: BoxTree = BoxTree::new(128, 2).ok().unwrap();
     for x in 100..128 {
         for y in 100..128 {

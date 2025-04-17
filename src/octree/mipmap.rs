@@ -408,13 +408,13 @@ impl<
                 (sample_start, sample_size)
             }
             NodeContent::Internal(_occupied_bits) => {
-                let sample_size = (self.brick_dim as f32 / BOX_NODE_DIMENSION as f32).ceil() as u32;
+                let sample_size = BOX_NODE_DIMENSION as u32;
                 let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
-                let sample_start =
+                let sample_start_v1 =
                     pos_in_bounds * BOX_NODE_DIMENSION as f32 * self.brick_dim as f32
                         / node_bounds.size; // Transform into BOX_NODE_DIMENSION*DIM space
-                let sample_start: V3c<u32> = sample_start.floor().into();
-                let sample_start = sample_start - (sample_start % BOX_NODE_DIMENSION as u32); // sample from grid of BOX_NODE_DIMENSION
+                let sample_start_v2: V3c<u32> = sample_start_v1.floor().into();
+                let sample_start = sample_start_v2 - (sample_start_v2 % BOX_NODE_DIMENSION as u32); // sample from grid of BOX_NODE_DIMENSION
 
                 debug_assert!(
                     sample_start.x + sample_size <= BOX_NODE_DIMENSION as u32 * self.brick_dim,
@@ -480,7 +480,6 @@ impl<
                             (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32,
                         );
 
-
                         if empty_marker::<u32>() as usize
                             == self.node_children[node_key].child(child_sectant)
                         {
@@ -490,7 +489,6 @@ impl<
                         let pos_in_child_mip = V3c::from(*pos_in_parent_mip)
                             - SECTANT_OFFSET_LUT[child_sectant as usize]
                                 * (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32;
-
 
                         let sample = match &self.node_mips
                             [self.node_children[node_key].child(child_sectant)]

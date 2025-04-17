@@ -15,7 +15,7 @@ struct Cube {
 }
 
 const OOB_SECTANT = 64u;
-const BOX_NODE_DIMENSION = 64u;
+const BOX_NODE_DIMENSION = 4u;
 const BOX_NODE_CHILDREN_COUNT = 64u;
 const FLOAT_ERROR_TOLERANCE = 0.00001;
 const COLOR_FOR_NODE_REQUEST_SENT = vec3f(0.5,0.3,0.0);
@@ -25,11 +25,16 @@ const COLOR_FOR_BRICK_REQUEST_FAIL = vec3f(0.6,0.0,0.0);
 
 //crate::spatial::math::hash_region
 fn hash_region(offset: vec3f, size: f32) -> u32 {
-    let index = min(
-        vec3u(floor(offset * BOX_NODE_DIMENSION / size)),
-        vec3u(BOX_NODE_DIMENSION - 1)
+    let index = vec3u(clamp(
+        vec3i(floor(offset * f32(BOX_NODE_DIMENSION) / size)),
+        vec3i(0),
+        vec3i(BOX_NODE_DIMENSION - 1)
+    ));
+    return (
+        index.x
+        + (index.y * (BOX_NODE_DIMENSION))
+        + (index.z * (BOX_NODE_DIMENSION * BOX_NODE_DIMENSION))
     );
-    BOX_NODE_INDEX_TO_SECTANT_LUT[index.x][index.y][index.z]
 }
 
 struct CubeRayIntersection {
@@ -265,6 +270,10 @@ fn set_brick_used(brick_index: u32) {
 // Unique to this implementation, not adapted from rust code
 /// Requests the child of the given node to be uploaded
 fn request_node(node_meta_index: u32, child_sectant: u32) -> bool {
+    if 0xFFFFFFFF != node_requests[arrayLength(&node_requests) - 1] {
+        // Node requests already full
+        return false;
+    }
     var request_index = 0u;
     loop{
         let exchange_result = atomicCompareExchangeWeak(
@@ -326,17 +335,17 @@ fn traverse_brick(
         round((*brick_bounds).size / f32(dimension))
     );
 
-    /*// +++ DEBUG +++
+    // +++ DEBUG +++
     var safety = 0u;
-    */// --- DEBUG ---
+    // --- DEBUG ---
     var step = vec3f(0.);
     loop{
-        /*// +++ DEBUG +++
+        // +++ DEBUG +++
         safety += 1u;
         if(safety > u32(f32(dimension) * sqrt(30.))) {
             return BrickHit(false, vec3u(1, 1, 1), 0);
         }
-        */// --- DEBUG ---
+        // --- DEBUG ---
         if current_index.x < 0
             || current_index.x >= dimension
             || current_index.y < 0
@@ -394,7 +403,7 @@ fn probe_brick(
 ) -> OctreeRayIntersection {
     if(( // node is occupied at target child_sectant, meaning: brick is not empty
         (brick_sectant < 32)
-        && (0u != (node_occupied_bits[leaf_node_key * 2] & (0x01u << bitmap_index) ))
+        && (0u != (node_occupied_bits[leaf_node_key * 2] & (0x01u << brick_sectant) ))
     )||(
         (brick_sectant >= 32)
         && (0u != (node_occupied_bits[leaf_node_key * 2 + 1] & (0x01u << (brick_sectant - 32)) ))
@@ -402,7 +411,7 @@ fn probe_brick(
         let brick_descriptor = node_children[
             ((leaf_node_key * BOX_NODE_CHILDREN_COUNT) + brick_sectant)
         ];
-        if(0 != (0x7FFFFFFFu & brick_descriptor) { // brick is solid
+        if(0 != (0x80000000 & brick_descriptor)) { // brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
                 true,
@@ -453,7 +462,7 @@ fn probe_MIP(
         0 != (node_metadata[node_key / 8] & (16 + (node_key % 8))) // node has MIP
         && brick_descriptor != EMPTY_MARKER // which is uploaded
     ) {
-        if(0 != (brick_descriptor & 0x7FFFFFFF)) { // MIP brick is solid
+        if(0 != (brick_descriptor & 0x80000000)) { // MIP brick is solid
             // Whole brick is solid, ray hits it at first connection
             return OctreeRayIntersection(
                 true,
@@ -564,15 +573,14 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
     var node_stack: array<u32, NODE_STACK_SIZE>;
     var node_stack_meta: u32 = 0;
     var ray_current_point = (*ray).origin;
-    var current_bounds = Cube(vec3(0.), f32(boxtree_meta_data.octree_size));
-    var current_node_key = EMPTY_MARKER;
-    var current_node_meta = 0u;
+    var current_bounds = Cube(vec3(0.), f32(boxtree_meta_data.boxtree_size));
+    var target_bounds = current_bounds;
+    var current_node_key = BOXTREE_ROOT_NODE_KEY;
     var target_sectant = OOB_SECTANT;
     var missing_data_color = vec3f(0.);
-    var mip_level = log2(
-        f32(boxtree_meta_data.octree_size)
-        / f32(boxtree_meta_data.tree_properties & 0x0000FFFF)
-    );
+    var mip_level = log2( // log4 isn't available in WGSL
+        f32(boxtree_meta_data.boxtree_size / (boxtree_meta_data.tree_properties & 0x0000FFFF))
+    ) / 2.;
 
     let root_intersect = cube_intersect_ray(current_bounds, ray);
     if(root_intersect.hit){
@@ -581,21 +589,27 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         }
         target_sectant = hash_region(ray_current_point, current_bounds.size);
     }
-    /*// +++ DEBUG +++
+
+    // +++ DEBUG +++
     var outer_safety = 0;
-    */// --- DEBUG ---
+    // --- DEBUG ---
     while target_sectant != OOB_SECTANT {
-        /*// +++ DEBUG +++
+        // +++ DEBUG +++
         outer_safety += 1;
-        if(f32(outer_safety) > f32(boxtree_meta_data.octree_size) * sqrt(3.)) {
+        if(f32(outer_safety) > f32(boxtree_meta_data.boxtree_size) * sqrt(3.)) {
             return OctreeRayIntersection(
                 true, vec4f(1.,0.,0.,1.), vec3f(0.), vec3f(0., 0., 1.)
             );
         }
-       */ // --- DEBUG ---
+        // --- DEBUG ---
         current_node_key = BOXTREE_ROOT_NODE_KEY;
-        current_node_meta = node_metadata[BOXTREE_ROOT_NODE_KEY];
-        current_bounds = Cube(vec3(0.), f32(boxtree_meta_data.octree_size));
+        current_bounds.size = f32(boxtree_meta_data.boxtree_size);
+        current_bounds.min_position = vec3(0.);
+        target_bounds.size = round(current_bounds.size / f32(BOX_NODE_DIMENSION));
+        target_bounds.min_position = (
+            current_bounds.min_position 
+            + (SECTANT_OFFSET_REGION_LUT[target_sectant] * current_bounds.size)
+        );
         node_stack_push(&node_stack, &node_stack_meta, BOXTREE_ROOT_NODE_KEY);
         /*// +++ DEBUG +++
         var safety = 0;
@@ -603,21 +617,13 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         while(!node_stack_is_empty(node_stack_meta)) {
             /*// +++ DEBUG +++
             safety += 1;
-            if(f32(safety) > f32(boxtree_meta_data.octree_size) * sqrt(30.)) {
+            if(f32(safety) > f32(boxtree_meta_data.boxtree_size) * sqrt(30.)) {
                 return OctreeRayIntersection(
                     true, vec4f(0.,0.,1.,1.), vec3f(0.), vec3f(0., 0., 1.)
                 );
             }
             */// --- DEBUG ---
             // backtrack by default after miss, in case node is a uniform leaf
-            var do_backtrack_after_leaf_miss = (0 != (0x00000100 & current_node_meta));
-            var target_child_descriptor = node_children[
-                (current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant
-            ];
-            var target_bounds = Cube(
-                current_bounds.min_position + (SECTANT_OFFSET_REGION_LUT[target_sectant] * current_bounds.size),
-                round(current_bounds.size / f32(BOX_NODE_DIMENSION))
-            );
             if( // In case MIPs are enabled
                 (0 != (boxtree_meta_data.tree_properties & 0x00010000))
                 &&( // In case current node MIP level is smaller, than the required MIP level
@@ -633,7 +639,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 )
             ){
                 if( // node has MIP which is not uploaded
-                    0 != (current_node_meta & 0x00010000)
+                    ( 0 != (node_metadata[current_node_key / 8] & (0x01u << (16 + (current_node_key % 8u)))) )
                     && node_mips[current_node_key] == EMPTY_MARKER
                 ){
                     request_node(current_node_key, OOB_SECTANT);
@@ -651,13 +657,13 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
                 target_sectant != OOB_SECTANT
-                && target_child_descriptor == EMPTY_MARKER // target child key is invalid
+                && node_children[(current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant] == EMPTY_MARKER
                 && (( // node is occupied at target sectant
                     (target_sectant < 32)
-                    && (0u != (node_occupied_bits[node_key * 2] & (0x01u << target_sectant) ))
+                    && (0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant) ))
                 )||(
                     (target_sectant >= 32)
-                    && (0u != (node_occupied_bits[node_key * 2 + 1] & (0x01u << (target_sectant - 32)) ))
+                    && (0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32)) ))
                 ))
                 // Request node only once per ray iteration to prioritize nodes in sight for cache
                 && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
@@ -695,21 +701,22 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         return mip_hit;
                     }
                 }
-            } else if( (target_sectant != OOB_SECTANT) && (0 != (0x00000001 & current_node_meta)) ){
-                // target child is available for a valid target and node is leaf
+            } else if( // target points inside and node is leaf
+                (target_sectant != OOB_SECTANT)
+                &&( 0 != (node_metadata[current_node_key / 8] & (0x01u << (current_node_key % 8u))) )
+            ){
                 var hit: OctreeRayIntersection;
-                if(0 != (0x00000100 & current_node_meta)) { // node is a uniform leaf
+                if ( 0 != (node_metadata[current_node_key / 8] & (0x01u << (8 + (current_node_key % 8u)))) ) {
+                    // node is uniform
                     hit = probe_brick(
                         ray, &ray_current_point,
                         current_node_key, 0u, &current_bounds,
                         &ray_scale_factors, direction_lut_index
                     );
-                    do_backtrack_after_leaf_miss = true;
                 } else { // node is a non-uniform leaf
                     hit = probe_brick(
                         ray, &ray_current_point,
-                        current_node_key, target_sectant,
-                        &target_bounds,
+                        current_node_key, target_sectant, &target_bounds,
                         &ray_scale_factors, direction_lut_index
                     );
                 }
@@ -717,11 +724,16 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     hit.albedo -= vec4f(missing_data_color, 0.);
 
                     /*// +++ DEBUG +++
-                    let bound_size_ratio = f32(current_bounds.size) / f32(boxtree_meta_data.octree_size) * 5.;
+                    let relative_c_point = hit.collision_point - current_bounds.min_position;
+                    if (relative_c_point.x < 5. || relative_c_point.y < 5. || relative_c_point.z < 5.) {
+                        hit.albedo.b = 1.;
+                    }
+
+                    let bound_size_ratio = f32(target_bounds.size) / f32(boxtree_meta_data.boxtree_size) * 5.;
                     if( // Display current bounds boundaries
-                        (abs(ray_current_point.x - current_bounds.min_position.x) < bound_size_ratio)
-                        ||(abs(ray_current_point.y - current_bounds.min_position.y) < bound_size_ratio)
-                        ||(abs(ray_current_point.z - current_bounds.min_position.z) < bound_size_ratio)
+                        (abs(ray_current_point.x - target_bounds.min_position.x) < bound_size_ratio)
+                        ||(abs(ray_current_point.y - target_bounds.min_position.y) < bound_size_ratio)
+                        ||(abs(ray_current_point.z - target_bounds.min_position.z) < bound_size_ratio)
                     ){
                         hit.albedo -= 0.5;
                     }
@@ -737,9 +749,13 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     return hit;
                 }
             }
-            if( do_backtrack_after_leaf_miss
-                || target_sectant == OOB_SECTANT
-                || EMPTY_MARKER == current_node_key // Guards statements in other conditions, but should never happen
+            if( target_sectant == OOB_SECTANT
+                || ( // node is uniform
+                    0 != (
+                        node_metadata[current_node_key / 8]
+                        & (0x01u << (8 + (current_node_key % 8u)))
+                    )
+                )
                 || ( // There is no overlap in node occupancy and ray potential hit area
                     0 == (
                         RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant][direction_lut_index * 2]
@@ -752,108 +768,93 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 )
             ) {
                 // POP
-                node_stack_pop(&node_stack, &node_stack_meta);
                 mip_level += 1.;
+                node_stack_pop(&node_stack, &node_stack_meta);
+                target_bounds = current_bounds;
+                current_bounds.size *= f32(BOX_NODE_DIMENSION);
+                current_bounds.min_position -= current_bounds.min_position % current_bounds.size;
+                tmp_vec = round(dda_step_to_next_sibling(
+                    ray, &ray_current_point, &target_bounds,
+                    &ray_scale_factors
+                ));
+                target_sectant = SECTANT_STEP_RESULT_LUT[
+                    hash_region(
+                        (
+                            target_bounds.min_position
+                            + vec3f(target_bounds.size / 2.)
+                            - current_bounds.min_position
+                        ),
+                        current_bounds.size
+                    )
+                ][u32(tmp_vec.x + 1)][u32(tmp_vec.y + 1)][u32(tmp_vec.z + 1)];
+                target_bounds.min_position += tmp_vec * target_bounds.size;
                 if(EMPTY_MARKER != node_stack_last(node_stack_meta)){
                     current_node_key = node_stack[node_stack_last(node_stack_meta)];
-                    current_node_meta = (
-                        // is node leaf
-                        ( metadata[current_node_key / 8] & (0x01 << (current_node_key % 8)) )
-                        // is node uniform
-                        | ( metadata[current_node_key / 8] & (0x01 << (8 + (current_node_key % 8))) )
-                        // node has mip
-                        | (metadata[current_node_key / 8] & (0x01 << (16 + (current_node_key % 8))) )
-                    );
-                    target_sectant = hash_region(
-                        ( // next_bound_center_offset
-                            + vec3f(current_bounds.size / 2.)
-                            + (
-                                dda_step_to_next_sibling(ray, &ray_current_point, &current_bounds, &ray_scale_factors)
-                                * current_bounds.size
-                            )
-                            + (current_bounds.min_position % (current_bounds.size * f32(BOX_NODE_DIMENSION)))
-                        ),
-                        current_bounds.size * f32(BOX_NODE_DIMENSION)
-                    );
-                    current_bounds.size = round(current_bounds.size * f32(BOX_NODE_DIMENSION));
-                    current_bounds.min_position -= current_bounds.min_position % current_bounds.size;
                 }
                 continue;
             }
-            if (
-                (
-                    0 == (0x00000001 & current_node_meta) // node is not a leaf
-                    && target_child_descriptor != EMPTY_MARKER //crate::object_pool::key_is_valid
-                ) && ( // There is overlap in node occupancy and potential ray hit area
-                    0 != (
-                        RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant][direction_lut_index * 2]
-                        & node_occupied_bits[current_node_key * 2]
-                    )
-                    || 0 != (
-                        RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant][direction_lut_index * 2 + 1]
-                        & node_occupied_bits[current_node_key * 2 + 1]
-                    )
-                )
+
+            var target_child_descriptor = node_children[(current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant];
+            if ( // If node is not a leaf and node is occupied at target sectant
+                (0 == (node_metadata[current_node_key / 8u] & (0x01u << (current_node_key % 8u))))
+                &&((
+                    (target_sectant < 32)
+                    && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
+                )||(
+                    (target_sectant >= 32)
+                    && ( 0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32))) )
+                ))
             ) {
                 // PUSH
-                set_node_used(target_child_descriptor); // Since Current node is internal, no need to filter for "parted" bit
+                set_node_used(target_child_descriptor); // Since current_node is internal, no need to filter for "parted" bit
                 current_node_key = target_child_descriptor;
-                current_node_meta = (
-                    // is node leaf
-                    ( metadata[current_node_key / 8] & (0x01 << (current_node_key % 8)) )
-                    // is node uniform
-                    | ( metadata[current_node_key / 8] & (0x01 << (8 + (current_node_key % 8))) )
-                    // node has mip
-                    | (metadata[current_node_key / 8] & (0x01 << (16 + (current_node_key % 8))) )
-                );
                 current_bounds = target_bounds;
                 target_sectant = hash_region( // child_target_sectant
                     (ray_current_point - target_bounds.min_position),
                     target_bounds.size
                 );
+                target_bounds.size = round(current_bounds.size / f32(BOX_NODE_DIMENSION));
+                target_bounds.min_position = (
+                    current_bounds.min_position
+                    + (SECTANT_OFFSET_REGION_LUT[target_sectant] * current_bounds.size)
+                );
                 node_stack_push(&node_stack, &node_stack_meta, target_child_descriptor);
                 mip_level -= 1.;
             } else {
                 // ADVANCE
-                /*// +++ DEBUG +++
+                // +++ DEBUG +++
                 var advance_safety = 0;
-                */// --- DEBUG ---
+                // --- DEBUG ---
                 loop {
-                    /*// +++ DEBUG +++
+                    // +++ DEBUG +++
                     advance_safety += 1;
-                    if(advance_safety > 4) {
+                    if(advance_safety > 16) {
                         return OctreeRayIntersection(
-                            true, vec4f(1.,0.,1.,1.), vec3f(0.), vec3f(0., 0., 1.)
+                            true, vec4f(0.,1.,0.,1.), vec3f(0.), vec3f(0., 0., 1.)
                         );
                     }
-                    */// --- DEBUG ---
+                    // --- DEBUG ---
                     tmp_vec = round(dda_step_to_next_sibling(
                         ray, &ray_current_point, &target_bounds,
                         &ray_scale_factors
                     ));
                     target_sectant = SECTANT_STEP_RESULT_LUT[target_sectant]
-                                                            [u32(sign(tmp_vec.x) + 1)]
-                                                            [u32(sign(tmp_vec.y) + 1)]
-                                                            [u32(sign(tmp_vec.z) + 1)];
+                                                            [u32(tmp_vec.x + 1)]
+                                                            [u32(tmp_vec.y + 1)]
+                                                            [u32(tmp_vec.z + 1)];
+                    target_bounds.min_position += tmp_vec * target_bounds.size;
                     if OOB_SECTANT != target_sectant {
-                        target_bounds.min_position = (
-                            current_bounds.min_position
-                            + (
-                                SECTANT_OFFSET_REGION_LUT[target_sectant]
-                                * current_bounds.size / f32(BOX_NODE_DIMENSION)
-                            )
-                        );
                         target_child_descriptor = node_children[
                             (current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant
                         ];
-                        if(
+                        if( // Also request node stepped into
                             target_child_descriptor == EMPTY_MARKER // target child key is invalid
                             && (( // node is occupied at target sectant
                                 (target_sectant < 32)
-                                && (0u != (node_occupied_bits[node_key * 2] & (0x01u << target_sectant) ))
+                                && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
                             )||(
                                 (target_sectant >= 32)
-                                && (0u != (node_occupied_bits[node_key * 2 + 1] & (0x01u << (target_sectant - 32)) ))
+                                && ( 0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32u))) )
                             ))
                             // Request node only once per ray iteration to prioritize nodes in sight for cache
                             && 0 == (missing_data_color.r + missing_data_color.g + missing_data_color.b)
@@ -880,30 +881,13 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         }
                     }
                     if (
-                        target_sectant == OOB_SECTANT
-                        || ( // In case the current internal node has a valid target child
-                            target_child_descriptor != EMPTY_MARKER //crate::object_pool::key_is_valid
-                            && 0 == (0x00000001 & current_node_meta) // node is not a leaf
-                            && ( // target child is in the area the ray can potentially hit
-                                0 != (
-                                    RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant][direction_lut_index * 2]
-                                    & node_occupied_bits[current_node_key * 2]
-                                )
-                                || 0 != (
-                                    RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant][direction_lut_index * 2 + 1]
-                                    & node_occupied_bits[current_node_key * 2 + 1]
-                                )
-                            )
-                        )
-                        || ( // In case the current node is leaf and its target brick is not empty
-                            (0 != (0x00000001 & current_node_meta))
-                            && (( // node is occupied at target sectant
-                                (target_sectant < 32)
-                                && (0u != (node_occupied_bits[node_key * 2] & (0x01u << target_sectant) ))
-                            )||(
-                                (target_sectant >= 32)
-                                && (0u != (node_occupied_bits[node_key * 2 + 1] & (0x01u << (target_sectant - 32)) ))
-                            ))
+                        target_sectant == OOB_SECTANT // target is out of bounds
+                        |( // current node is occupied at target sectant
+                            (target_sectant < 32)
+                            && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
+                        )||(
+                            (target_sectant >= 32)
+                            && ( 0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32u))) )
                         )
                     ) {
                         break;
@@ -915,14 +899,17 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         // Push ray current distance a little bit forward to avoid iterating the same paths all over again
         ray_current_point += (*ray).direction * 0.1;
         if(
-          ray_current_point.x < f32(boxtree_meta_data.octree_size)
-          && ray_current_point.y < f32(boxtree_meta_data.octree_size)
-          && ray_current_point.z < f32(boxtree_meta_data.octree_size)
+          ray_current_point.x < f32(boxtree_meta_data.boxtree_size)
+          && ray_current_point.y < f32(boxtree_meta_data.boxtree_size)
+          && ray_current_point.z < f32(boxtree_meta_data.boxtree_size)
           && ray_current_point.x > 0.
           && ray_current_point.y > 0.
           && ray_current_point.z > 0.
         ) {
-            target_sectant = hash_region(ray_current_point, f32(boxtree_meta_data.octree_size));
+            target_sectant = hash_region(
+                ray_current_point,
+                f32(boxtree_meta_data.boxtree_size)
+            );
         } else {
             target_sectant = OOB_SECTANT;
         }
@@ -948,7 +935,7 @@ const BOXTREE_ROOT_NODE_KEY = 0u;
 struct OctreeMetaData {
     ambient_light_color: vec3f,
     ambient_light_position: vec3f,
-    octree_size: u32,
+    boxtree_size: u32,
     tree_properties: u32,
 }
 
@@ -1035,13 +1022,13 @@ fn update(
     }
 
     /*// +++ DEBUG +++
-    var root_bounds = Cube(vec3(0.,0.,0.), f32(boxtree_meta_data.octree_size));
+    var root_bounds = Cube(vec3(0.,0.,0.), f32(boxtree_meta_data.boxtree_size));
     let root_intersect = cube_intersect_ray(root_bounds, &ray);
     if root_intersect.hit == true {
         // Display the xyz axes
         if root_intersect. impact_hit == true {
-            let axes_length = f32(boxtree_meta_data.octree_size) / 2.;
-            let axes_width = f32(boxtree_meta_data.octree_size) / 50.;
+            let axes_length = f32(boxtree_meta_data.boxtree_size) / 2.;
+            let axes_width = f32(boxtree_meta_data.boxtree_size) / 50.;
             let entry_point = (ray.origin + ray.direction * root_intersect.impact_distance);
             if entry_point.x < axes_length && entry_point.y < axes_width && entry_point.z < axes_width {
                 rgb_result.r = 1.;
@@ -1060,7 +1047,7 @@ fn update(
 }
 
 // Note: should be const
-var<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<u32, 64>(
+var<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<vec3f, 64>(
     vec3f(0.0, 0.0, 0.0),vec3f(0.25, 0.0, 0.0),vec3f(0.5, 0.0, 0.0),vec3f(0.75, 0.0, 0.0),
     vec3f(0.0, 0.25, 0.0),vec3f(0.25, 0.25, 0.0),vec3f(0.5, 0.25, 0.0),vec3f(0.75, 0.25, 0.0),
     vec3f(0.0, 0.5, 0.0),vec3f(0.25, 0.5, 0.0),vec3f(0.5, 0.5, 0.0),vec3f(0.75, 0.5, 0.0),
@@ -1084,87 +1071,74 @@ var<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<u32, 64>(
 
 // Note: should be const
 var<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,64> = array<array<array<array<u32, 3>, 3>, 3>,64>(
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,3,19),array<u32, 3>(64,7,23))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,3,19),array<u32, 3>(64,7,23)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,0,16),array<u32, 3>(64,4,20),array<u32, 3>(64,8,24)),array<array<u32, 3>, 3>array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,0,16),array<u32, 3>(64,4,20),array<u32, 3>(64,8,24)),array<array<u32, 3>, 3>array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25)),array<array<u32, 3>, 3>array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25)),array<array<u32, 3>, 3>array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26)),array<array<u32, 3>, 3>array<u32, 3>(64,3,19),array<u32, 3>(64,7,23),array<u32, 3>(64,11,27))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26)),array<array<u32, 3>, 3>array<u32, 3>(64,3,19),array<u32, 3>(64,7,23),array<u32, 3>(64,11,27)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,4,20),array<u32, 3>(64,8,24),array<u32, 3>(64,12,28)),array<array<u32, 3>, 3>array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,4,20),array<u32, 3>(64,8,24),array<u32, 3>(64,12,28)),array<array<u32, 3>, 3>array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29)),array<array<u32, 3>, 3>array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29)),array<array<u32, 3>, 3>array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30)),array<array<u32, 3>, 3>array<u32, 3>(64,7,23),array<u32, 3>(64,11,27),array<u32, 3>(64,15,31))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30)),array<array<u32, 3>, 3>array<u32, 3>(64,7,23),array<u32, 3>(64,11,27),array<u32, 3>(64,15,31)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,8,24),array<u32, 3>(64,12,28),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,8,24),array<u32, 3>(64,12,28),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,11,27),array<u32, 3>(64,15,31),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,11,27),array<u32, 3>(64,15,31),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(0,16,32),array<u32, 3>(4,20,36)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(0,16,32),array<u32, 3>(4,20,36)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(3,19,35),array<u32, 3>(7,23,39))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(3,19,35),array<u32, 3>(7,23,39)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(0,16,32),array<u32, 3>(4,20,36),array<u32, 3>(8,24,40)),array<array<u32, 3>, 3>array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(0,16,32),array<u32, 3>(4,20,36),array<u32, 3>(8,24,40)),array<array<u32, 3>, 3>array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41)),array<array<u32, 3>, 3>array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41)),array<array<u32, 3>, 3>array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42)),array<array<u32, 3>, 3>array<u32, 3>(3,19,35),array<u32, 3>(7,23,39),array<u32, 3>(11,27,43))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42)),array<array<u32, 3>, 3>array<u32, 3>(3,19,35),array<u32, 3>(7,23,39),array<u32, 3>(11,27,43)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(4,20,36),array<u32, 3>(8,24,40),array<u32, 3>(12,28,44)),array<array<u32, 3>, 3>array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(4,20,36),array<u32, 3>(8,24,40),array<u32, 3>(12,28,44)),array<array<u32, 3>, 3>array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45)),array<array<u32, 3>, 3>array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45)),array<array<u32, 3>, 3>array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46)),array<array<u32, 3>, 3>array<u32, 3>(7,23,39),array<u32, 3>(11,27,43),array<u32, 3>(15,31,47))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46)),array<array<u32, 3>, 3>array<u32, 3>(7,23,39),array<u32, 3>(11,27,43),array<u32, 3>(15,31,47)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(8,24,40),array<u32, 3>(12,28,44),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(8,24,40),array<u32, 3>(12,28,44),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(11,27,43),array<u32, 3>(15,31,47),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(11,27,43),array<u32, 3>(15,31,47),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(16,32,48),array<u32, 3>(20,36,52)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(16,32,48),array<u32, 3>(20,36,52)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(19,35,51),array<u32, 3>(23,39,55))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(19,35,51),array<u32, 3>(23,39,55)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(16,32,48),array<u32, 3>(20,36,52),array<u32, 3>(24,40,56)),array<array<u32, 3>, 3>array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(16,32,48),array<u32, 3>(20,36,52),array<u32, 3>(24,40,56)),array<array<u32, 3>, 3>array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57)),array<array<u32, 3>, 3>array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57)),array<array<u32, 3>, 3>array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58)),array<array<u32, 3>, 3>array<u32, 3>(19,35,51),array<u32, 3>(23,39,55),array<u32, 3>(27,43,59))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58)),array<array<u32, 3>, 3>array<u32, 3>(19,35,51),array<u32, 3>(23,39,55),array<u32, 3>(27,43,59)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(20,36,52),array<u32, 3>(24,40,56),array<u32, 3>(28,44,60)),array<array<u32, 3>, 3>array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(20,36,52),array<u32, 3>(24,40,56),array<u32, 3>(28,44,60)),array<array<u32, 3>, 3>array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61)),array<array<u32, 3>, 3>array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61)),array<array<u32, 3>, 3>array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62)),array<array<u32, 3>, 3>array<u32, 3>(23,39,55),array<u32, 3>(27,43,59),array<u32, 3>(31,47,63))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62)),array<array<u32, 3>, 3>array<u32, 3>(23,39,55),array<u32, 3>(27,43,59),array<u32, 3>(31,47,63)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(24,40,56),array<u32, 3>(28,44,60),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(24,40,56),array<u32, 3>(28,44,60),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(27,43,59),array<u32, 3>(31,47,63),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(27,43,59),array<u32, 3>(31,47,63),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(32,48,64),array<u32, 3>(36,52,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(32,48,64),array<u32, 3>(36,52,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(35,51,64),array<u32, 3>(39,55,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(35,51,64),array<u32, 3>(39,55,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(32,48,64),array<u32, 3>(36,52,64),array<u32, 3>(40,56,64)),array<array<u32, 3>, 3>array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(32,48,64),array<u32, 3>(36,52,64),array<u32, 3>(40,56,64)),array<array<u32, 3>, 3>array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64)),array<array<u32, 3>, 3>array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64)),array<array<u32, 3>, 3>array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64)),array<array<u32, 3>, 3>array<u32, 3>(35,51,64),array<u32, 3>(39,55,64),array<u32, 3>(43,59,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64)),array<array<u32, 3>, 3>array<u32, 3>(35,51,64),array<u32, 3>(39,55,64),array<u32, 3>(43,59,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(36,52,64),array<u32, 3>(40,56,64),array<u32, 3>(44,60,64)),array<array<u32, 3>, 3>array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(36,52,64),array<u32, 3>(40,56,64),array<u32, 3>(44,60,64)),array<array<u32, 3>, 3>array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64)),array<array<u32, 3>, 3>array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64)),array<array<u32, 3>, 3>array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64)),array<array<u32, 3>, 3>array<u32, 3>(39,55,64),array<u32, 3>(43,59,64),array<u32, 3>(47,63,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64)),array<array<u32, 3>, 3>array<u32, 3>(39,55,64),array<u32, 3>(43,59,64),array<u32, 3>(47,63,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(40,56,64),array<u32, 3>(44,60,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(40,56,64),array<u32, 3>(44,60,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64))),
-    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)))
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,3,19),array<u32, 3>(64,7,23))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,3,19),array<u32, 3>(64,7,23)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,0,16),array<u32, 3>(64,4,20),array<u32, 3>(64,8,24)),array<array<u32, 3>, 3>(array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,0,16),array<u32, 3>(64,4,20),array<u32, 3>(64,8,24)),array<array<u32, 3>, 3>(array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25)),array<array<u32, 3>, 3>(array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,1,17),array<u32, 3>(64,5,21),array<u32, 3>(64,9,25)),array<array<u32, 3>, 3>(array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26)),array<array<u32, 3>, 3>(array<u32, 3>(64,3,19),array<u32, 3>(64,7,23),array<u32, 3>(64,11,27))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,2,18),array<u32, 3>(64,6,22),array<u32, 3>(64,10,26)),array<array<u32, 3>, 3>(array<u32, 3>(64,3,19),array<u32, 3>(64,7,23),array<u32, 3>(64,11,27)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,4,20),array<u32, 3>(64,8,24),array<u32, 3>(64,12,28)),array<array<u32, 3>, 3>(array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,4,20),array<u32, 3>(64,8,24),array<u32, 3>(64,12,28)),array<array<u32, 3>, 3>(array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29)),array<array<u32, 3>, 3>(array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,5,21),array<u32, 3>(64,9,25),array<u32, 3>(64,13,29)),array<array<u32, 3>, 3>(array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30)),array<array<u32, 3>, 3>(array<u32, 3>(64,7,23),array<u32, 3>(64,11,27),array<u32, 3>(64,15,31))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,6,22),array<u32, 3>(64,10,26),array<u32, 3>(64,14,30)),array<array<u32, 3>, 3>(array<u32, 3>(64,7,23),array<u32, 3>(64,11,27),array<u32, 3>(64,15,31)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,8,24),array<u32, 3>(64,12,28),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,8,24),array<u32, 3>(64,12,28),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,9,25),array<u32, 3>(64,13,29),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,11,27),array<u32, 3>(64,15,31),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,10,26),array<u32, 3>(64,14,30),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,11,27),array<u32, 3>(64,15,31),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(0,16,32),array<u32, 3>(4,20,36)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(0,16,32),array<u32, 3>(4,20,36)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(1,17,33),array<u32, 3>(5,21,37)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(3,19,35),array<u32, 3>(7,23,39))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(2,18,34),array<u32, 3>(6,22,38)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(3,19,35),array<u32, 3>(7,23,39)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(0,16,32),array<u32, 3>(4,20,36),array<u32, 3>(8,24,40)),array<array<u32, 3>, 3>(array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(0,16,32),array<u32, 3>(4,20,36),array<u32, 3>(8,24,40)),array<array<u32, 3>, 3>(array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41)),array<array<u32, 3>, 3>(array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(1,17,33),array<u32, 3>(5,21,37),array<u32, 3>(9,25,41)),array<array<u32, 3>, 3>(array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42)),array<array<u32, 3>, 3>(array<u32, 3>(3,19,35),array<u32, 3>(7,23,39),array<u32, 3>(11,27,43))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(2,18,34),array<u32, 3>(6,22,38),array<u32, 3>(10,26,42)),array<array<u32, 3>, 3>(array<u32, 3>(3,19,35),array<u32, 3>(7,23,39),array<u32, 3>(11,27,43)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(4,20,36),array<u32, 3>(8,24,40),array<u32, 3>(12,28,44)),array<array<u32, 3>, 3>(array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(4,20,36),array<u32, 3>(8,24,40),array<u32, 3>(12,28,44)),array<array<u32, 3>, 3>(array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45)),array<array<u32, 3>, 3>(array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(5,21,37),array<u32, 3>(9,25,41),array<u32, 3>(13,29,45)),array<array<u32, 3>, 3>(array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46)),array<array<u32, 3>, 3>(array<u32, 3>(7,23,39),array<u32, 3>(11,27,43),array<u32, 3>(15,31,47))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(6,22,38),array<u32, 3>(10,26,42),array<u32, 3>(14,30,46)),array<array<u32, 3>, 3>(array<u32, 3>(7,23,39),array<u32, 3>(11,27,43),array<u32, 3>(15,31,47)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(8,24,40),array<u32, 3>(12,28,44),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(8,24,40),array<u32, 3>(12,28,44),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(9,25,41),array<u32, 3>(13,29,45),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(11,27,43),array<u32, 3>(15,31,47),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(10,26,42),array<u32, 3>(14,30,46),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(11,27,43),array<u32, 3>(15,31,47),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(16,32,48),array<u32, 3>(20,36,52)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(16,32,48),array<u32, 3>(20,36,52)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(17,33,49),array<u32, 3>(21,37,53)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(19,35,51),array<u32, 3>(23,39,55))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(18,34,50),array<u32, 3>(22,38,54)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(19,35,51),array<u32, 3>(23,39,55)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(16,32,48),array<u32, 3>(20,36,52),array<u32, 3>(24,40,56)),array<array<u32, 3>, 3>(array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(16,32,48),array<u32, 3>(20,36,52),array<u32, 3>(24,40,56)),array<array<u32, 3>, 3>(array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57)),array<array<u32, 3>, 3>(array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(17,33,49),array<u32, 3>(21,37,53),array<u32, 3>(25,41,57)),array<array<u32, 3>, 3>(array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58)),array<array<u32, 3>, 3>(array<u32, 3>(19,35,51),array<u32, 3>(23,39,55),array<u32, 3>(27,43,59))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(18,34,50),array<u32, 3>(22,38,54),array<u32, 3>(26,42,58)),array<array<u32, 3>, 3>(array<u32, 3>(19,35,51),array<u32, 3>(23,39,55),array<u32, 3>(27,43,59)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(20,36,52),array<u32, 3>(24,40,56),array<u32, 3>(28,44,60)),array<array<u32, 3>, 3>(array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(20,36,52),array<u32, 3>(24,40,56),array<u32, 3>(28,44,60)),array<array<u32, 3>, 3>(array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61)),array<array<u32, 3>, 3>(array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(21,37,53),array<u32, 3>(25,41,57),array<u32, 3>(29,45,61)),array<array<u32, 3>, 3>(array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62)),array<array<u32, 3>, 3>(array<u32, 3>(23,39,55),array<u32, 3>(27,43,59),array<u32, 3>(31,47,63))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(22,38,54),array<u32, 3>(26,42,58),array<u32, 3>(30,46,62)),array<array<u32, 3>, 3>(array<u32, 3>(23,39,55),array<u32, 3>(27,43,59),array<u32, 3>(31,47,63)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(24,40,56),array<u32, 3>(28,44,60),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(24,40,56),array<u32, 3>(28,44,60),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(25,41,57),array<u32, 3>(29,45,61),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(27,43,59),array<u32, 3>(31,47,63),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(26,42,58),array<u32, 3>(30,46,62),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(27,43,59),array<u32, 3>(31,47,63),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(32,48,64),array<u32, 3>(36,52,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(32,48,64),array<u32, 3>(36,52,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(33,49,64),array<u32, 3>(37,53,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(35,51,64),array<u32, 3>(39,55,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(34,50,64),array<u32, 3>(38,54,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(35,51,64),array<u32, 3>(39,55,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(32,48,64),array<u32, 3>(36,52,64),array<u32, 3>(40,56,64)),array<array<u32, 3>, 3>(array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(32,48,64),array<u32, 3>(36,52,64),array<u32, 3>(40,56,64)),array<array<u32, 3>, 3>(array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64)),array<array<u32, 3>, 3>(array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(33,49,64),array<u32, 3>(37,53,64),array<u32, 3>(41,57,64)),array<array<u32, 3>, 3>(array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64)),array<array<u32, 3>, 3>(array<u32, 3>(35,51,64),array<u32, 3>(39,55,64),array<u32, 3>(43,59,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(34,50,64),array<u32, 3>(38,54,64),array<u32, 3>(42,58,64)),array<array<u32, 3>, 3>(array<u32, 3>(35,51,64),array<u32, 3>(39,55,64),array<u32, 3>(43,59,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(36,52,64),array<u32, 3>(40,56,64),array<u32, 3>(44,60,64)),array<array<u32, 3>, 3>(array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(36,52,64),array<u32, 3>(40,56,64),array<u32, 3>(44,60,64)),array<array<u32, 3>, 3>(array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64)),array<array<u32, 3>, 3>(array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(37,53,64),array<u32, 3>(41,57,64),array<u32, 3>(45,61,64)),array<array<u32, 3>, 3>(array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64)),array<array<u32, 3>, 3>(array<u32, 3>(39,55,64),array<u32, 3>(43,59,64),array<u32, 3>(47,63,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(38,54,64),array<u32, 3>(42,58,64),array<u32, 3>(46,62,64)),array<array<u32, 3>, 3>(array<u32, 3>(39,55,64),array<u32, 3>(43,59,64),array<u32, 3>(47,63,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(40,56,64),array<u32, 3>(44,60,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(40,56,64),array<u32, 3>(44,60,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64))),
+    array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)))
+
 );
 
 // Note: should be const
-var<private> BOX_NODE_INDEX_TO_SECTANT_LUT: array<array<array<u32, 4>, 4>, 4> = array<array<array<u32, 4>, 4>, 4>(
-    array<array<u32, 4>, 4>(
-        array<u32, 4>(0,16,32,48), array<u32, 4>(4,20,36,52), array<u32, 4>(8,24,40,56), array<u32, 4>(12,28,44,60),
-    ),
-    array<array<u32, 4>, 4>(
-        array<u32, 4>(1,17,33,49), array<u32, 4>(5,21,37,53), array<u32, 4>(9,25,41,57), array<u32, 4>(13,29,45,61),
-    ),
-    array<array<u32, 4>, 4>(
-        array<u32, 4>(2,18,34,50), array<u32, 4>(6,22,38,54), array<u32, 4>(10,26,42,58), array<u32, 4>(14,30,46,62),
-    ),
-    array<array<u32, 4>, 4>(
-        array<u32, 4>(3,19,35,51), array<u32, 4>(7,23,39,55), array<u32, 4>(11,27,43,59), array<u32, 4>(15,31,47,63)
-    ),
-);
 var<private> BOX_NODE_INDEX_TO_SECTANT_LUT: array<array<array<u32, 4>, 4>, 4> = array<array<array<u32, 4>, 4>, 4>(
     array<array<u32, 4>, 4>(array<u32, 4>(0,16,32,48,), array<u32, 4>(4,20,36,52,), array<u32, 4>(8,24,40,56,), array<u32, 4>(12,28,44,60,)),
     array<array<u32, 4>, 4>(array<u32, 4>(1,17,33,49,), array<u32, 4>(5,21,37,53,), array<u32, 4>(9,25,41,57,), array<u32, 4>(13,29,45,61,)),

@@ -154,12 +154,22 @@ impl FromWorld for SvxRenderPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(<Vec<PaletteIndexValues> as ShaderType>::min_size()),
+                        min_binding_size: Some(<Vec<u32> as ShaderType>::min_size()),
                     },
                     count: None,
                 },
                 BindGroupLayoutEntry {
                     binding: 6u32,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(<Vec<PaletteIndexValues> as ShaderType>::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 7u32,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
@@ -422,14 +432,14 @@ fn create_view_resources(
     // Create the staging buffer helping in reading data from the GPU
     let readable_used_bits_buffer = render_device.create_buffer(&BufferDescriptor {
         mapped_at_creation: false,
-        size: (render_data.used_bits.len()) as u64,
+        size: (render_data.used_bits.len() * 4) as u64,
         label: Some("BoxTree Node metadata staging Buffer"),
         usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
     });
 
     let mut buffer = UniformBuffer::new(Vec::<u8>::new());
     buffer.write(&render_data.octree_meta).unwrap();
-    let octree_meta_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+    let boxtree_meta_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("BoxTree Tree Metadata Buffer"),
         contents: &buffer.into_inner(),
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -477,7 +487,7 @@ fn create_view_resources(
 
     // One element in the brick metadata holds 16 bricks. See @OctreeRenderData
     let brick_size = (render_data.octree_meta.tree_properties & 0x0000FFFF).pow(3);
-    let brick_element_count = (render_data.node_metadata.len() * 63 * brick_size as usize) as u64;
+    let brick_element_count = (render_data.used_bits.len() * 31 * brick_size as usize) as u64;
     let one_voxel_byte_size = std::mem::size_of::<PaletteIndexValues>() as u64;
     let voxels_buffer = render_device.create_buffer(&BufferDescriptor {
         mapped_at_creation: false,
@@ -496,12 +506,12 @@ fn create_view_resources(
 
     // Create bind group
     let tree_bind_group = render_device.create_bind_group(
-        "OctreeRenderData",
+        "BoxTreeRenderData",
         &pipeline.render_data_bind_group_layout,
         &[
             bevy::render::render_resource::BindGroupEntry {
                 binding: 0,
-                resource: octree_meta_buffer.as_entire_binding(),
+                resource: boxtree_meta_buffer.as_entire_binding(),
             },
             bevy::render::render_resource::BindGroupEntry {
                 binding: 1,
@@ -543,6 +553,7 @@ fn create_view_resources(
         node_requests_buffer,
         readable_node_requests_buffer,
         tree_bind_group,
+        boxtree_meta_buffer,
         used_bits_buffer,
         node_metadata_buffer,
         node_children_buffer,
@@ -636,13 +647,12 @@ pub(crate) fn prepare_bind_groups(
     if let Some(resources) = &svx_viewset.resources[0] {
         let tree_view = &svx_viewset.views[0].lock().unwrap();
         let render_data = &tree_view.data_handler.render_data;
+
         let mut buffer = UniformBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.octree_meta).unwrap();
-        pipeline.render_queue.write_buffer(
-            &resources.node_metadata_buffer,
-            0,
-            &buffer.into_inner(),
-        );
+        pipeline
+            .render_queue
+            .write_buffer(&resources.boxtree_meta_buffer, 0, &buffer.into_inner());
 
         let mut buffer = StorageBuffer::new(Vec::<u8>::new());
         buffer.write(&render_data.used_bits).unwrap();

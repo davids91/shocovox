@@ -30,7 +30,7 @@ pub struct OctreeMetaData {
     pub ambient_light_position: V3cf32,
 
     /// Size of the octree to display
-    pub(crate) octree_size: u32,
+    pub(crate) boxtree_size: u32,
 
     /// Contains the properties of the Octree
     ///  _===================================================================_
@@ -155,7 +155,7 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
-    pub(crate) brick_ownership: Vec<BrickOwnedBy>,
+    pub(crate) brick_ownership: BiHashMap<usize, BrickOwnedBy>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
@@ -171,6 +171,7 @@ pub(crate) struct OctreeRenderDataResources {
     // Octree render data group
     // --{
     pub(crate) tree_bind_group: BindGroup,
+    pub(crate) boxtree_meta_buffer: Buffer,
     pub(crate) used_bits_buffer: Buffer,
     pub(crate) node_metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,

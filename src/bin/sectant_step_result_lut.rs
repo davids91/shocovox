@@ -115,14 +115,14 @@ fn main() {
     println!("CPU LUT:{:?}", sectant_step_result);
     println!("WGSL LUT:");
     println!(
-        "//const\nvar<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,{}> = array<array<array<array<u32, 3>, 3>, 3>,{}>(",
+        "//const\nvar<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<vec3f, 3>, 3>, 3>,{}> = array<array<array<array<vec3f, 3>, 3>, 3>,{}>(",
         BOX_NODE_CHILDREN_COUNT, BOX_NODE_CHILDREN_COUNT
     );
 
     for (sectant, step_lut) in sectant_step_result.iter().enumerate() {
         print!("\tarray<array<array<u32, 3>, 3>, 3>(");
         for (x, xarr) in step_lut.iter().enumerate() {
-            print!("array<array<u32, 3>, 3>");
+            print!("array<array<u32, 3>, 3>(");
             for (y, yarr) in xarr.iter().enumerate() {
                 print!("array<u32, 3>(");
                 for (idx, step_result) in yarr.iter().enumerate() {

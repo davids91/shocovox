@@ -333,15 +333,17 @@ impl<
 
         let mut node_stack: NodeStack<u32> = NodeStack::default();
         let mut current_bounds = Cube::root_bounds(self.boxtree_size as f32);
-        let (mut ray_current_point, mut target_sectant) =
+        let (mut ray_current_point, mut target_sectant, mut target_bounds) =
             if let Some(root_hit) = current_bounds.intersect_ray(ray) {
                 let ray_current_point = ray.point_at(root_hit.impact_distance.unwrap_or(0.));
+                let target_sectant = hash_region(&ray_current_point, current_bounds.size);
                 (
                     ray_current_point,
                     hash_region(&ray_current_point, current_bounds.size),
+                    current_bounds.child_bounds_for(target_sectant),
                 )
             } else {
-                (ray.origin, OOB_SECTANT)
+                (ray.origin, OOB_SECTANT, current_bounds)
             };
         let mut current_node_key: usize;
         let mut mip_level = (self.boxtree_size as f32 / self.brick_dim as f32).log2();
@@ -428,49 +430,47 @@ impl<
                     || 0 == (current_node_occupied_bits & RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant as usize][direction_lut_index])
                 {
                     // POP
+                    mip_level += 1.;
                     node_stack.pop();
-                    mip_level += 1.0;
+                    target_bounds = current_bounds;
+                    current_bounds.size *= BOX_NODE_DIMENSION as f32;
+                    current_bounds.min_position -= *current_bounds
+                        .min_position
+                        .clone()
+                        .modulo(&current_bounds.size);
+                    target_sectant = hash_region(
+                        &(target_bounds.min_position + V3c::unit(target_bounds.size / 2.)
+                            - current_bounds.min_position),
+                        current_bounds.size,
+                    );
+                    let step_vec = Self::dda_step_to_next_sibling(
+                        ray,
+                        &mut ray_current_point,
+                        &target_bounds,
+                        &ray_scale_factors,
+                    );
+                    target_sectant = step_sectant(target_sectant, step_vec);
+                    target_bounds.min_position += step_vec * target_bounds.size;
                     if let Some(parent) = node_stack.last_mut() {
                         current_node_key = *parent as usize;
-                        let next_bound_center_offset = V3c::unit(current_bounds.size / 2.)
-                            + Self::dda_step_to_next_sibling(
-                                ray,
-                                &mut ray_current_point,
-                                &current_bounds,
-                                &ray_scale_factors,
-                            ) * current_bounds.size
-                            + *current_bounds
-                                .min_position
-                                .clone()
-                                .modulo(&(current_bounds.size * BOX_NODE_DIMENSION as f32));
-                        target_sectant = hash_region(
-                            &next_bound_center_offset,
-                            current_bounds.size * BOX_NODE_DIMENSION as f32,
-                        );
-                        current_bounds.size *= BOX_NODE_DIMENSION as f32;
-                        current_bounds.min_position -= *current_bounds
-                            .min_position
-                            .clone()
-                            .modulo(&(current_bounds.size * BOX_NODE_DIMENSION as f32));
-                        debug_assert!(current_bounds.size <= self.boxtree_size as f32);
                     }
                     continue; // Restart loop with the parent Node
-                              // Eliminating this `continue` causes significant slowdown in GPU
+                              // Eliminating this `continue` causes significant slowdown in GPU?!
                 }
 
-                let mut target_bounds = current_bounds.child_bounds_for(target_sectant);
-                let mut target_child_key =
-                    self.node_children[current_node_key].child(target_sectant) as u32;
-                if 0 != (current_node_occupied_bits & (0x01 << target_sectant))
-                    && self.nodes.key_is_valid(target_child_key as usize)
+                if matches!(self.nodes.get(current_node_key), NodeContent::Internal(_))
+                    && 0 != (current_node_occupied_bits & (0x01 << target_sectant))
                 {
                     // PUSH
+                    let target_child_key =
+                        self.node_children[current_node_key].child(target_sectant) as u32;
                     current_node_key = target_child_key as usize;
                     current_bounds = target_bounds;
                     target_sectant = hash_region(
                         &(ray_current_point - target_bounds.min_position),
                         target_bounds.size,
                     );
+                    target_bounds = current_bounds.child_bounds_for(target_sectant);
                     node_stack.push(target_child_key);
                     mip_level -= 1.;
                 } else {
@@ -487,32 +487,12 @@ impl<
                         );
                         target_sectant = step_sectant(target_sectant, step_vec);
                         if OOB_SECTANT != target_sectant {
-                            target_bounds = current_bounds.child_bounds_for(target_sectant);
-                            target_child_key =
-                                self.node_children[current_node_key].child(target_sectant) as u32;
+                            target_bounds.min_position += step_vec * target_bounds.size;
                         }
-                        if target_sectant == OOB_SECTANT
-                        // In case the current internal node has a valid target child
-                        || (self.nodes.key_is_valid(target_child_key as usize)
-                            // current node is occupied at target sectant
-                            && 0 != (current_node_occupied_bits & (0x01 << target_sectant))
-                            //  target child is in the area the ray can potentially hit
-                            && 0 != (RAY_TO_NODE_OCCUPANCY_BITMASK_LUT[target_sectant as usize][direction_lut_index]
-                                & current_node_occupied_bits)
+                        if target_sectant == OOB_SECTANT // target is out of bounds
+                            || ( // current node is occupied at target sectant
+                                0 != (current_node_occupied_bits & (0x01 << target_sectant))
                             )
-                            // In case the current node is leaf
-                            || match self.nodes.get(current_node_key) {
-                                    // Empty or internal nodes are not evaluated in this condition;
-                                    // Basically if there's no hit with a uniform leaf
-                                    // | It's either because the leaf is solid empty
-                                    // | Or the parted brick did not have any non-empty voxels intersecting with the ray
-                                    // --> Both reasons are valid to go forward, so don't break the advancement
-                                NodeContent::Nothing | NodeContent::Internal(_) | NodeContent::UniformLeaf(_) => false,
-                                NodeContent::Leaf(bricks) => {
-                                    // Stop advancement if brick under target sectant is not empty
-                                    !matches!(bricks[target_sectant as usize], BrickData::Empty)
-                                }
-                            }
                         {
                             // stop advancing because current target is either
                             // - OOB

@@ -7,9 +7,9 @@ use crate::{
     raytracing::bevy::{
         create_output_texture,
         types::{
-            BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
-            OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
-            VictimPointer, Viewport,
+            BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView, OctreeMetaData,
+            OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet, VictimPointer,
+            Viewport,
         },
     },
 };
@@ -115,11 +115,11 @@ impl<
         resolution: [u32; 2],
         mut images: ResMut<Assets<Image>>,
     ) -> usize {
-        let mut gpu_data_handler = OctreeGPUDataHandler {
+        let gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
                 mips_enabled: self.tree.mip_map_strategy.is_enabled(),
                 octree_meta: OctreeMetaData {
-                    octree_size: self.tree.boxtree_size,
+                    boxtree_size: self.tree.boxtree_size,
                     tree_properties: boxtree_properties(&self.tree),
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
@@ -138,10 +138,9 @@ impl<
             victim_node: VictimPointer::new(nodes_in_view),
             victim_brick: 0,
             node_key_vs_meta_index: BiHashMap::new(),
-            brick_ownership: vec![BrickOwnedBy::NotOwned; nodes_in_view * 31],
+            brick_ownership: BiHashMap::new(),
             uploaded_color_palette_size: 0,
         };
-        gpu_data_handler.add_node(&self.tree, BoxTree::<T>::ROOT_NODE_KEY as usize);
         let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
             resolution,
@@ -389,13 +388,8 @@ pub(crate) fn write_to_gpu<
         if !view.init_data_sent || view.reload {
             if let Some(resources) = &svx_view_set.resources[0] {
                 // write data for root node
-                if view.reload {
-                    view.data_handler.render_data.node_children.splice(
-                        0..BOX_NODE_CHILDREN_COUNT,
-                        vec![empty_marker(); BOX_NODE_CHILDREN_COUNT],
-                    );
-                    view.data_handler.render_data.node_mips[0] = empty_marker();
-                }
+                view.data_handler
+                    .add_node(&tree_host.tree, BoxTree::<T>::ROOT_NODE_KEY as usize);
 
                 // Set some well recognizable init value
                 view.data_handler.render_data.used_bits[0] = 0xBEEF;
@@ -557,7 +551,9 @@ pub(crate) fn write_to_gpu<
             modified_nodes.insert(requested_parent_meta_index);
             ocbits_updated.start = ocbits_updated.start.min(requested_parent_meta_index * 2);
             ocbits_updated.end = ocbits_updated.end.max(requested_parent_meta_index * 2 + 2);
-            let requester_child_offset = requested_parent_meta_index * BOX_NODE_CHILDREN_COUNT;
+            let requester_first_child_index = requested_parent_meta_index * BOX_NODE_CHILDREN_COUNT;
+            let requester_child_offset =
+                requester_first_child_index + requested_child_sectant as usize;
             match tree.nodes.get(requested_parent_node_key) {
                 NodeContent::Nothing => {} // parent is empty, nothing to do
                 NodeContent::Internal(_) => {
@@ -596,8 +592,7 @@ pub(crate) fn write_to_gpu<
                     };
 
                     // Update connection to parent
-                    view.data_handler.render_data.node_children
-                        [requester_child_offset + requested_child_sectant as usize] =
+                    view.data_handler.render_data.node_children[requester_child_offset] =
                         child_index as u32;
 
                     debug_assert!(
@@ -613,14 +608,14 @@ pub(crate) fn write_to_gpu<
                 NodeContent::UniformLeaf(brick) => {
                     // Only upload brick if it's a parted, not already available brick
                     if matches!(brick, BrickData::Parted(_))
-                        && view.data_handler.render_data.node_children[requester_child_offset]
+                        && view.data_handler.render_data.node_children[requester_first_child_index]
                             == empty_marker::<u32>()
                     {
                         let (child_descriptor, cache_update) =
                             view.data_handler
                                 .add_brick(tree, requested_parent_node_key, 0);
 
-                        view.data_handler.render_data.node_children[requester_child_offset] =
+                        view.data_handler.render_data.node_children[requester_first_child_index] =
                             child_descriptor as u32;
 
                         used_bits_updated.start = used_bits_updated
@@ -638,8 +633,7 @@ pub(crate) fn write_to_gpu<
                     if matches!(
                         bricks[requested_child_sectant as usize],
                         BrickData::Parted(_)
-                    ) && view.data_handler.render_data.node_children
-                        [requester_child_offset + requested_child_sectant as usize]
+                    ) && view.data_handler.render_data.node_children[requester_child_offset]
                         == empty_marker::<u32>()
                     {
                         let (child_descriptor, cache_update) = view.data_handler.add_brick(
@@ -648,8 +642,7 @@ pub(crate) fn write_to_gpu<
                             requested_child_sectant,
                         );
 
-                        view.data_handler.render_data.node_children
-                            [requester_child_offset + requested_child_sectant as usize] =
+                        view.data_handler.render_data.node_children[requester_child_offset] =
                             child_descriptor as u32;
 
                         used_bits_updated.start = used_bits_updated
@@ -690,8 +683,8 @@ pub(crate) fn write_to_gpu<
 
         // Set updated buffers range based on modified nodes and bricks
         for modified_node_index in &modified_nodes {
-            node_meta_updated.start = node_meta_updated.start.min(*modified_node_index);
-            node_meta_updated.end = node_meta_updated.end.max(modified_node_index + 1);
+            node_meta_updated.start = node_meta_updated.start.min(*modified_node_index / 8);
+            node_meta_updated.end = node_meta_updated.end.max(modified_node_index / 8 + 1);
             node_children_updated.start = node_children_updated
                 .start
                 .min(modified_node_index * BOX_NODE_CHILDREN_COUNT);
