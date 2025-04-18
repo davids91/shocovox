@@ -8,7 +8,7 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         child_sectant_for,
-        types::{BrickData, NodeChildren, NodeContent, OctreeEntry, PaletteIndexValues},
+        types::{BoxTreeEntry, BrickData, NodeChildren, NodeContent, PaletteIndexValues},
         Albedo, BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
@@ -52,10 +52,10 @@ impl<
     /// Since unused colors are not removed from the palette, possible "pollution" is possible,
     /// where unused colors remain in the palette.
     /// * Returns with the resulting PaletteIndexValues Entry
-    pub(crate) fn add_to_palette(&mut self, entry: &OctreeEntry<T>) -> PaletteIndexValues {
+    pub(crate) fn add_to_palette(&mut self, entry: &BoxTreeEntry<T>) -> PaletteIndexValues {
         match entry {
-            OctreeEntry::Empty => empty_marker::<PaletteIndexValues>(),
-            OctreeEntry::Visual(albedo) => {
+            BoxTreeEntry::Empty => empty_marker::<PaletteIndexValues>(),
+            BoxTreeEntry::Visual(albedo) => {
                 if **albedo == Albedo::zero() {
                     return empty_marker();
                 }
@@ -75,7 +75,7 @@ impl<
                 );
                 NodeContent::pix_visual(albedo_index as u16)
             }
-            OctreeEntry::Informative(data) => {
+            BoxTreeEntry::Informative(data) => {
                 if data.is_empty() {
                     return empty_marker();
                 }
@@ -95,11 +95,11 @@ impl<
                 );
                 NodeContent::pix_informal(data_index as u16)
             }
-            OctreeEntry::Complex(albedo, data) => {
+            BoxTreeEntry::Complex(albedo, data) => {
                 if **albedo == Albedo::zero() {
-                    return self.add_to_palette(&OctreeEntry::Informative(*data));
+                    return self.add_to_palette(&BoxTreeEntry::Informative(*data));
                 } else if data.is_empty() {
-                    return self.add_to_palette(&OctreeEntry::Visual(albedo));
+                    return self.add_to_palette(&BoxTreeEntry::Visual(albedo));
                 }
                 let potential_new_albedo_index = self.map_to_color_index_in_palette.keys().len();
                 let albedo_index = if let std::collections::hash_map::Entry::Vacant(e) =
@@ -266,7 +266,7 @@ impl<
 
                             // Add a brick to the target sectant and update with the given data
                             let mut new_brick = vec![
-                                self.add_to_palette(&OctreeEntry::Empty);
+                                self.add_to_palette(&BoxTreeEntry::Empty);
                                 self.brick_dim.pow(3) as usize
                             ];
                             let update_size = Self::update_brick(
@@ -734,7 +734,7 @@ impl<
     //####################################################################################
     /// Updates the given node recursively to collapse nodes with uniform children into a leaf
     /// Returns with true if the given node was simplified
-    pub(crate) fn simplify(&mut self, node_key: usize) -> bool {
+    pub(crate) fn simplify(&mut self, node_key: usize, recursive: bool) -> bool {
         if self.nodes.key_is_valid(node_key) {
             #[cfg(debug_assertions)]
             {
@@ -1018,23 +1018,14 @@ impl<
                         };
 
                     // Try to simplify each child of the node
-                    self.simplify(child_keys[0] as usize);
-
-                    if !self.nodes.key_is_valid(child_keys[0] as usize) {
-                        // Try to simplify siblings, even if the first child wasn't simplifiable
-                        for child_key in child_keys.iter().skip(1) {
-                            self.simplify(*child_key as usize);
+                    if recursive {
+                        for child_key in child_keys.iter() {
+                            self.simplify(*child_key as usize, true);
                         }
-                        return false;
                     }
 
                     for sectant in 1..BOX_NODE_CHILDREN_COUNT {
-                        self.simplify(child_keys[sectant] as usize);
-                        if !self.nodes.key_is_valid(child_keys[sectant] as usize)
-                            || !self
-                                .nodes
-                                .get(child_keys[0] as usize)
-                                .compare(self.nodes.get(child_keys[sectant] as usize))
+                        if !self.compare_nodes(child_keys[0] as usize, child_keys[sectant] as usize)
                         {
                             return false;
                         }
@@ -1059,7 +1050,7 @@ impl<
                 }
             }
         } else {
-            // can't simplify node based on invalid key
+            // can't simplify invalid node
             false
         }
     }

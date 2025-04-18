@@ -1,7 +1,7 @@
 use crate::{
     octree::{
         types::{MIPMapStrategy, OctreeError},
-        Albedo, BoxTree, OctreeEntry, V3c, VoxelData,
+        Albedo, BoxTree, BoxTreeEntry, V3c, VoxelData,
     },
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
@@ -372,7 +372,7 @@ impl<
                 );
                 match self.insert(
                     &V3c::from(voxel_position_lyup),
-                    OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
+                    BoxTreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
                 ) {
                     Ok(_) => {}
                     Err(octree_error) => match octree_error {

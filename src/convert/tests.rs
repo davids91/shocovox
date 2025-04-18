@@ -1,6 +1,6 @@
 use crate::octree::{
     types::{Albedo, BrickData, NodeChildren, NodeContent, PaletteIndexValues},
-    BoxTree, MIPResamplingMethods, OctreeEntry, V3c, BOX_NODE_CHILDREN_COUNT,
+    BoxTree, BoxTreeEntry, MIPResamplingMethods, V3c, BOX_NODE_CHILDREN_COUNT,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 
@@ -207,7 +207,7 @@ fn test_boxtree_file_io() {
                 assert!(tree.get(&V3c::new(x, y, z)) == tree_copy.get(&V3c::new(x, y, z)));
 
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",

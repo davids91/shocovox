@@ -3,7 +3,7 @@ use crate::octree::{
     types::{
         Albedo, BrickData, NodeChildren, NodeConnection, NodeContent, PaletteIndexValues, VoxelData,
     },
-    OctreeEntry, V3c, BOX_NODE_CHILDREN_COUNT,
+    BoxTreeEntry, V3c, BOX_NODE_CHILDREN_COUNT,
 };
 use crate::spatial::math::{flat_projection, set_occupied_bitmap_value};
 use std::{
@@ -310,20 +310,20 @@ impl NodeContent<PaletteIndexValues> {
         index: &PaletteIndexValues,
         color_palette: &'a [Albedo],
         data_palette: &'a [V],
-    ) -> OctreeEntry<'a, V> {
+    ) -> BoxTreeEntry<'a, V> {
         if Self::pix_data_is_none(index) && Self::pix_color_is_none(index) {
-            return OctreeEntry::Empty;
+            return BoxTreeEntry::Empty;
         }
         if Self::pix_data_is_none(index) {
             debug_assert!(Self::pix_color_is_some(index));
             debug_assert!(Self::pix_color_index(index) < color_palette.len());
-            return OctreeEntry::Visual(&color_palette[Self::pix_color_index(index)]);
+            return BoxTreeEntry::Visual(&color_palette[Self::pix_color_index(index)]);
         }
 
         if Self::pix_color_is_none(index) {
             debug_assert!(Self::pix_data_is_some(index));
             debug_assert!(Self::pix_data_index(index) < data_palette.len());
-            return OctreeEntry::Informative(&data_palette[Self::pix_data_index(index)]);
+            return BoxTreeEntry::Informative(&data_palette[Self::pix_data_index(index)]);
         }
 
         debug_assert!(
@@ -340,7 +340,7 @@ impl NodeContent<PaletteIndexValues> {
             Self::pix_data_index(index),
             data_palette.len()
         );
-        OctreeEntry::Complex(
+        BoxTreeEntry::Complex(
             &color_palette[Self::pix_color_index(index)],
             &data_palette[Self::pix_data_index(index)],
         )

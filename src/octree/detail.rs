@@ -240,6 +240,24 @@ impl<
         }
     }
 
+    /// Compares the contents of the given node keys to see if they match
+    /// Invalid keys count as empty content
+    /// Returns with true if the 2 keys have equivalaent values
+    pub(crate) fn compare_nodes(&self, node_key_left: usize, node_key_right: usize) -> bool {
+        if self.nodes.key_is_valid(node_key_left) != self.nodes.key_is_valid(node_key_right) {
+            return false;
+        }
+
+        if self.nodes.key_is_valid(node_key_left) {
+            // both keys are valid, compare their contents
+            return self
+                .nodes
+                .get(node_key_left)
+                .compare(self.nodes.get(node_key_right));
+        }
+        true
+    }
+
     /// Subdivides the node into multiple nodes. It guarantees that there will be a child at the target sectant
     /// * `node_key` - The key of the node to subdivide. It must be a leaf
     /// * `target_sectant` - The sectant that must have a child

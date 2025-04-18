@@ -21,7 +21,7 @@ pub enum OctreeError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OctreeEntry<'a, T: VoxelData> {
+pub enum BoxTreeEntry<'a, T: VoxelData> {
     /// No information available in octree query
     Empty,
 

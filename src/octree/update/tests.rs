@@ -1,5 +1,5 @@
 use crate::{
-    octree::{Albedo, BoxTree, OctreeEntry, BOX_NODE_CHILDREN_COUNT},
+    octree::{Albedo, BoxTree, BoxTreeEntry, BOX_NODE_CHILDREN_COUNT},
     spatial::{lut::SECTANT_OFFSET_LUT, math::vector::V3c},
     voxel_data,
 };
@@ -34,7 +34,7 @@ fn test_simple_insert_and_get_where_dim_is_1() {
     assert!(tree.get(&V3c::new(1, 0, 0)) == (&red).into());
     assert!(tree.get(&V3c::new(0, 1, 0)) == (&green).into());
     assert!(tree.get(&V3c::new(0, 0, 1)) == (&blue).into());
-    assert!(tree.get(&V3c::new(1, 1, 1)) == OctreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 1, 1)) == BoxTreeEntry::Empty);
 
     // Overwrite some data as well
     tree.insert(&V3c::new(1, 0, 0), &green)
@@ -42,15 +42,15 @@ fn test_simple_insert_and_get_where_dim_is_1() {
     assert!(tree.get(&V3c::new(1, 0, 0)) == (&green).into());
     assert!(tree.get(&V3c::new(0, 1, 0)) == (&green).into());
     assert!(tree.get(&V3c::new(0, 0, 1)) == (&blue).into());
-    assert!(tree.get(&V3c::new(1, 1, 1)) == OctreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 1, 1)) == BoxTreeEntry::Empty);
 }
 
 #[test]
 fn test_insert_empty() {
     let mut tree: BoxTree = BoxTree::new(4, 1).ok().unwrap();
     tree.auto_simplify = false;
-    tree.insert(&V3c::new(0, 0, 0), OctreeEntry::Empty).ok();
-    assert!(tree.get(&V3c::new(0, 0, 0)) == OctreeEntry::Empty);
+    tree.insert(&V3c::new(0, 0, 0), BoxTreeEntry::Empty).ok();
+    assert!(tree.get(&V3c::new(0, 0, 0)) == BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -93,11 +93,11 @@ fn test_complex_insert_and_get() {
     );
     let hit = tree.get(&V3c::new(1, 1, 1));
     assert!(
-        hit == OctreeEntry::Empty,
+        hit == BoxTreeEntry::Empty,
         "Hit mismatch at {:?}: {:?} <> {:?}",
         (0, 0, 0),
         hit,
-        OctreeEntry::<u32>::Empty
+        BoxTreeEntry::<u32>::Empty
     );
 
     // Overwrite some data as well
@@ -106,7 +106,7 @@ fn test_complex_insert_and_get() {
     assert!(tree.get(&V3c::new(1, 0, 0)) == voxel_data!(&3));
     assert!(tree.get(&V3c::new(0, 1, 0)) == (&green, &1).into());
     assert!(tree.get(&V3c::new(0, 0, 1)) == voxel_data!(&2));
-    assert!(tree.get(&V3c::new(1, 1, 1)) == OctreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 1, 1)) == BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn test_insert_at_lod_where_dim_is_1() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&green).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -225,7 +225,7 @@ fn test_insert_at_lod_where_dim_is_2() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&green).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -257,14 +257,14 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_1() {
     }
 
     tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
-    assert_eq!(tree.get(&V3c::new(3, 3, 3)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(3, 3, 3)), BoxTreeEntry::Empty);
 
     let mut hits = 0;
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
@@ -301,7 +301,7 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
     let item_at_333 = tree.get(&V3c::new(3, 3, 3));
     assert_eq!(
         item_at_333,
-        OctreeEntry::Empty,
+        BoxTreeEntry::Empty,
         "Hit mismatch at {:?}",
         (3, 3, 3)
     );
@@ -311,7 +311,7 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_2() {
         for y in 0..tree_size {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
@@ -338,14 +338,14 @@ fn test_case_simplified_insert_separated_by_clear_where_dim_is_4() {
     }
 
     tree.clear(&V3c::new(3, 3, 3)).ok().unwrap();
-    assert_eq!(tree.get(&V3c::new(3, 3, 3)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(3, 3, 3)), BoxTreeEntry::Empty);
 
     let mut hits = 0;
     for x in 0..tree_size {
         for y in 0..tree_size {
             for z in 0..tree_size {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
@@ -379,7 +379,7 @@ fn test_update_data() {
     tree.insert(&V3c::new(0, 0, 0), (&red, &3)).ok();
     assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
 
-    tree.update(&V3c::new(0, 0, 0), OctreeEntry::Informative(&4))
+    tree.update(&V3c::new(0, 0, 0), BoxTreeEntry::Informative(&4))
         .ok();
     let hit = tree.get(&V3c::new(0, 0, 0));
     assert_eq!(hit, (&red, &4).into(), "Hit mismatch at {:?}", (0, 0, 0));
@@ -394,7 +394,7 @@ fn test_update_empty() {
     tree.insert(&V3c::new(0, 0, 0), (&red, &3)).ok();
     assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
 
-    tree.update(&V3c::new(0, 0, 0), OctreeEntry::Empty).ok();
+    tree.update(&V3c::new(0, 0, 0), BoxTreeEntry::Empty).ok();
     assert!(tree.get(&V3c::new(0, 0, 0)) == (&red, &3).into());
 }
 
@@ -420,7 +420,7 @@ fn test_uniform_solid_leaf_separated_by_clear_where_dim_is_1() {
 
     // Separate Uniform leaf by clearing a voxel
     tree.clear(&V3c::unit(0)).ok().unwrap();
-    assert_eq!(tree.get(&V3c::unit(0)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::unit(0)), BoxTreeEntry::Empty);
 
     // The rest of the voxels should remain intact
     for sectant in 1..BOX_NODE_CHILDREN_COUNT {
@@ -491,7 +491,7 @@ fn test_uniform_solid_leaf_separated_by_clear_where_dim_is_4() {
     // Separate Uniform leaf by clearing a voxel
     assert!(tree.get(&V3c::unit(0)) == (&Albedo::from(color_base)).into());
     tree.clear(&V3c::unit(0)).ok().unwrap();
-    assert!(tree.get(&V3c::unit(0)) == OctreeEntry::Empty);
+    assert!(tree.get(&V3c::unit(0)) == BoxTreeEntry::Empty);
 
     // The rest of the voxels should remain intact
     for sectant in 0..BOX_NODE_CHILDREN_COUNT {
@@ -809,7 +809,7 @@ fn test_insert_at_lod_with_unaligned_position_where_dim_is_4() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -843,7 +843,7 @@ fn test_insert_at_lod_with_unaligned_size_where_dim_is_1() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -875,7 +875,7 @@ fn test_insert_at_lod_with_unaligned_size_and_position_where_dim_is_1() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -910,7 +910,7 @@ fn test_insert_at_lod_with_unaligned_size_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -960,7 +960,7 @@ fn test_insert_at_lod_with_simplify() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert_eq!(hit, (&green).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
@@ -972,7 +972,7 @@ fn test_insert_at_lod_with_simplify() {
         for y in 0..2 {
             for z in 0..2 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert_eq!(hit, (&red).into(), "Hit mismatch at {:?}", (x, y, z));
                     hits += 1;
                 }
@@ -1059,8 +1059,8 @@ fn test_simple_clear_where_dim_is_1() {
 
     assert_eq!(tree.get(&V3c::new(1, 0, 0)), (&red).into());
     assert_eq!(tree.get(&V3c::new(0, 1, 0)), (&green).into());
-    assert_eq!(tree.get(&V3c::new(0, 0, 1)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 1, 1)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 0, 1)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 1, 1)), BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -1082,12 +1082,12 @@ fn test_simple_clear_where_dim_is_2() {
     assert_eq!(tree.get(&V3c::new(0, 0, 1)), (&blue).into());
 
     tree.clear(&V3c::new(0, 0, 1)).ok().unwrap();
-    assert_eq!(tree.get(&V3c::new(0, 0, 1)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 0, 1)), BoxTreeEntry::Empty);
 
     assert_eq!(tree.get(&V3c::new(1, 0, 0)), (&red).into());
     assert_eq!(tree.get(&V3c::new(0, 1, 0)), (&green).into());
-    assert_eq!(tree.get(&V3c::new(0, 0, 1)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 1, 1)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 0, 1)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 1, 1)), BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -1154,7 +1154,7 @@ fn test_double_clear() {
     assert_eq!(tree.get(&V3c::new(1, 0, 0)), (&albedo_black).into());
     assert_eq!(tree.get(&V3c::new(0, 1, 0)), (&albedo_white).into());
     let item_at_001 = tree.get(&V3c::new(0, 0, 1));
-    assert!(item_at_001 == OctreeEntry::Empty);
+    assert!(item_at_001 == BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -1177,7 +1177,7 @@ fn test_simplifyable_clear() {
 
     // Integrity should be kept
     let item_at_000 = tree.get(&V3c::new(0, 0, 0));
-    assert!(item_at_000 == OctreeEntry::Empty);
+    assert!(item_at_000 == BoxTreeEntry::Empty);
     for x in 1..SIZE {
         for y in 1..SIZE {
             for z in 1..SIZE {
@@ -1207,7 +1207,7 @@ fn test_simplifyable_clear_where_dim_is_2() {
 
     // Integrity should be kept
     let item_at_000 = tree.get(&V3c::new(0, 0, 0));
-    assert!(item_at_000 == OctreeEntry::Empty);
+    assert!(item_at_000 == BoxTreeEntry::Empty);
     for x in 1..SIZE {
         for y in 1..SIZE {
             for z in 1..SIZE {
@@ -1220,7 +1220,7 @@ fn test_simplifyable_clear_where_dim_is_2() {
 #[test]
 fn test_clear_to_nothing() {
     let albedo: Albedo = 0xFFAAEEFF.into();
-    let entry = OctreeEntry::Visual(&albedo);
+    let entry = BoxTreeEntry::Visual(&albedo);
     let mut tree: BoxTree = BoxTree::new(4, 1).ok().unwrap();
 
     // The below set of values should be simplified to a single node
@@ -1237,14 +1237,14 @@ fn test_clear_to_nothing() {
     tree.clear_at_lod(&V3c::new(0, 0, 0), 2).ok().unwrap();
 
     // Nothing should remain in the tree
-    assert_eq!(tree.get(&V3c::new(0, 0, 0)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(0, 0, 1)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(0, 1, 0)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(0, 1, 1)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 0, 0)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 0, 1)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 1, 0)), OctreeEntry::Empty);
-    assert_eq!(tree.get(&V3c::new(1, 1, 1)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 0, 0)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 0, 1)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 1, 0)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 1, 1)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 0, 0)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 0, 1)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 1, 0)), BoxTreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(1, 1, 1)), BoxTreeEntry::Empty);
 }
 
 #[test]
@@ -1318,7 +1318,7 @@ fn test_clear_at_lod_where_dim_is_1() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1338,6 +1338,7 @@ fn test_clear_at_lod_where_dim_is_1() {
 
 #[test]
 fn test_clear_at_lod_where_dim_is_2() {
+    std::env::set_var("RUST_BACKTRACE", "1");
     let albedo: Albedo = 0xFFAAEEFF.into();
     let mut tree: BoxTree = BoxTree::new(8, 2).ok().unwrap();
 
@@ -1351,7 +1352,7 @@ fn test_clear_at_lod_where_dim_is_2() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1376,7 +1377,7 @@ fn test_clear_at_lod_where_dim_is_2() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1408,14 +1409,14 @@ fn test_clear_at_lod_with_unaligned_position_where_dim_is_1() {
     tree.clear_at_lod(&V3c::new(1, 1, 1), 2).ok().unwrap();
 
     // unset voxels should not be present
-    assert!(tree.get(&V3c::new(1, 1, 1)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(1, 1, 2)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(1, 2, 1)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(1, 2, 2)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(2, 1, 1)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(2, 1, 2)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(2, 2, 1)) == OctreeEntry::Empty);
-    assert!(tree.get(&V3c::new(2, 2, 2)) == OctreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 1, 1)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 1, 2)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 2, 1)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(1, 2, 2)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(2, 1, 1)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(2, 1, 2)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(2, 2, 1)) == BoxTreeEntry::Empty);
+    assert!(tree.get(&V3c::new(2, 2, 2)) == BoxTreeEntry::Empty);
 
     // sampling some voxels who should be present
     assert!(tree.get(&V3c::new(0, 0, 2)).is_some());
@@ -1431,7 +1432,7 @@ fn test_clear_at_lod_with_unaligned_position_where_dim_is_1() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1466,7 +1467,7 @@ fn test_clear_at_lod_with_unaligned_position_where_dim_is_4() {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
                 assert_eq!(hit, (&albedo).into());
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     hits += 1;
                 }
             }
@@ -1482,7 +1483,7 @@ fn test_clear_at_lod_with_unaligned_position_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1516,7 +1517,7 @@ fn test_clear_at_lod_with_unaligned_size_where_dim_is_1() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1539,7 +1540,7 @@ fn test_clear_at_lod_with_unaligned_size_where_dim_is_1() {
         for y in 0..4 {
             for z in 0..4 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1570,7 +1571,7 @@ fn test_clear_at_lod_with_unaligned_size_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1591,7 +1592,7 @@ fn test_clear_at_lod_with_unaligned_size_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1621,7 +1622,7 @@ fn test_clear_whole_nodes_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1642,7 +1643,7 @@ fn test_clear_whole_nodes_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&albedo).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1673,7 +1674,7 @@ fn test_overwrite_whole_nodes_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                if hit != OctreeEntry::Empty {
+                if hit != BoxTreeEntry::Empty {
                     assert!(
                         hit == (&red).into(),
                         "Hit mismatch at {:?}: {:?} <> {:?}",
@@ -1697,9 +1698,9 @@ fn test_overwrite_whole_nodes_where_dim_is_4() {
         for y in 0..8 {
             for z in 0..8 {
                 let hit = tree.get(&V3c::new(x, y, z));
-                assert_ne!(hit, OctreeEntry::Empty);
+                assert_ne!(hit, BoxTreeEntry::Empty);
                 match hit {
-                    OctreeEntry::Visual(hit) => {
+                    BoxTreeEntry::Visual(hit) => {
                         if *hit == red {
                             hits_red += 1
                         }
@@ -1741,7 +1742,7 @@ fn test_case_inserting_empty() {
         .unwrap();
     let item = tree.get(&V3c::new(3, 0, 0));
     assert!(
-        item == OctreeEntry::Empty,
+        item == BoxTreeEntry::Empty,
         "Item shouldn't exist: {:?}",
         item
     );

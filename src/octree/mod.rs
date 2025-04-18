@@ -10,7 +10,7 @@ mod tests;
 
 pub use crate::spatial::math::vector::{V3c, V3cf32};
 pub use types::{
-    Albedo, BoxTree, MIPMapStrategy, MIPResamplingMethods, OctreeEntry, StrategyUpdater, VoxelData,
+    Albedo, BoxTree, BoxTreeEntry, MIPMapStrategy, MIPResamplingMethods, StrategyUpdater, VoxelData,
 };
 
 use crate::{
@@ -50,9 +50,9 @@ use bendy::{decoding::FromBencode, encoding::ToBencode};
 //  ██████████ █████  ░░█████    █████    █████   █████    █████
 // ░░░░░░░░░░ ░░░░░    ░░░░░    ░░░░░    ░░░░░   ░░░░░    ░░░░░
 //####################################################################################
-impl<'a, T: VoxelData> From<(&'a Albedo, &'a T)> for OctreeEntry<'a, T> {
+impl<'a, T: VoxelData> From<(&'a Albedo, &'a T)> for BoxTreeEntry<'a, T> {
     fn from((albedo, data): (&'a Albedo, &'a T)) -> Self {
-        OctreeEntry::Complex(albedo, data)
+        BoxTreeEntry::Complex(albedo, data)
     }
 }
 
@@ -66,37 +66,37 @@ macro_rules! voxel_data {
     };
 }
 
-impl<'a, T: VoxelData> From<&'a Albedo> for OctreeEntry<'a, T> {
+impl<'a, T: VoxelData> From<&'a Albedo> for BoxTreeEntry<'a, T> {
     fn from(albedo: &'a Albedo) -> Self {
-        OctreeEntry::Visual(albedo)
+        BoxTreeEntry::Visual(albedo)
     }
 }
 
-impl<'a, T: VoxelData> OctreeEntry<'a, T> {
+impl<'a, T: VoxelData> BoxTreeEntry<'a, T> {
     pub fn albedo(&self) -> Option<&'a Albedo> {
         match self {
-            OctreeEntry::Empty => None,
-            OctreeEntry::Visual(albedo) => Some(albedo),
-            OctreeEntry::Informative(_) => None,
-            OctreeEntry::Complex(albedo, _) => Some(albedo),
+            BoxTreeEntry::Empty => None,
+            BoxTreeEntry::Visual(albedo) => Some(albedo),
+            BoxTreeEntry::Informative(_) => None,
+            BoxTreeEntry::Complex(albedo, _) => Some(albedo),
         }
     }
 
     pub fn data(&self) -> Option<&'a T> {
         match self {
-            OctreeEntry::Empty => None,
-            OctreeEntry::Visual(_) => None,
-            OctreeEntry::Informative(data) => Some(data),
-            OctreeEntry::Complex(_, data) => Some(data),
+            BoxTreeEntry::Empty => None,
+            BoxTreeEntry::Visual(_) => None,
+            BoxTreeEntry::Informative(data) => Some(data),
+            BoxTreeEntry::Complex(_, data) => Some(data),
         }
     }
 
     pub fn is_none(&self) -> bool {
         match self {
-            OctreeEntry::Empty => true,
-            OctreeEntry::Visual(albedo) => albedo.is_transparent(),
-            OctreeEntry::Informative(data) => data.is_empty(),
-            OctreeEntry::Complex(albedo, data) => albedo.is_transparent() && data.is_empty(),
+            BoxTreeEntry::Empty => true,
+            BoxTreeEntry::Visual(albedo) => albedo.is_transparent(),
+            BoxTreeEntry::Informative(data) => data.is_empty(),
+            BoxTreeEntry::Complex(albedo, data) => albedo.is_transparent() && data.is_empty(),
         }
     }
 
@@ -207,7 +207,7 @@ impl<
 
     /// Getter function for the octree
     /// * Returns immutable reference to the data at the given position, if there is any
-    pub fn get(&self, position: &V3c<u32>) -> OctreeEntry<T> {
+    pub fn get(&self, position: &V3c<u32>) -> BoxTreeEntry<T> {
         NodeContent::pix_get_ref(
             &self.get_internal(
                 Self::ROOT_NODE_KEY as usize,

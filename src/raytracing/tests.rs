@@ -75,7 +75,7 @@ mod wgpu_tests {
 #[cfg(test)]
 mod octree_raytracing_tests {
     use crate::{
-        octree::{Albedo, BoxTree, OctreeEntry, V3c},
+        octree::{Albedo, BoxTree, BoxTreeEntry, V3c},
         raytracing::tests::get_step_to_next_sibling,
         spatial::{math::FLOAT_ERROR_TOLERANCE, raytracing::Ray, Cube},
         voxel_data,

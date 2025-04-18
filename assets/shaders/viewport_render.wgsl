@@ -32,8 +32,8 @@ fn hash_region(offset: vec3f, size: f32) -> u32 {
     ));
     return (
         index.x
-        + (index.y * (BOX_NODE_DIMENSION))
-        + (index.z * (BOX_NODE_DIMENSION * BOX_NODE_DIMENSION))
+        + (index.y * BOX_NODE_DIMENSION)
+        + (index.z * BOX_NODE_DIMENSION * BOX_NODE_DIMENSION)
     );
 }
 
@@ -46,37 +46,36 @@ struct CubeRayIntersection {
 
 //crate::spatial::raytracing::Cube::intersect_ray
 fn cube_intersect_ray(cube: Cube, ray: ptr<function, Line>,) -> CubeRayIntersection{
-    let max_position = cube.min_position + vec3f(cube.size, cube.size, cube.size);
     let tmin = max(
         max(
             min(
                 (cube.min_position.x - (*ray).origin.x) / (*ray).direction.x,
-                (max_position.x - (*ray).origin.x) / (*ray).direction.x
+                (cube.min_position.x + cube.size - (*ray).origin.x) / (*ray).direction.x
             ),
             min(
                 (cube.min_position.y - (*ray).origin.y) / (*ray).direction.y,
-                (max_position.y - (*ray).origin.y) / (*ray).direction.y
+                (cube.min_position.y + cube.size - (*ray).origin.y) / (*ray).direction.y
             )
         ),
         min(
             (cube.min_position.z - (*ray).origin.z) / (*ray).direction.z,
-            (max_position.z - (*ray).origin.z) / (*ray).direction.z
+            (cube.min_position.z + cube.size - (*ray).origin.z) / (*ray).direction.z
         )
     );
     let tmax = min(
         min(
             max(
                 (cube.min_position.x - (*ray).origin.x) / (*ray).direction.x,
-                (max_position.x - (*ray).origin.x) / (*ray).direction.x
+                (cube.min_position.x + cube.size - (*ray).origin.x) / (*ray).direction.x
             ),
             max(
                 (cube.min_position.y - (*ray).origin.y) / (*ray).direction.y,
-                (max_position.y - (*ray).origin.y) / (*ray).direction.y
+                (cube.min_position.y + cube.size - (*ray).origin.y) / (*ray).direction.y
             )
         ),
         max(
             (cube.min_position.z - (*ray).origin.z) / (*ray).direction.z,
-            (max_position.z - (*ray).origin.z) / (*ray).direction.z
+            (cube.min_position.z + cube.size - (*ray).origin.z) / (*ray).direction.z
         )
     );
 
@@ -335,17 +334,17 @@ fn traverse_brick(
         round((*brick_bounds).size / f32(dimension))
     );
 
-    // +++ DEBUG +++
+    /*// +++ DEBUG +++
     var safety = 0u;
-    // --- DEBUG ---
+    */// --- DEBUG ---
     var step = vec3f(0.);
     loop{
-        // +++ DEBUG +++
+        /*// +++ DEBUG +++
         safety += 1u;
         if(safety > u32(f32(dimension) * sqrt(30.))) {
             return BrickHit(false, vec3u(1, 1, 1), 0);
         }
-        // --- DEBUG ---
+        */// --- DEBUG ---
         if current_index.x < 0
             || current_index.x >= dimension
             || current_index.y < 0
@@ -532,9 +531,12 @@ fn traverse_node_for_ocbits(
             break;
         }
 
-        let bitmap_index = BOX_NODE_INDEX_TO_SECTANT_LUT[u32(current_index.x)]
-                                                        [u32(current_index.y)]
-                                                        [u32(current_index.z)];
+        let bitmap_index = (
+            u32(current_index.x)
+            + (u32(current_index.y) * BOX_NODE_DIMENSION)
+            + (u32(current_index.z) * BOX_NODE_DIMENSION * BOX_NODE_DIMENSION)
+        );
+
         if (
             (
                 (bitmap_index < 32)
@@ -590,18 +592,18 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
         target_sectant = hash_region(ray_current_point, current_bounds.size);
     }
 
-    // +++ DEBUG +++
+    /*// +++ DEBUG +++
     var outer_safety = 0;
-    // --- DEBUG ---
+    */// --- DEBUG ---
     while target_sectant != OOB_SECTANT {
-        // +++ DEBUG +++
+        /*// +++ DEBUG +++
         outer_safety += 1;
         if(f32(outer_safety) > f32(boxtree_meta_data.boxtree_size) * sqrt(3.)) {
             return OctreeRayIntersection(
                 true, vec4f(1.,0.,0.,1.), vec3f(0.), vec3f(0., 0., 1.)
             );
         }
-        // --- DEBUG ---
+        */// --- DEBUG ---
         current_node_key = BOXTREE_ROOT_NODE_KEY;
         current_bounds.size = f32(boxtree_meta_data.boxtree_size);
         current_bounds.min_position = vec3(0.);
@@ -654,10 +656,11 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     }
                 }
             }
+            var target_child_descriptor = node_children[(current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant];
             if(
                 // In case node doesn't yet have the target child node uploaded to GPU
                 target_sectant != OOB_SECTANT
-                && node_children[(current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant] == EMPTY_MARKER
+                && target_child_descriptor == EMPTY_MARKER
                 && (( // node is occupied at target sectant
                     (target_sectant < 32)
                     && (0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant) ))
@@ -701,8 +704,9 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         return mip_hit;
                     }
                 }
-            } else if( // target points inside and node is leaf
-                (target_sectant != OOB_SECTANT)
+            } else if( // node is leaf, its target points inside and is available
+                target_sectant != OOB_SECTANT
+                && target_child_descriptor != EMPTY_MARKER
                 &&( 0 != (node_metadata[current_node_key / 8] & (0x01u << (current_node_key % 8u))) )
             ){
                 var hit: OctreeRayIntersection;
@@ -793,10 +797,9 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 }
                 continue;
             }
-
-            var target_child_descriptor = node_children[(current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant];
-            if ( // If node is not a leaf and node is occupied at target sectant
+            if ( // If node is not a leaf, occupied at target sectant and target is available
                 (0 == (node_metadata[current_node_key / 8u] & (0x01u << (current_node_key % 8u))))
+                &&(target_child_descriptor != EMPTY_MARKER)
                 &&((
                     (target_sectant < 32)
                     && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
@@ -822,18 +825,18 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                 mip_level -= 1.;
             } else {
                 // ADVANCE
-                // +++ DEBUG +++
+                /*// +++ DEBUG +++
                 var advance_safety = 0;
-                // --- DEBUG ---
+                */// --- DEBUG ---
                 loop {
-                    // +++ DEBUG +++
+                    /*// +++ DEBUG +++
                     advance_safety += 1;
                     if(advance_safety > 16) {
                         return OctreeRayIntersection(
                             true, vec4f(0.,1.,0.,1.), vec3f(0.), vec3f(0., 0., 1.)
                         );
                     }
-                    // --- DEBUG ---
+                    */// --- DEBUG ---
                     tmp_vec = round(dda_step_to_next_sibling(
                         ray, &ray_current_point, &target_bounds,
                         &ray_scale_factors
@@ -847,7 +850,7 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                         target_child_descriptor = node_children[
                             (current_node_key * BOX_NODE_CHILDREN_COUNT) + target_sectant
                         ];
-                        if( // Also request node stepped into
+                        if( // Also request current target if not available
                             target_child_descriptor == EMPTY_MARKER // target child key is invalid
                             && (( // node is occupied at target sectant
                                 (target_sectant < 32)
@@ -882,12 +885,15 @@ fn get_by_ray(ray: ptr<function, Line>) -> OctreeRayIntersection {
                     }
                     if (
                         target_sectant == OOB_SECTANT // target is out of bounds
-                        |( // current node is occupied at target sectant
-                            (target_sectant < 32)
-                            && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
-                        )||(
-                            (target_sectant >= 32)
-                            && ( 0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32u))) )
+                        ||( // current node is available
+                            target_child_descriptor != EMPTY_MARKER
+                            &&(( // and current node is occupied at target sectant
+                                (target_sectant < 32)
+                                && ( 0u != (node_occupied_bits[current_node_key * 2] & (0x01u << target_sectant)) )
+                            )||(
+                                (target_sectant >= 32)
+                                && ( 0u != (node_occupied_bits[current_node_key * 2 + 1] & (0x01u << (target_sectant - 32u))) )
+                            ))
                         )
                     ) {
                         break;
@@ -1009,7 +1015,7 @@ fn update(
         ) // Viewport up direction
         ;
     var ray = Line(ray_endpoint, normalize(ray_endpoint - viewport.origin));
-    var rgb_result = vec3f(0.5,0.5,0.5);
+    var rgb_result = vec3f(0.5,1.0,1.0);
     var ray_result = get_by_ray(&ray);
     if ray_result.hit == true {
         rgb_result = (
@@ -1046,8 +1052,7 @@ fn update(
     textureStore(output_texture, vec2u(invocation_id.xy), vec4f(rgb_result, 1.));
 }
 
-// Note: should be const
-var<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<vec3f, 64>(
+const SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<vec3f, 64>(
     vec3f(0.0, 0.0, 0.0),vec3f(0.25, 0.0, 0.0),vec3f(0.5, 0.0, 0.0),vec3f(0.75, 0.0, 0.0),
     vec3f(0.0, 0.25, 0.0),vec3f(0.25, 0.25, 0.0),vec3f(0.5, 0.25, 0.0),vec3f(0.75, 0.25, 0.0),
     vec3f(0.0, 0.5, 0.0),vec3f(0.25, 0.5, 0.0),vec3f(0.5, 0.5, 0.0),vec3f(0.75, 0.5, 0.0),
@@ -1069,8 +1074,7 @@ var<private> SECTANT_OFFSET_REGION_LUT: array<vec3f, 64> = array<vec3f, 64>(
     vec3f(0.0, 0.75, 0.75),vec3f(0.25, 0.75, 0.75),vec3f(0.5, 0.75, 0.75),vec3f(0.75, 0.75, 0.75),
 );
 
-// Note: should be const
-var<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,64> = array<array<array<array<u32, 3>, 3>, 3>,64>(
+const SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,64> = array<array<array<array<u32, 3>, 3>, 3>,64>(
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21))),
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,0,16),array<u32, 3>(64,4,20)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22))),
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,1,17),array<u32, 3>(64,5,21)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,2,18),array<u32, 3>(64,6,22)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,3,19),array<u32, 3>(64,7,23))),
@@ -1135,19 +1139,9 @@ var<private> SECTANT_STEP_RESULT_LUT: array<array<array<array<u32, 3>, 3>, 3>,64
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(40,56,64),array<u32, 3>(44,60,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64))),
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(41,57,64),array<u32, 3>(45,61,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64))),
     array<array<array<u32, 3>, 3>, 3>(array<array<u32, 3>, 3>(array<u32, 3>(42,58,64),array<u32, 3>(46,62,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(43,59,64),array<u32, 3>(47,63,64),array<u32, 3>(64,64,64)),array<array<u32, 3>, 3>(array<u32, 3>(64,64,64),array<u32, 3>(64,64,64),array<u32, 3>(64,64,64)))
-
 );
 
-// Note: should be const
-var<private> BOX_NODE_INDEX_TO_SECTANT_LUT: array<array<array<u32, 4>, 4>, 4> = array<array<array<u32, 4>, 4>, 4>(
-    array<array<u32, 4>, 4>(array<u32, 4>(0,16,32,48,), array<u32, 4>(4,20,36,52,), array<u32, 4>(8,24,40,56,), array<u32, 4>(12,28,44,60,)),
-    array<array<u32, 4>, 4>(array<u32, 4>(1,17,33,49,), array<u32, 4>(5,21,37,53,), array<u32, 4>(9,25,41,57,), array<u32, 4>(13,29,45,61,)),
-    array<array<u32, 4>, 4>(array<u32, 4>(2,18,34,50,), array<u32, 4>(6,22,38,54,), array<u32, 4>(10,26,42,58,), array<u32, 4>(14,30,46,62,)),
-    array<array<u32, 4>, 4>(array<u32, 4>(3,19,35,51,), array<u32, 4>(7,23,39,55,), array<u32, 4>(11,27,43,59,), array<u32, 4>(15,31,47,63,)),
-);
-
-// Note: should be const
-var<private> RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: array<array<u32, 16>, 64> = array<array<u32, 16>, 64>(
+const RAY_TO_NODE_OCCUPANCY_BITMASK_LUT: array<array<u32, 16>, 64> = array<array<u32, 16>, 64>(
     array<u32, 16>(1,0,15,0,65537,65537,983055,983055,4369,0,65535,0,286331153,286331153,4294967295,4294967295,),
     array<u32, 16>(3,0,14,0,196611,196611,917518,917518,13107,0,61166,0,858993459,858993459,4008636142,4008636142,),
     array<u32, 16>(7,0,12,0,458759,458759,786444,786444,30583,0,52428,0,2004318071,2004318071,3435973836,3435973836,),

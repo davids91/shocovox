@@ -13,7 +13,7 @@ use iyes_perf_ui::{
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{Albedo, BoxTree, OctreeEntry, V3c, V3cf32},
+    octree::{Albedo, BoxTree, BoxTreeEntry, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -90,7 +90,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
                     .unwrap();
                     assert_eq!(
                         tree.get(&V3c::new(x, y, z)),
-                        OctreeEntry::Visual(
+                        BoxTreeEntry::Visual(
                             &Albedo::default()
                                 .with_red(r as u8)
                                 .with_green(g as u8)

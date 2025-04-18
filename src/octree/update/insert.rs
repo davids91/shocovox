@@ -1,7 +1,7 @@
 use crate::{
     octree::{
         detail::child_sectant_for,
-        types::{BrickData, NodeChildren, NodeContent, OctreeEntry, OctreeError},
+        types::{BoxTreeEntry, BrickData, NodeChildren, NodeContent, OctreeError},
         BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
@@ -43,7 +43,7 @@ impl<
     /// If there is already available data it overwrites it, except if all components are empty
     /// If all components are empty, this is a no-op, to erase data, please use @clear
     /// * `position` - the position to insert the data into, must be contained within the tree
-    pub fn insert<'a, E: Into<OctreeEntry<'a, T>>>(
+    pub fn insert<'a, E: Into<BoxTreeEntry<'a, T>>>(
         &mut self,
         position: &V3c<u32>,
         data: E,
@@ -59,7 +59,7 @@ impl<
     /// * `position` - the position to insert the data into, must be contained within the tree
     /// * `insert_size` - The size to update. The value `brick_dimension * (2^x)` is used instead, when size is higher, than brick_dimension
     /// * `data` - The data to insert - cloned if needed
-    pub fn insert_at_lod<'a, E: Into<OctreeEntry<'a, T>>>(
+    pub fn insert_at_lod<'a, E: Into<BoxTreeEntry<'a, T>>>(
         &mut self,
         position: &V3c<u32>,
         insert_size: u32,
@@ -75,7 +75,7 @@ impl<
     /// Already available data is untouched, if it is not specified in the entry
     /// If all components are empty, this is a no-op, to erase data, please use @clear
     /// * `position` - the position to insert the data into, must be contained within the tree
-    pub fn update<'a, E: Into<OctreeEntry<'a, T>>>(
+    pub fn update<'a, E: Into<BoxTreeEntry<'a, T>>>(
         &mut self,
         position: &V3c<u32>,
         data: E,
@@ -90,7 +90,7 @@ impl<
         &mut self,
         overwrite_if_empty: bool,
         position: &V3c<u32>,
-        data: OctreeEntry<T>,
+        data: BoxTreeEntry<T>,
     ) -> Result<(), OctreeError> {
         self.insert_at_lod_internal(overwrite_if_empty, position, 1, data)
     }
@@ -100,7 +100,7 @@ impl<
         overwrite_if_empty: bool,
         position_u32: &V3c<u32>,
         insert_size: u32,
-        data: OctreeEntry<T>,
+        data: BoxTreeEntry<T>,
     ) -> Result<(), OctreeError> {
         let root_bounds = Cube::root_bounds(self.boxtree_size as f32);
         let position = V3c::<f32>::from(*position_u32);
@@ -409,19 +409,21 @@ impl<
             self.update_mip(node_key as usize, &node_bounds, &(position.into()));
 
             // Decide to continue or not
-            if matches!(
-                self.nodes.get(node_key as usize),
-                NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
-            ) {
+            if simplifyable
+                && matches!(
+                    self.nodes.get(node_key as usize),
+                    NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
+                )
+            {
                 // In case of leaf nodes, just try to simplify and continue
-                simplifyable = self.simplify(node_key as usize);
+                simplifyable = self.simplify(node_key as usize, false);
                 continue;
             }
 
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because
                 // their parents can not be simplified anyway because of it
-                simplifyable = self.simplify(node_key as usize);
+                simplifyable = self.simplify(node_key as usize, false);
             }
         }
         Ok(())

@@ -1,5 +1,5 @@
 use shocovox_rs::{
-    octree::{Albedo, BoxTree, OctreeEntry, V3c, VoxelData},
+    octree::{Albedo, BoxTree, BoxTreeEntry, V3c, VoxelData},
     voxel_data,
 };
 
@@ -36,7 +36,7 @@ fn main() {
     )
     .ok()
     .unwrap();
-    assert_eq!(tree.get(&V3c::new(0, 1, 0)), OctreeEntry::Empty);
+    assert_eq!(tree.get(&V3c::new(0, 1, 0)), BoxTreeEntry::Empty);
 
     // To overwrite data, just insert it to the same position
     tree.insert(&V3c::new(0, 0, 0), &voxel_color_green)

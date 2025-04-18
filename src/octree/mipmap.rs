@@ -4,8 +4,8 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{
-            BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren, NodeContent,
-            OctreeEntry, PaletteIndexValues, StrategyUpdater,
+            BoxTreeEntry, BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren,
+            NodeContent, PaletteIndexValues, StrategyUpdater,
         },
         Albedo, BoxTree, VoxelData, OOB_SECTANT,
     },
@@ -550,11 +550,11 @@ impl<
                     )
                 } else {
                     // Add new color to the color palette
-                    Some(self.add_to_palette(&OctreeEntry::Visual(color)))
+                    Some(self.add_to_palette(&BoxTreeEntry::Visual(color)))
                 }
             } else {
                 // Add new color to the color palette
-                Some(self.add_to_palette(&OctreeEntry::Visual(color)))
+                Some(self.add_to_palette(&BoxTreeEntry::Visual(color)))
             }
         } else {
             None
@@ -913,7 +913,7 @@ impl<
     /// Sample the MIP of the root node, or its children
     /// * `sectant` - the child to sample, in case `OOB_SECTANT` the root MIP is sampled
     /// * `position` - the position inside the MIP, expected to be in range `0..self.brick_dim` for all components
-    pub(crate) fn sample_root_mip(&self, sectant: u8, position: &V3c<u32>) -> OctreeEntry<T> {
+    pub(crate) fn sample_root_mip(&self, sectant: u8, position: &V3c<u32>) -> BoxTreeEntry<T> {
         let tree = &self.0;
         let node_key: usize = if OOB_SECTANT == sectant {
             BoxTree::<T>::ROOT_NODE_KEY as usize
@@ -922,10 +922,10 @@ impl<
         };
 
         if !tree.nodes.key_is_valid(node_key) {
-            return OctreeEntry::Empty;
+            return BoxTreeEntry::Empty;
         }
         match &tree.node_mips[node_key] {
-            BrickData::Empty => OctreeEntry::Empty,
+            BrickData::Empty => BoxTreeEntry::Empty,
             BrickData::Solid(voxel) => NodeContent::pix_get_ref(
                 &voxel,
                 &tree.voxel_color_palette,
