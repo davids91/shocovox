@@ -1,4 +1,4 @@
-use crate::octree::{types::PaletteIndexValues, Octree, V3cf32, VoxelData};
+use crate::octree::{types::PaletteIndexValues, BoxTree, V3cf32, VoxelData};
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -30,7 +30,7 @@ pub struct OctreeMetaData {
     pub ambient_light_position: V3cf32,
 
     /// Size of the octree to display
-    pub(crate) octree_size: u32,
+    pub(crate) boxtree_size: u32,
 
     /// Contains the properties of the Octree
     ///  _===================================================================_
@@ -83,7 +83,7 @@ pub struct OctreeGPUHost<T = u32>
 where
     T: Default + Clone + Eq + VoxelData + Send + Sync + Hash + 'static,
 {
-    pub tree: Octree<T>,
+    pub tree: BoxTree<T>,
 }
 
 #[derive(Default, Resource, Clone, TypePath, ExtractResource)]
@@ -155,7 +155,7 @@ pub struct OctreeGPUDataHandler {
     pub(crate) victim_node: VictimPointer,
     pub(crate) victim_brick: usize,
     pub(crate) node_key_vs_meta_index: BiHashMap<usize, usize>,
-    pub(crate) brick_ownership: Vec<BrickOwnedBy>,
+    pub(crate) brick_ownership: BiHashMap<usize, BrickOwnedBy>,
     pub(crate) uploaded_color_palette_size: usize,
 }
 
@@ -171,7 +171,9 @@ pub(crate) struct OctreeRenderDataResources {
     // Octree render data group
     // --{
     pub(crate) tree_bind_group: BindGroup,
-    pub(crate) metadata_buffer: Buffer,
+    pub(crate) boxtree_meta_buffer: Buffer,
+    pub(crate) used_bits_buffer: Buffer,
+    pub(crate) node_metadata_buffer: Buffer,
     pub(crate) node_children_buffer: Buffer,
     pub(crate) node_mips_buffer: Buffer,
 
@@ -187,7 +189,7 @@ pub(crate) struct OctreeRenderDataResources {
 
     // Staging buffers for data reads
     pub(crate) readable_node_requests_buffer: Buffer,
-    pub(crate) readable_metadata_buffer: Buffer,
+    pub(crate) readable_used_bits_buffer: Buffer,
     // }--
 }
 
@@ -220,53 +222,53 @@ pub struct OctreeRenderData {
     /// Contains the properties of the Octree
     pub(crate) octree_meta: OctreeMetaData,
 
-    /// Contains the properties of Nodes and Voxel Bricks
-    ///  _===================================================================_
-    /// | Byte 0  | Node properties                                           |
-    /// |---------------------------------------------------------------------|
-    /// |  bit 0  | 1 if node is used by the raytracing algorithm *(2) *(4)   |
-    /// |  bit 1  | unused                                                    |
-    /// |  bit 2  | 1 in case node is a leaf                                  |
-    /// |  bit 3  | 1 in case node is uniform                                 |
-    /// |  bit 4  | 1 if node has MIP                                         |
-    /// |  bit 5  | 0 if MIP brick is solid, 1 if parted                      |
-    /// |  bit 6  | unused - potentially: voxel brick size: 1, full or sparse |
-    /// |  bit 7  | unused                                                    |
-    /// |=====================================================================|
-    /// | Byte 1  | unused - potentially: leaf child brick sizes *(5)         |
-    /// |=====================================================================|
-    /// | Byte 2  | Node Child structure                                      |
-    /// |---------------------------------------------------------------------|
-    /// | If Leaf | each bit is 0 if child brick is solid, 1 if parted *(1)   |
-    /// | If Node | unused - potentially: node used counter(for unload prio)  |
-    /// |=====================================================================|
-    /// | Byte 3  | Voxel Bricks used *(3)                                    |
-    /// |---------------------------------------------------------------------|
-    /// | each bit is 1 if brick is used (it means do not delete please)      |
-    /// `=====================================================================`
-    /// *(1) Only first bit is used in case uniform leaf nodes
-    /// *(2) The same bit is used for node_children and node_occupied_bits
-    /// *(3) One index in the array covers 8 bricks, which is the theoretical maximum
-    ///      number of bricks for one node. In practice however the number of bricks
-    ///      are only 4-5 times more, than the number of nodes, because of the internal nodes;
-    ///      And only a fraction of them are visible in a render.
-    /// *(4) Root node does not have this bit used, because it will never be overwritten
-    ///      due to the victim pointer logic
-    /// *(5) That needs 8 bits tho, 1 bit for every child
-    pub(crate) metadata: Vec<u32>,
+    /// Usage information for nodes and bricks
+    ///  _===============================================================_
+    /// |    bit 0 | 1 if node is used by raytracing algo*               |
+    /// |----------------------------------------------------------------|
+    /// | bit 1-30 | 30x 1 bit: 1 if brick used by the raytracing algo   |
+    /// `================================================================`
+    /// * - Same bit used for node_children, node_ocbits, node_mips and node_structure
+    ///   - Root node doesn't use this bit, as it will never be overwritten by cache
+    pub(crate) used_bits: Vec<u32>,
 
-    /// Index values for Nodes, 8 value per @SizedNode entry. Each value points to:
+    /// Node Property descriptors
+    ///  _===============================================================_
+    /// | Byte 0   | 8x 1 bit: 1 in case node is a leaf                  |
+    /// |----------------------------------------------------------------|
+    /// | Byte 1   | 8x 1 bit: 1 in case node is uniform                 |
+    /// |----------------------------------------------------------------|
+    /// | Byte 2   | 8x 1 bit: 1 if node has MIP                         |
+    /// |----------------------------------------------------------------|
+    /// | Byte 3   | unused - potentially: normal vector index           |
+    /// `================================================================`
+    pub(crate) node_metadata: Vec<u32>,
+
+    /// Composite field: Children information
     /// In case of Internal Nodes
     /// -----------------------------------------
-    /// 8 children of the node, either pointing to a node in metadata, or marked empty
+    /// Index values for Nodes, 64 value per @SizedNode entry.
+    /// Each value points to one of 64 children of the node,
+    /// either pointing to a node in metadata, or marked empty
+    /// when there are no children in the given sectant
     ///
     /// In case of Leaf Nodes:
     /// -----------------------------------------
-    /// index of where the voxel brick start inside the @voxels buffer.
-    /// Leaf node might contain 1 or 8 bricks according to @sized_node_meta ( Uniform/Non-uniform )
+    /// Contains 64 bricks pointing to the child of the node for the relevant sectant
+    /// according to @node_metadata ( Uniform/Non-uniform ) a node may have 1
+    /// or 64 children, in that case only the first index is used.
+    /// Structure is as follows:
+    ///  _===============================================================_
+    /// | bit 0-30 | index of where the voxel brick starts               |
+    /// |          | inside the @voxels_buffer(when parted)              |
+    /// |          | or inside the @color_palette(when solid)            |
+    /// |----------------------------------------------------------------|
+    /// |   bit 31 | 0 if brick is parted, 1 if solid                    |
+    /// `================================================================`
     pub(crate) node_children: Vec<u32>,
 
     /// Index values for node MIPs stored inside the bricks, each node has one MIP index, or marked empty
+    /// Structure is the same as one child in @node_children
     pub(crate) node_mips: Vec<u32>,
 
     /// Buffer of Node occupancy bitmaps. Each node has a 64 bit bitmap,

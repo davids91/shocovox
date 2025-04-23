@@ -1,7 +1,7 @@
 use crate::{
     octree::{
         types::{MIPMapStrategy, OctreeError},
-        Albedo, Octree, OctreeEntry, V3c, VoxelData,
+        Albedo, BoxTree, BoxTreeEntry, V3c, VoxelData,
     },
     spatial::math::{convert_coordinate, CoordinateSystemType},
 };
@@ -219,16 +219,18 @@ impl MIPMapStrategy {
         self,
         brick_dimension: u32,
         filename: &str,
-    ) -> Result<Octree<T>, &'static str> {
+    ) -> Result<BoxTree<T>, &'static str> {
         let (vox_data, min_position, mut max_position) =
-            Octree::<T>::load_vox_file_internal(filename);
+            BoxTree::<T>::load_vox_file_internal(filename);
         max_position -= min_position;
-        let tree_size = max_position.x.max(max_position.y).max(max_position.z);
-        let tree_size = (tree_size as f32).log2().ceil() as u32;
-        let tree_size = 2_u32.pow(tree_size);
+        let max_position = max_position.x.max(max_position.y).max(max_position.z);
+        let tree_size = (max_position as f32 / brick_dimension as f32)
+            .log(4.)
+            .ceil() as u32;
+        let tree_size = 4_u32.pow(tree_size) * brick_dimension;
 
         let mut shocovox_octree =
-            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
+            BoxTree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
                 panic!(
                     "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
                     tree_size,
@@ -261,17 +263,19 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     pub fn load_vox_file(filename: &str, brick_dimension: u32) -> Result<Self, &'static str> {
         let (vox_data, min_position, mut max_position) = Self::load_vox_file_internal(filename);
         max_position -= min_position;
-        let tree_size = max_position.x.max(max_position.y).max(max_position.z);
-        let tree_size = (tree_size as f32).log2().ceil() as u32;
-        let tree_size = 2_u32.pow(tree_size);
+        let max_position = max_position.x.max(max_position.y).max(max_position.z);
+        let tree_size = (max_position as f32 / brick_dimension as f32)
+            .log(4.)
+            .ceil() as u32;
+        let tree_size = 4_u32.pow(tree_size) * brick_dimension;
 
         let mut shocovox_octree =
-            Octree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
+            BoxTree::<T>::new(tree_size, brick_dimension).unwrap_or_else(|err| {
                 panic!(
                     "Expected to build a valid octree with dimension {:?} and brick dimension {:?}; Instead: {:?}",
                     tree_size,
@@ -321,7 +325,6 @@ impl<
                 .max(model_position_rzup.z - model_size_half_rzup.z);
         });
 
-
         (
             vox_tree,
             convert_coordinate(
@@ -342,6 +345,9 @@ impl<
         vox_tree: &DotVoxData,
         min_position_lyup: &V3c<i32>,
     ) {
+        let auto_simplify_enabled = self.auto_simplify;
+        self.auto_simplify = false;
+
         let min_position_rzup = convert_coordinate(
             *min_position_lyup,
             CoordinateSystemType::Lyup,
@@ -358,7 +364,6 @@ impl<
                     if model_size_half_rzup.y < 0 { -1 } else { 0 },
                     if model_size_half_rzup.z < 0 { -1 } else { 0 },
                 );
-
             for voxel in &model.voxels {
                 let voxel_position_lyup = convert_coordinate(
                     model_bottom_left_rzup + V3c::from(*voxel).transformed(orientation),
@@ -367,7 +372,7 @@ impl<
                 );
                 match self.insert(
                     &V3c::from(voxel_position_lyup),
-                    OctreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
+                    BoxTreeEntry::Visual(&(vox_tree.palette[voxel.i as usize].into())),
                 ) {
                     Ok(_) => {}
                     Err(octree_error) => match octree_error {
@@ -382,6 +387,11 @@ impl<
                 }
             }
         });
+
+        if auto_simplify_enabled {
+            self.simplify(Self::ROOT_NODE_KEY as usize, true);
+            self.auto_simplify = auto_simplify_enabled;
+        }
     }
 }
 

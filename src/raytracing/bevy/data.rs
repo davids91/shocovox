@@ -2,17 +2,16 @@ use crate::{
     object_pool::empty_marker,
     octree::{
         types::{BrickData, NodeContent, PaletteIndexValues},
-        Octree, V3c, VoxelData,
+        BoxTree, V3c, VoxelData, BOX_NODE_CHILDREN_COUNT, OOB_SECTANT,
     },
     raytracing::bevy::{
         create_output_texture,
         types::{
-            BrickOwnedBy, BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView,
-            OctreeMetaData, OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet,
-            VictimPointer, Viewport,
+            BrickUpdate, OctreeGPUDataHandler, OctreeGPUHost, OctreeGPUView, OctreeMetaData,
+            OctreeRenderData, OctreeSpyGlass, SvxRenderPipeline, SvxViewSet, VictimPointer,
+            Viewport,
         },
     },
-    spatial::lut::OOB_OCTANT,
 };
 use bendy::{decoding::FromBencode, encoding::ToBencode};
 use bevy::{
@@ -35,7 +34,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-fn octree_properties<
+fn boxtree_properties<
     #[cfg(all(feature = "bytecode", feature = "serialization"))] T: FromBencode
         + ToBencode
         + Serialize
@@ -49,7 +48,7 @@ fn octree_properties<
     #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
     #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
 >(
-    tree: &Octree<T>,
+    tree: &BoxTree<T>,
 ) -> u32 {
     (tree.brick_dim & 0x0000FFFF) | ((tree.mip_map_strategy.is_enabled() as u32) << 16)
 }
@@ -107,41 +106,41 @@ impl<
     //     ░░███      █████ ██████████    ░░███ ░░███
     //##############################################################################
 
-    /// Creates GPU compatible data renderable on the GPU from an octree
+    /// Creates GPU compatible data renderable on the GPU from an BoxTree
     pub fn create_new_view(
         &mut self,
         svx_view_set: &mut SvxViewSet,
-        size: usize,
+        nodes_in_view: usize,
         viewport: Viewport,
         resolution: [u32; 2],
         mut images: ResMut<Assets<Image>>,
     ) -> usize {
-        let mut gpu_data_handler = OctreeGPUDataHandler {
+        let gpu_data_handler = OctreeGPUDataHandler {
             render_data: OctreeRenderData {
                 mips_enabled: self.tree.mip_map_strategy.is_enabled(),
                 octree_meta: OctreeMetaData {
-                    octree_size: self.tree.octree_size,
-                    tree_properties: octree_properties(&self.tree),
+                    boxtree_size: self.tree.boxtree_size,
+                    tree_properties: boxtree_properties(&self.tree),
                     ambient_light_color: V3c::new(1., 1., 1.),
                     ambient_light_position: V3c::new(
-                        self.tree.octree_size as f32,
-                        self.tree.octree_size as f32,
-                        self.tree.octree_size as f32,
+                        self.tree.boxtree_size as f32,
+                        self.tree.boxtree_size as f32,
+                        self.tree.boxtree_size as f32,
                     ),
                 },
-                metadata: vec![0; size],
-                node_ocbits: vec![0; size * 2],
-                node_children: vec![empty_marker(); size * 8],
-                node_mips: vec![empty_marker(); size],
+                used_bits: vec![0; nodes_in_view],
+                node_metadata: vec![0; (nodes_in_view as f32 / 8.).ceil() as usize],
+                node_ocbits: vec![0; nodes_in_view * 2],
+                node_children: vec![empty_marker(); nodes_in_view * BOX_NODE_CHILDREN_COUNT],
+                node_mips: vec![empty_marker(); nodes_in_view],
                 color_palette: vec![Vec4::ZERO; u16::MAX as usize],
             },
-            victim_node: VictimPointer::new(size),
+            victim_node: VictimPointer::new(nodes_in_view),
             victim_brick: 0,
             node_key_vs_meta_index: BiHashMap::new(),
-            brick_ownership: vec![BrickOwnedBy::NotOwned; size * 8],
+            brick_ownership: BiHashMap::new(),
             uploaded_color_palette_size: 0,
         };
-        gpu_data_handler.add_node(&self.tree, Octree::<T>::ROOT_NODE_KEY as usize);
         let output_texture = create_output_texture(resolution, &mut images);
         svx_view_set.views.push(Arc::new(Mutex::new(OctreeGPUView {
             resolution,
@@ -167,7 +166,7 @@ impl<
 }
 
 /// Handles data sync between Bevy main(CPU) world and rendering world
-pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<OctreeGPUView>>,
+pub(crate) fn sync_with_main_world(// tree_view: Option<ResMut<BoxTreeGPUView>>,
     // mut world: ResMut<bevy::render::MainWorld>,
 ) {
     // This function is unused because ExtractResource plugin is handling the sync
@@ -249,11 +248,11 @@ pub(crate) fn handle_gpu_readback(
                 let mut received_value = Vec::new();
                 read_buffer(
                     &render_device,
-                    &resources.readable_metadata_buffer,
+                    &resources.readable_used_bits_buffer,
                     0..1,
                     &mut received_value,
                 );
-                if view.data_handler.render_data.metadata[0] == received_value[0] {
+                if view.data_handler.render_data.used_bits[0] == received_value[0] {
                     view.data_ready = true;
                 }
             }
@@ -266,7 +265,7 @@ pub(crate) fn handle_gpu_readback(
                 &mut view.spyglass.node_requests,
             );
 
-            let is_metadata_required_this_loop = {
+            let any_nodes_requested = {
                 let mut is_metadata_required_this_loop = false;
                 for node_request in &view.spyglass.node_requests {
                     if *node_request != empty_marker::<u32>() {
@@ -277,13 +276,12 @@ pub(crate) fn handle_gpu_readback(
                 is_metadata_required_this_loop
             };
 
-            // read metadata is requested
-            if is_metadata_required_this_loop && view.data_ready {
+            if any_nodes_requested && view.data_ready {
                 read_buffer(
                     &render_device,
-                    &resources.readable_metadata_buffer,
-                    0..view.data_handler.render_data.metadata.len(),
-                    &mut view.data_handler.render_data.metadata,
+                    &resources.readable_used_bits_buffer,
+                    0..view.data_handler.render_data.used_bits.len(),
+                    &mut view.data_handler.render_data.used_bits,
                 );
             }
         }
@@ -386,34 +384,38 @@ pub(crate) fn write_to_gpu<
     if let (Some(pipeline), Some(tree_host)) = (svx_pipeline, tree_gpu_host) {
         let mut view = svx_view_set.views[0].lock().unwrap();
 
-        // Initial octree data upload
+        // Initial BoxTree data upload
         if !view.init_data_sent || view.reload {
             if let Some(resources) = &svx_view_set.resources[0] {
-                //write data for root node
-                if view.reload {
-                    view.data_handler
-                        .render_data
-                        .node_children
-                        .splice(0..8, vec![empty_marker(); 8]);
-                    for m in view.data_handler.render_data.node_mips.iter_mut() {
-                        *m = empty_marker();
-                    }
-                }
+                // write data for root node
+                view.data_handler
+                    .add_node(&tree_host.tree, BoxTree::<T>::ROOT_NODE_KEY as usize);
+
+                // Set some well recognizable init value
+                view.data_handler.render_data.used_bits[0] = 0xBEEF;
+
+                // Write out the initial data package
                 write_range_to_buffer(
-                    &view.data_handler.render_data.metadata,
+                    &view.data_handler.render_data.used_bits,
                     0..1,
-                    &resources.metadata_buffer,
+                    &resources.used_bits_buffer,
+                    &pipeline.render_queue,
+                );
+                write_range_to_buffer(
+                    &view.data_handler.render_data.node_metadata,
+                    0..1,
+                    &resources.node_metadata_buffer,
                     &pipeline.render_queue,
                 );
                 write_range_to_buffer(
                     &view.data_handler.render_data.node_children,
-                    0..8,
+                    0..BOX_NODE_CHILDREN_COUNT,
                     &resources.node_children_buffer,
                     &pipeline.render_queue,
                 );
                 write_range_to_buffer(
                     &view.data_handler.render_data.node_mips,
-                    0..view.data_handler.render_data.node_mips.len(),
+                    0..1,
                     &resources.node_mips_buffer,
                     &pipeline.render_queue,
                 );
@@ -443,217 +445,226 @@ pub(crate) fn write_to_gpu<
             view.spyglass.viewport_changed = false;
         }
 
-        // Data updates for Octree MIP map feature
+        // Data updates for BoxTree MIP map feature
         let tree = &tree_host.tree;
         if view.data_handler.render_data.mips_enabled != tree.mip_map_strategy.is_enabled() {
             // Regenerate feature bits
-            view.data_handler.render_data.octree_meta.tree_properties = octree_properties(tree);
+            view.data_handler.render_data.octree_meta.tree_properties = boxtree_properties(tree);
 
             // Write to GPU
             let mut buffer = UniformBuffer::new(Vec::<u8>::new());
             buffer
                 .write(&view.data_handler.render_data.octree_meta)
                 .unwrap();
-            pipeline
-                .render_queue
-                .write_buffer(&resources.metadata_buffer, 0, &buffer.into_inner());
+            pipeline.render_queue.write_buffer(
+                &resources.node_metadata_buffer,
+                0,
+                &buffer.into_inner(),
+            );
             view.data_handler.render_data.mips_enabled = tree.mip_map_strategy.is_enabled()
         }
 
         // Handle node requests, update cache
-        {
-            let mut meta_updated = Range {
-                start: view.data_handler.render_data.metadata.len(),
-                end: 0,
-            };
-            let mut ocbits_updated = Range {
-                start: view.data_handler.render_data.node_ocbits.len(),
-                end: 0,
-            };
-            let mut node_children_updated = Range {
-                start: view.data_handler.render_data.node_children.len(),
-                end: 0,
-            };
-            let mut node_mips_updated = Range {
-                start: view.data_handler.render_data.node_mips.len(),
-                end: 0,
-            };
-            let mut node_requests = view.spyglass.node_requests.clone();
-            let mut modified_nodes = HashSet::<usize>::new();
-            let mut modified_bricks = HashMap::<usize, Option<&[PaletteIndexValues]>>::new();
-            let victim_node_loop_count = view.data_handler.victim_node.get_loop_count();
-            for node_request in &mut node_requests {
-                if *node_request == empty_marker::<u32>() {
-                    continue;
-                }
-                let requested_parent_meta_index = (*node_request & 0x00FFFFFF) as usize;
-                let requested_child_octant = ((*node_request & 0xFF000000) >> 24) as u8;
+        let mut node_meta_updated = Range {
+            start: view.data_handler.render_data.node_metadata.len(),
+            end: 0,
+        };
+        let mut used_bits_updated = Range {
+            start: view.data_handler.render_data.used_bits.len(),
+            end: 0,
+        };
+        let mut ocbits_updated = Range {
+            start: view.data_handler.render_data.node_ocbits.len(),
+            end: 0,
+        };
+        let mut node_children_updated = Range {
+            start: view.data_handler.render_data.node_children.len(),
+            end: 0,
+        };
+        let mut node_mips_updated = Range {
+            start: view.data_handler.render_data.node_mips.len(),
+            end: 0,
+        };
+        let mut node_requests = view.spyglass.node_requests.clone();
+        let mut modified_nodes = HashSet::<usize>::new();
+        let mut modified_bricks = HashMap::<usize, Option<&[PaletteIndexValues]>>::new();
+        let victim_node_loop_count = view.data_handler.victim_node.get_loop_count();
+        for node_request in &mut node_requests {
+            if *node_request == empty_marker::<u32>() {
+                continue;
+            }
+            let requested_parent_meta_index = (*node_request & 0x00FFFFFF) as usize;
+            let requested_child_sectant = ((*node_request & 0xFF000000) >> 24) as u8;
 
-                debug_assert!(view
+            debug_assert!(view
+                .data_handler
+                .node_key_vs_meta_index
+                .contains_right(&requested_parent_meta_index));
+
+            let requested_parent_node_key = *view
+                .data_handler
+                .node_key_vs_meta_index
+                .get_by_right(&requested_parent_meta_index)
+                .unwrap();
+
+            debug_assert!(
+                tree.nodes.key_is_valid(requested_parent_node_key),
+                "Expected parent node({:?}) to be valid in GPU request.",
+                requested_parent_node_key
+            );
+
+            if modified_nodes.contains(&requested_parent_meta_index)
+                || !view
                     .data_handler
                     .node_key_vs_meta_index
-                    .contains_right(&requested_parent_meta_index));
+                    .contains_left(&requested_parent_node_key)
+            {
+                // Do not accept a request if the requester meta is already overwritten or deleted
+                continue;
+            }
 
-                let requested_parent_node_key = *view
-                    .data_handler
-                    .node_key_vs_meta_index
-                    .get_by_right(&requested_parent_meta_index)
-                    .unwrap();
+            // In case MIP is requested, not node child
+            if OOB_SECTANT == requested_child_sectant {
+                // Upload MIP to bricks
+                let (child_descriptor, cache_update) =
+                    view.data_handler
+                        .add_brick(tree, requested_parent_node_key, OOB_SECTANT);
 
-                debug_assert!(
-                    tree.nodes.key_is_valid(requested_parent_node_key),
-                    "Expected parent node({:?}) to be valid in GPU request.",
-                    requested_parent_node_key
-                );
+                used_bits_updated.start = used_bits_updated
+                    .start
+                    .min(cache_update.modified_usage_range.start);
+                used_bits_updated.end = used_bits_updated
+                    .end
+                    .max(cache_update.modified_usage_range.end);
 
-                if modified_nodes.contains(&requested_parent_meta_index)
-                    || !view
-                        .data_handler
-                        .node_key_vs_meta_index
-                        .contains_left(&requested_parent_node_key)
-                {
-                    // Do not accept a request if the requester meta is already overwritten or deleted
-                    continue;
-                }
+                modified_nodes.extend(cache_update.modified_nodes);
+                extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
 
-                // In case MIP is requested, not node child
-                if OOB_OCTANT == requested_child_octant {
-                    // Upload MIP to bricks
-                    let (child_index, cache_update) =
-                        view.data_handler
-                            .add_brick(tree, requested_parent_node_key, OOB_OCTANT);
+                // Update mip index
+                view.data_handler.render_data.node_mips[requested_parent_meta_index] =
+                    child_descriptor as u32;
 
-                    meta_updated.start = meta_updated
-                        .start
-                        .min(cache_update.modified_usage_range.start);
-                    meta_updated.end = meta_updated.end.max(cache_update.modified_usage_range.end);
+                continue;
+            }
 
-                    modified_nodes.extend(cache_update.modified_nodes);
-                    extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
-
-                    // Update mip index
-                    view.data_handler.render_data.node_mips[requested_parent_meta_index] =
-                        child_index as u32;
-
-                    continue;
-                }
-
-                // In case node child is requested, not a MIP
-                modified_nodes.insert(requested_parent_meta_index);
-                ocbits_updated.start = ocbits_updated.start.min(requested_parent_meta_index * 2);
-                ocbits_updated.end = ocbits_updated.end.max(requested_parent_meta_index * 2 + 2);
-                match tree.nodes.get(requested_parent_node_key) {
-                    NodeContent::Nothing => {} // parent is empty, nothing to do
-                    NodeContent::Internal(_) => {
-                        let requested_child_node_key = tree_host.tree.node_children
-                            [requested_parent_node_key]
-                            .child(requested_child_octant);
-                        debug_assert!(
+            // In case node child is requested, not a MIP
+            modified_nodes.insert(requested_parent_meta_index);
+            ocbits_updated.start = ocbits_updated.start.min(requested_parent_meta_index * 2);
+            ocbits_updated.end = ocbits_updated.end.max(requested_parent_meta_index * 2 + 2);
+            let requester_first_child_index = requested_parent_meta_index * BOX_NODE_CHILDREN_COUNT;
+            let requester_child_offset =
+                requester_first_child_index + requested_child_sectant as usize;
+            match tree.nodes.get(requested_parent_node_key) {
+                NodeContent::Nothing => {} // parent is empty, nothing to do
+                NodeContent::Internal(_) => {
+                    let requested_child_node_key = tree_host.tree.node_children
+                        [requested_parent_node_key]
+                        .child(requested_child_sectant);
+                    debug_assert!(
                             tree.nodes.key_is_valid(requested_child_node_key),
                             "Expected key({:?}, child of node[{:?}][{:?}] in meta[{:?}]) to be valid in GPU request.",
-                            requested_child_node_key, requested_parent_node_key, requested_child_octant, requested_parent_meta_index
+                            requested_child_node_key, requested_parent_node_key, requested_child_sectant, requested_parent_meta_index
                         );
-                        let child_index = if !view
+                    let child_index = if !view
+                        .data_handler
+                        .node_key_vs_meta_index
+                        .contains_left(&requested_child_node_key)
+                    {
+                        let (child_index, cache_update) =
+                            view.data_handler.add_node(tree, requested_child_node_key);
+
+                        used_bits_updated.start = used_bits_updated
+                            .start
+                            .min(cache_update.modified_usage_range.start);
+                        used_bits_updated.end = used_bits_updated
+                            .end
+                            .max(cache_update.modified_usage_range.end);
+                        modified_nodes.extend(cache_update.modified_nodes);
+                        extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
+
+                        child_index
+                    } else {
+                        *view
                             .data_handler
                             .node_key_vs_meta_index
-                            .contains_left(&requested_child_node_key)
-                        {
-                            let (child_index, cache_update) =
-                                view.data_handler.add_node(tree, requested_child_node_key);
+                            .get_by_left(&requested_child_node_key)
+                            .unwrap()
+                    };
 
-                            meta_updated.start = meta_updated
-                                .start
-                                .min(cache_update.modified_usage_range.start);
-                            meta_updated.end =
-                                meta_updated.end.max(cache_update.modified_usage_range.end);
-                            modified_nodes.extend(cache_update.modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
+                    // Update connection to parent
+                    view.data_handler.render_data.node_children[requester_child_offset] =
+                        child_index as u32;
 
-                            child_index
-                        } else {
-                            *view
-                                .data_handler
-                                .node_key_vs_meta_index
-                                .get_by_left(&requested_child_node_key)
-                                .unwrap()
-                        };
+                    debug_assert!(
+                        view.data_handler
+                            .node_key_vs_meta_index
+                            .contains_right(&requested_parent_meta_index),
+                        "Requester parent erased while adding its child node to meta"
+                    );
 
-                        // Update connection to parent
-                        view.data_handler.render_data.node_children
-                            [requested_parent_meta_index * 8 + requested_child_octant as usize] =
-                            child_index as u32;
-
-                        debug_assert!(
-                            view.data_handler
-                                .node_key_vs_meta_index
-                                .contains_right(&requested_parent_meta_index),
-                            "Requester parent erased while adding its child node to meta"
-                        );
-
-                        ocbits_updated.start = ocbits_updated.start.min(child_index * 2);
-                        ocbits_updated.end = ocbits_updated.end.max(child_index * 2 + 2);
-                    }
-                    NodeContent::UniformLeaf(brick) => {
-                        // Only upload brick if it's a parted, not already available brick
-                        if matches!(brick, BrickData::Parted(_))
-                            && view.data_handler.render_data.node_children
-                                [requested_parent_meta_index * 8]
-                                == empty_marker::<u32>()
-                        {
-                            let (brick_index, cache_update) =
-                                view.data_handler
-                                    .add_brick(tree, requested_parent_node_key, 0);
-
-                            view.data_handler.render_data.node_children
-                                [requested_parent_meta_index * 8] = brick_index as u32;
-
-                            meta_updated.start = meta_updated
-                                .start
-                                .min(cache_update.modified_usage_range.start);
-                            meta_updated.end =
-                                meta_updated.end.max(cache_update.modified_usage_range.end);
-                            modified_nodes.extend(cache_update.modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
-                        }
-                    }
-                    NodeContent::Leaf(bricks) => {
-                        // Only upload brick if it's a parted, not already available brick
-                        if matches!(
-                            bricks[requested_child_octant as usize],
-                            BrickData::Parted(_)
-                        ) && view.data_handler.render_data.node_children
-                            [requested_parent_meta_index * 8 + requested_child_octant as usize]
+                    ocbits_updated.start = ocbits_updated.start.min(child_index * 2);
+                    ocbits_updated.end = ocbits_updated.end.max(child_index * 2 + 2);
+                }
+                NodeContent::UniformLeaf(brick) => {
+                    // Only upload brick if it's a parted, not already available brick
+                    if matches!(brick, BrickData::Parted(_))
+                        && view.data_handler.render_data.node_children[requester_first_child_index]
                             == empty_marker::<u32>()
-                        {
-                            let (brick_index, cache_update) = view.data_handler.add_brick(
-                                tree,
-                                requested_parent_node_key,
-                                requested_child_octant,
-                            );
+                    {
+                        let (child_descriptor, cache_update) =
+                            view.data_handler
+                                .add_brick(tree, requested_parent_node_key, 0);
 
-                            view.data_handler.render_data.node_children[requested_parent_meta_index
-                                * 8
-                                + requested_child_octant as usize] = brick_index as u32;
+                        view.data_handler.render_data.node_children[requester_first_child_index] =
+                            child_descriptor as u32;
 
-                            meta_updated.start = meta_updated
-                                .start
-                                .min(cache_update.modified_usage_range.start);
-                            meta_updated.end =
-                                meta_updated.end.max(cache_update.modified_usage_range.end);
-                            modified_nodes.extend(cache_update.modified_nodes);
-                            extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
-                        }
+                        used_bits_updated.start = used_bits_updated
+                            .start
+                            .min(cache_update.modified_usage_range.start);
+                        used_bits_updated.end = used_bits_updated
+                            .end
+                            .max(cache_update.modified_usage_range.end);
+                        modified_nodes.extend(cache_update.modified_nodes);
+                        extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
                     }
                 }
+                NodeContent::Leaf(bricks) => {
+                    // Only upload brick if it's a parted, not already available brick
+                    if matches!(
+                        bricks[requested_child_sectant as usize],
+                        BrickData::Parted(_)
+                    ) && view.data_handler.render_data.node_children[requester_child_offset]
+                        == empty_marker::<u32>()
+                    {
+                        let (child_descriptor, cache_update) = view.data_handler.add_brick(
+                            tree,
+                            requested_parent_node_key,
+                            requested_child_sectant,
+                        );
 
-                if victim_node_loop_count != view.data_handler.victim_node.get_loop_count() {
-                    break;
+                        view.data_handler.render_data.node_children[requester_child_offset] =
+                            child_descriptor as u32;
+
+                        used_bits_updated.start = used_bits_updated
+                            .start
+                            .min(cache_update.modified_usage_range.start);
+                        used_bits_updated.end = used_bits_updated
+                            .end
+                            .max(cache_update.modified_usage_range.end);
+                        modified_nodes.extend(cache_update.modified_nodes);
+                        extend_brick_updates(&mut modified_bricks, cache_update.brick_updates);
+                    }
                 }
             }
 
-            debug_assert!(
-                // Either all node requests are empty
-                node_requests
+            if victim_node_loop_count != view.data_handler.victim_node.get_loop_count() {
+                break;
+            }
+        }
+
+        debug_assert!(
+            // Either all node requests are empty
+            node_requests
                     .iter()
                     .filter(|&v| *v == empty_marker::<u32>())
                     .count()
@@ -663,111 +674,111 @@ pub(crate) fn write_to_gpu<
                     // Or the distance traveled by the victim pointer this loop is small enough
                     || (view.data_handler.victim_node.len() as f32 * 0.5) as usize
                         > (victim_node_loop_count - view.data_handler.victim_node.get_loop_count()),
-                "Couldn't process a single request because size of the buffer is too small."
-            );
+            "Couldn't process a single request because size of the buffer is too small."
+        );
 
-            for node_request in &mut node_requests {
-                *node_request = empty_marker();
-            }
-
-            // Set updated buffers range based on modified nodes and bricks
-            for modified_node_index in &modified_nodes {
-                meta_updated.start = meta_updated.start.min(*modified_node_index);
-                meta_updated.end = meta_updated.end.max(modified_node_index + 1);
-                node_children_updated.start =
-                    node_children_updated.start.min(modified_node_index * 8);
-                node_children_updated.end =
-                    node_children_updated.end.max(modified_node_index * 8 + 8);
-
-                node_mips_updated.start = node_mips_updated.start.min(*modified_node_index);
-                node_mips_updated.end = node_mips_updated.end.max(modified_node_index + 1);
-            }
-
-            for modified_brick_data in &modified_bricks {
-                meta_updated.start = meta_updated.start.min(modified_brick_data.0 / 8);
-                meta_updated.end = meta_updated.end.max(modified_brick_data.0 / 8 + 1);
-            }
-
-            // write back updated data
-            let host_color_count = tree.map_to_color_index_in_palette.keys().len();
-            let color_palette_size_diff =
-                host_color_count - view.data_handler.uploaded_color_palette_size;
-            let resources = &svx_view_set.resources[0].as_ref().unwrap();
-
-            debug_assert!(
-                host_color_count >= view.data_handler.uploaded_color_palette_size,
-                "Expected host color palette({:?}), to be larger, than colors stored on the GPU({:?})",
-                host_color_count, view.data_handler.uploaded_color_palette_size
-            );
-
-            // Color palette
-            if 0 < color_palette_size_diff {
-                for i in view.data_handler.uploaded_color_palette_size..host_color_count {
-                    view.data_handler.render_data.color_palette[i] =
-                        tree.voxel_color_palette[i].into();
-                }
-
-                // Upload color palette delta to GPU
-                write_range_to_buffer(
-                    &view.data_handler.render_data.color_palette,
-                    (host_color_count - color_palette_size_diff)..(host_color_count),
-                    &resources.color_palette_buffer,
-                    render_queue,
-                );
-            }
-            view.data_handler.uploaded_color_palette_size =
-                tree.map_to_color_index_in_palette.keys().len();
-
-            // Render data
-            write_range_to_buffer(
-                &view.data_handler.render_data.metadata,
-                meta_updated,
-                &resources.metadata_buffer,
-                render_queue,
-            );
-            write_range_to_buffer(
-                &view.data_handler.render_data.node_children,
-                node_children_updated,
-                &resources.node_children_buffer,
-                render_queue,
-            );
-            write_range_to_buffer(
-                &view.data_handler.render_data.node_ocbits,
-                ocbits_updated,
-                &resources.node_ocbits_buffer,
-                render_queue,
-            );
-            write_range_to_buffer(
-                &view.data_handler.render_data.node_mips,
-                0..view.data_handler.render_data.node_mips.len(),
-                // node_mips_updated,
-                &resources.node_mips_buffer,
-                render_queue,
-            );
-
-            // Upload Voxel data
-            for modified_brick_data in &modified_bricks {
-                if let Some(new_brick_data) = modified_brick_data.1 {
-                    let brick_start_index = *modified_brick_data.0 * new_brick_data.len();
-                    debug_assert_eq!(
-                        new_brick_data.len(),
-                        tree.brick_dim.pow(3) as usize,
-                        "Expected Brick slice to align to tree brick dimension"
-                    );
-                    unsafe {
-                        render_queue.write_buffer(
-                            &resources.voxels_buffer,
-                            (brick_start_index * std::mem::size_of_val(&new_brick_data[0])) as u64,
-                            new_brick_data.align_to::<u8>().1,
-                        );
-                    }
-                }
-            }
-
-            // Node requests
-            let mut buffer = StorageBuffer::new(Vec::<u8>::new());
-            buffer.write(&node_requests).unwrap();
-            render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
+        for node_request in &mut node_requests {
+            *node_request = empty_marker();
         }
+
+        // Set updated buffers range based on modified nodes and bricks
+        for modified_node_index in &modified_nodes {
+            node_meta_updated.start = node_meta_updated.start.min(*modified_node_index / 8);
+            node_meta_updated.end = node_meta_updated.end.max(modified_node_index / 8 + 1);
+            node_children_updated.start = node_children_updated
+                .start
+                .min(modified_node_index * BOX_NODE_CHILDREN_COUNT);
+            node_children_updated.end = node_children_updated
+                .end
+                .max(modified_node_index * BOX_NODE_CHILDREN_COUNT + BOX_NODE_CHILDREN_COUNT);
+            node_mips_updated.start = node_mips_updated.start.min(*modified_node_index);
+            node_mips_updated.end = node_mips_updated.end.max(modified_node_index + 1);
+        }
+
+        // write back updated data
+        let host_color_count = tree.map_to_color_index_in_palette.keys().len();
+        let color_palette_size_diff =
+            host_color_count - view.data_handler.uploaded_color_palette_size;
+        let resources = &svx_view_set.resources[0].as_ref().unwrap();
+
+        debug_assert!(
+            host_color_count >= view.data_handler.uploaded_color_palette_size,
+            "Expected host color palette({:?}), to be larger, than colors stored on the GPU({:?})",
+            host_color_count,
+            view.data_handler.uploaded_color_palette_size
+        );
+
+        // Color palette
+        if 0 < color_palette_size_diff {
+            for i in view.data_handler.uploaded_color_palette_size..host_color_count {
+                view.data_handler.render_data.color_palette[i] = tree.voxel_color_palette[i].into();
+            }
+
+            // Upload color palette delta to GPU
+            write_range_to_buffer(
+                &view.data_handler.render_data.color_palette,
+                (host_color_count - color_palette_size_diff)..(host_color_count),
+                &resources.color_palette_buffer,
+                render_queue,
+            );
+        }
+        view.data_handler.uploaded_color_palette_size =
+            tree.map_to_color_index_in_palette.keys().len();
+
+        // Render data
+        write_range_to_buffer(
+            &view.data_handler.render_data.used_bits,
+            used_bits_updated,
+            &resources.used_bits_buffer,
+            render_queue,
+        );
+        write_range_to_buffer(
+            &view.data_handler.render_data.node_metadata,
+            node_meta_updated,
+            &resources.node_metadata_buffer,
+            render_queue,
+        );
+        write_range_to_buffer(
+            &view.data_handler.render_data.node_children,
+            node_children_updated,
+            &resources.node_children_buffer,
+            render_queue,
+        );
+        write_range_to_buffer(
+            &view.data_handler.render_data.node_ocbits,
+            ocbits_updated,
+            &resources.node_ocbits_buffer,
+            render_queue,
+        );
+        write_range_to_buffer(
+            &view.data_handler.render_data.node_mips,
+            node_mips_updated,
+            &resources.node_mips_buffer,
+            render_queue,
+        );
+
+        // Upload Voxel data
+        for modified_brick_data in &modified_bricks {
+            if let Some(new_brick_data) = modified_brick_data.1 {
+                let brick_start_index = *modified_brick_data.0 * new_brick_data.len();
+                debug_assert_eq!(
+                    new_brick_data.len(),
+                    tree.brick_dim.pow(3) as usize,
+                    "Expected Brick slice to align to tree brick dimension"
+                );
+                unsafe {
+                    render_queue.write_buffer(
+                        &resources.voxels_buffer,
+                        (brick_start_index * std::mem::size_of_val(&new_brick_data[0])) as u64,
+                        new_brick_data.align_to::<u8>().1,
+                    );
+                }
+            }
+        }
+
+        // Node requests
+        let mut buffer = StorageBuffer::new(Vec::<u8>::new());
+        buffer.write(&node_requests).unwrap();
+        render_queue.write_buffer(&resources.node_requests_buffer, 0, &buffer.into_inner());
     }
 }

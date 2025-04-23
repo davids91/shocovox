@@ -1,13 +1,14 @@
 use crate::object_pool::ObjectPool;
+use crate::octree::BOX_NODE_CHILDREN_COUNT;
 use crate::octree::{
     types::{BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren, NodeContent},
-    Albedo, Octree,
+    Albedo, BoxTree,
 };
 use bendy::{
     decoding::{FromBencode, Object},
     encoding::{Error as BencodeError, SingleItemEncoder, ToBencode},
 };
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, fmt::Debug, hash::Hash};
 
 //####################################################################################
 //  █████   █████    ███████    █████ █████ ██████████ █████
@@ -205,7 +206,7 @@ where
 //####################################################################################
 impl<T> ToBencode for NodeContent<T>
 where
-    T: ToBencode + Default + Clone + PartialEq,
+    T: ToBencode + Debug + Default + Clone + PartialEq,
 {
     const MAX_DEPTH: usize = 8;
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
@@ -217,14 +218,10 @@ where
             }),
             NodeContent::Leaf(bricks) => encoder.emit_list(|e| {
                 e.emit_str("###")?;
-                e.emit(bricks[0].clone())?;
-                e.emit(bricks[1].clone())?;
-                e.emit(bricks[2].clone())?;
-                e.emit(bricks[3].clone())?;
-                e.emit(bricks[4].clone())?;
-                e.emit(bricks[5].clone())?;
-                e.emit(bricks[6].clone())?;
-                e.emit(bricks[7].clone())
+                for brick in bricks.iter().take(BOX_NODE_CHILDREN_COUNT) {
+                    e.emit(brick.clone())?;
+                }
+                Ok(())
             }),
             NodeContent::UniformLeaf(brick) => encoder.emit_list(|e| {
                 e.emit_str("##u#")?;
@@ -236,7 +233,7 @@ where
 
 impl<T> FromBencode for NodeContent<T>
 where
-    T: FromBencode + Clone + PartialEq,
+    T: FromBencode + Debug + Clone + PartialEq,
 {
     fn decode_bencode_object(data: Object) -> Result<Self, bendy::decoding::Error> {
         match data {
@@ -286,24 +283,20 @@ where
                 }
 
                 if is_leaf && !is_uniform {
-                    let mut leaf_data = [
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                        BrickData::Empty,
-                    ];
-                    leaf_data[0] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[1] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[2] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[3] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[4] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[5] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[6] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
-                    leaf_data[7] = BrickData::decode_bencode_object(list.next_object()?.unwrap())?;
+                    let leaf_data: [BrickData<T>; BOX_NODE_CHILDREN_COUNT] = (0
+                        ..BOX_NODE_CHILDREN_COUNT)
+                        .map(|_sectant| {
+                            BrickData::decode_bencode_object(
+                                list.next_object()
+                                    .expect("Expected BrickData object:")
+                                    .unwrap(),
+                            )
+                            .expect("Expected to decode BrickData:")
+                        })
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .unwrap();
+
                     return Ok(NodeContent::Leaf(leaf_data));
                 }
 
@@ -355,14 +348,10 @@ impl ToBencode for NodeChildren<u32> {
         match &self {
             NodeChildren::Children(c) => encoder.emit_list(|e| {
                 e.emit_str("##c##")?;
-                e.emit(c[0])?;
-                e.emit(c[1])?;
-                e.emit(c[2])?;
-                e.emit(c[3])?;
-                e.emit(c[4])?;
-                e.emit(c[5])?;
-                e.emit(c[6])?;
-                e.emit(c[7])
+                for child in c.iter().take(BOX_NODE_CHILDREN_COUNT) {
+                    e.emit(child)?;
+                }
+                Ok(())
             }),
             NodeChildren::NoChildren => encoder.emit_str("##x##"),
             NodeChildren::OccupancyBitmap(map) => encoder.emit_list(|e| {
@@ -381,7 +370,7 @@ impl FromBencode for NodeChildren<u32> {
                 match marker.as_str() {
                     "##c##" => {
                         let mut c = Vec::new();
-                        for _ in 0..8 {
+                        for _ in 0..BOX_NODE_CHILDREN_COUNT {
                             c.push(
                                 u32::decode_bencode_object(list.next_object()?.unwrap())
                                     .ok()
@@ -394,7 +383,7 @@ impl FromBencode for NodeChildren<u32> {
                         list.next_object()?.unwrap(),
                     )?)),
                     s => Err(bendy::decoding::Error::unexpected_token(
-                        "A NodeChildren marker, either ##b##, ##bs## or ##c##",
+                        "A NodeChildren marker, either ##b## or ##c##",
                         s,
                     )),
                 }
@@ -576,7 +565,7 @@ impl FromBencode for MIPResamplingMethods {
 //  ░░░███████░   ░░█████████     █████    █████   █████ ██████████ ██████████
 //    ░░░░░░░      ░░░░░░░░░     ░░░░░    ░░░░░   ░░░░░ ░░░░░░░░░░ ░░░░░░░░░░
 //####################################################################################
-impl<T> ToBencode for Octree<T>
+impl<T> ToBencode for BoxTree<T>
 where
     T: ToBencode + Default + Clone + Eq + Hash,
 {
@@ -584,7 +573,7 @@ where
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BencodeError> {
         encoder.emit_list(|e| {
             e.emit_int(self.auto_simplify as u8)?;
-            e.emit_int(self.octree_size)?;
+            e.emit_int(self.boxtree_size)?;
             e.emit_int(self.brick_dim)?;
             e.emit(&self.nodes)?;
             e.emit(&self.node_children)?;
@@ -597,7 +586,7 @@ where
     }
 }
 
-impl<T> FromBencode for Octree<T>
+impl<T> FromBencode for BoxTree<T>
 where
     T: FromBencode + Default + Clone + Eq + Hash,
 {
@@ -617,10 +606,10 @@ where
                     )),
                 }?;
 
-                let octree_size = match list.next_object()?.unwrap() {
+                let boxtree_size = match list.next_object()?.unwrap() {
                     Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field octree_size",
+                        "int field boxtree_size",
                         "Something else",
                     )),
                 }?;
@@ -628,7 +617,7 @@ where
                 let brick_dim = match list.next_object()?.unwrap() {
                     Object::Integer(i) => Ok(i.parse()?),
                     _ => Err(bendy::decoding::Error::unexpected_token(
-                        "int field octree_size",
+                        "int field boxtree_size",
                         "Something else",
                     )),
                 }?;
@@ -640,15 +629,15 @@ where
                 let voxel_color_palette =
                     Vec::<Albedo>::decode_bencode_object(list.next_object()?.unwrap())?;
                 let mut map_to_color_index_in_palette = HashMap::new();
-                for i in 0..voxel_color_palette.len() {
-                    map_to_color_index_in_palette.insert(voxel_color_palette[i], i);
+                for (i, voxel_color) in voxel_color_palette.iter().enumerate() {
+                    map_to_color_index_in_palette.insert(*voxel_color, i);
                 }
 
                 let voxel_data_palette =
                     Vec::<T>::decode_bencode_object(list.next_object()?.unwrap())?;
                 let mut map_to_data_index_in_palette = HashMap::new();
-                for i in 0..voxel_data_palette.len() {
-                    map_to_data_index_in_palette.insert(voxel_data_palette[i].clone(), i);
+                for (i, voxel_data) in voxel_data_palette.iter().enumerate() {
+                    map_to_data_index_in_palette.insert(voxel_data.clone(), i);
                 }
 
                 let mip_map_strategy =
@@ -656,7 +645,7 @@ where
 
                 Ok(Self {
                     auto_simplify,
-                    octree_size,
+                    boxtree_size,
                     brick_dim,
                     nodes,
                     node_children,

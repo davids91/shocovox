@@ -1,16 +1,12 @@
 use crate::{
     object_pool::empty_marker,
     octree::{
-        detail::{bound_contains, child_octant_for},
+        detail::child_sectant_for,
         types::{BrickData, NodeChildren, NodeContent, OctreeError, PaletteIndexValues},
-        Octree, VoxelData,
+        BoxTree, VoxelData, BOX_NODE_CHILDREN_COUNT, BOX_NODE_DIMENSION,
     },
     spatial::{
-        lut::OCTANT_OFFSET_REGION_LUT,
-        math::{
-            flat_projection, hash_region, matrix_index_for, set_occupancy_in_bitmap_64bits,
-            vector::V3c, BITMAP_DIMENSION,
-        },
+        math::{flat_projection, vector::V3c},
         Cube,
     },
 };
@@ -32,7 +28,7 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     //####################################################################################
     //    █████████  █████       ██████████   █████████   ███████████
@@ -57,8 +53,8 @@ impl<
         position: &V3c<u32>,
         clear_size: u32,
     ) -> Result<(), OctreeError> {
-        let root_bounds = Cube::root_bounds(self.octree_size as f32);
-        if !bound_contains(&root_bounds, &V3c::from(*position)) {
+        let root_bounds = Cube::root_bounds(self.boxtree_size as f32);
+        if !root_bounds.contains(&V3c::from(*position)) {
             return Err(OctreeError::InvalidPosition {
                 x: position.x,
                 y: position.y,
@@ -66,6 +62,10 @@ impl<
             });
         }
 
+        // Nothing to do when no operations are requested
+        if clear_size == 0 {
+            return Ok(());
+        }
         // A CPU stack does not consume significant relevant resources, e.g. a 4096*4096*4096 chunk has depth of 12
         let mut node_stack = vec![(Self::ROOT_NODE_KEY, root_bounds)];
         let mut actual_update_size = 0;
@@ -73,33 +73,54 @@ impl<
         loop {
             let (current_node_key, current_bounds) = *node_stack.last().unwrap();
             let current_node_key = current_node_key as usize;
-            let target_child_octant = child_octant_for(&current_bounds, &V3c::from(*position));
-            let target_bounds = Cube {
-                min_position: current_bounds.min_position
-                    + OCTANT_OFFSET_REGION_LUT[target_child_octant as usize] * current_bounds.size
-                        / 2.,
-                size: current_bounds.size / 2.,
-            };
-            let target_child_key = self.node_children[current_node_key].child(target_child_octant);
+            let target_child_sectant = child_sectant_for(&current_bounds, &V3c::from(*position));
+            let target_bounds = current_bounds.child_bounds_for(target_child_sectant);
+            let mut target_child_key =
+                self.node_children[current_node_key].child(target_child_sectant);
+            debug_assert!(
+                target_bounds.size >= 1.
+                    || matches!(
+                        self.nodes.get(current_node_key),
+                        NodeContent::UniformLeaf(_)
+                    ),
+                "Invalid target bounds(too small): {:?}",
+                target_bounds
+            );
+
             if clear_size > 1
                 && target_bounds.size <= clear_size as f32
                 && *position <= target_bounds.min_position.into()
-                && self.nodes.key_is_valid(target_child_key)
+                && matches!(self.nodes.get(current_node_key), NodeContent::Internal(_))
             {
-                // The whole node to be erased
                 // Parent occupied bits are correctly set in post-processing
-                if self.nodes.key_is_valid(target_child_key) {
-                    self.deallocate_children_of(target_child_key);
-                    *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
-                    self.node_children[target_child_key] = NodeChildren::NoChildren;
-                    actual_update_size = target_bounds.size as usize;
+                actual_update_size = Self::execute_for_relevant_sectants(
+                    &current_bounds,
+                    position,
+                    clear_size,
+                    target_bounds.size,
+                    |position_in_target,
+                     update_size_in_target,
+                     child_sectant,
+                     child_target_bounds| {
+                        if position_in_target == child_target_bounds.min_position.into()
+                            && update_size_in_target == child_target_bounds.size as u32
+                        {
+                            target_child_key =
+                                self.node_children[current_node_key].child(child_sectant);
 
-                    node_stack.push((
-                        self.node_children[current_node_key].child(target_child_octant) as u32,
-                        target_bounds,
-                    ));
-                }
-                // If the target child is empty, there's nothing to do and the targeted area is empty already
+                            if self.nodes.key_is_valid(target_child_key) {
+                                // The whole node to be erased
+                                if self.nodes.key_is_valid(target_child_key) {
+                                    self.deallocate_children_of(target_child_key);
+                                    *self.nodes.get_mut(target_child_key) = NodeContent::Nothing;
+                                    self.node_children[target_child_key] = NodeChildren::NoChildren;
+                                }
+                                node_stack.push((target_child_key as u32, target_bounds));
+                            }
+                            // If the target child is empty(invalid key), there's nothing to do as the targeted area is empty already
+                        }
+                    },
+                );
                 break;
             }
 
@@ -110,11 +131,11 @@ impl<
                 if self.nodes.key_is_valid(target_child_key) {
                     //Iteration can go deeper , as target child is valid
                     node_stack.push((
-                        self.node_children[current_node_key].child(target_child_octant) as u32,
+                        self.node_children[current_node_key].child(target_child_sectant) as u32,
                         target_bounds,
                     ));
                 } else {
-                    // no children are available for the target octant
+                    // no children are available for the target sectant
                     if matches!(
                         self.nodes.get(current_node_key),
                         NodeContent::Leaf(_) | NodeContent::UniformLeaf(_)
@@ -149,7 +170,7 @@ impl<
                                 }
                             },
                             NodeContent::Leaf(bricks) => {
-                                match &bricks[target_child_octant as usize] {
+                                match &bricks[target_child_sectant as usize] {
                                     BrickData::Empty => true,
                                     BrickData::Solid(voxel) => NodeContent::pix_points_to_empty(
                                         voxel,
@@ -197,12 +218,12 @@ impl<
                         );
                         self.subdivide_leaf_to_nodes(
                             current_node_key,
-                            target_child_octant as usize,
+                            target_child_sectant as usize,
                         );
                         // Note: target_child_key is invalid from this point in scope
 
                         node_stack.push((
-                            self.node_children[current_node_key].child(target_child_octant) as u32,
+                            self.node_children[current_node_key].child(target_child_sectant) as u32,
                             target_bounds,
                         ));
                     } else {
@@ -214,15 +235,27 @@ impl<
             } else {
                 // when clearing Nodes with size > DIM, Nodes are being cleared
                 // current_bounds.size == min_node_size, which is the desired depth
-                actual_update_size = self.leaf_update(
-                    true,
-                    current_node_key,
+
+                actual_update_size = Self::execute_for_relevant_sectants(
                     &current_bounds,
-                    &target_bounds,
-                    target_child_octant as usize,
                     position,
                     clear_size,
-                    empty_marker::<PaletteIndexValues>(),
+                    target_bounds.size,
+                    |position_in_target,
+                     update_size_in_target,
+                     child_sectant,
+                     child_target_bounds| {
+                        self.leaf_update(
+                            true,
+                            current_node_key,
+                            &current_bounds,
+                            child_target_bounds,
+                            child_sectant as usize,
+                            &position_in_target,
+                            update_size_in_target,
+                            empty_marker::<PaletteIndexValues>(),
+                        );
+                    },
                 );
 
                 break;
@@ -233,7 +266,7 @@ impl<
         // If a whole node was removed in the operation, it has to be cleaned up properly
         let mut removed_node = if let Some((child_key, child_bounds)) = node_stack.pop() {
             if child_bounds.size as usize <= actual_update_size {
-                Some((child_key, child_bounds))
+                Some(child_key)
             } else {
                 None
             }
@@ -242,15 +275,11 @@ impl<
         };
         let mut simplifyable = self.auto_simplify; // Don't even start to simplify if it's disabled
         for (node_key, node_bounds) in node_stack.into_iter().rev() {
-            if let Some((child_key, child_bounds)) = removed_node {
+            if let Some(child_key) = removed_node {
                 // If the child of this node was set to NodeContent::Nothing during this clear operation
                 // it needs to be freed up, and the child index of this node needs to be updated as well
-                let child_octant = hash_region(
-                    &((child_bounds.min_position - node_bounds.min_position)
-                        + V3c::unit(child_bounds.size / 2.)),
-                    node_bounds.size / 2.,
-                ) as usize;
-                self.node_children[node_key as usize].clear(child_octant);
+                let child_sectant = child_sectant_for(&node_bounds, &V3c::from(*position));
+                self.node_children[node_key as usize].clear(child_sectant as usize);
                 self.nodes.free(child_key as usize);
                 // Occupancy bitmask is re-evaluated fully in the below blocks
                 removed_node = None;
@@ -267,36 +296,20 @@ impl<
             if node_bounds.size as usize == actual_update_size {
                 new_occupied_bits = 0;
             } else {
-                // Calculate the new occupied bits of the node
-                let start_in_bitmap =
-                    matrix_index_for(&node_bounds, position, BITMAP_DIMENSION as u32);
-                let bitmap_update_size = (actual_update_size as f32 * BITMAP_DIMENSION as f32
-                    / node_bounds.size)
-                    .ceil() as usize;
-                for x in start_in_bitmap.x
-                    ..(start_in_bitmap.x + bitmap_update_size).min(BITMAP_DIMENSION)
-                {
-                    for y in start_in_bitmap.y
-                        ..(start_in_bitmap.y + bitmap_update_size).min(BITMAP_DIMENSION)
-                    {
-                        for z in start_in_bitmap.z
-                            ..(start_in_bitmap.z + bitmap_update_size).min(BITMAP_DIMENSION)
-                        {
-                            if self.should_bitmap_be_empty_at_bitmap_index(
-                                node_key as usize,
-                                &V3c::new(x, y, z),
-                            ) {
-                                set_occupancy_in_bitmap_64bits(
-                                    &V3c::new(x, y, z),
-                                    1,
-                                    BITMAP_DIMENSION,
-                                    false,
-                                    &mut new_occupied_bits,
-                                );
-                            }
+                Self::execute_for_relevant_sectants(
+                    &node_bounds,
+                    position,
+                    clear_size,
+                    node_bounds.size / BOX_NODE_DIMENSION as f32,
+                    |_position_in_target,
+                     _update_size_in_target,
+                     child_sectant,
+                     _child_target_bounds| {
+                        if self.node_empty_at(node_key as usize, child_sectant) {
+                            new_occupied_bits &= !(0x01 << child_sectant);
                         }
-                    }
-                }
+                    },
+                );
             }
 
             *self.nodes.get_mut(node_key as usize) = if 0 != new_occupied_bits
@@ -306,13 +319,17 @@ impl<
                 ) {
                 NodeContent::Internal(new_occupied_bits)
             } else {
-                //Occupied bits depleted to 0x0
-                for child_octant in 0..8 {
-                    debug_assert!(self.node_empty_at(node_key as usize, child_octant));
-                }
+                // Occupied bits depleted to 0x0
+                debug_assert_eq!(
+                    BOX_NODE_CHILDREN_COUNT,
+                    (0..BOX_NODE_CHILDREN_COUNT)
+                        .filter(|sectant| { self.node_empty_at(node_key as usize, *sectant as u8) })
+                        .count(),
+                    "Expected empty node to have no valid children!"
+                );
                 self.deallocate_children_of(node_key as usize);
                 self.node_children[node_key as usize] = NodeChildren::NoChildren;
-                removed_node = Some((node_key, node_bounds));
+                removed_node = Some(node_key);
                 NodeContent::Nothing
             };
             debug_assert!(
@@ -337,7 +354,7 @@ impl<
             // Decide to continue or not
             if simplifyable {
                 // If any Nodes fail to simplify, no need to continue because their parents can not be simplified further
-                simplifyable = self.simplify(node_key as usize);
+                simplifyable = self.simplify(node_key as usize, true);
             }
             if previous_occupied_bits == new_occupied_bits {
                 // In case the occupied bits were not modified, there's no need to continue

@@ -14,7 +14,7 @@ fn main() {
     const TREE_SIZE: u32 = 64;
     let viewport_size_width = 150;
     let viewport_size_height = 150;
-    let mut tree = shocovox_rs::octree::Octree::<Albedo>::new(TREE_SIZE, BRICK_DIMENSION)
+    let mut tree = shocovox_rs::octree::BoxTree::<Albedo>::new(TREE_SIZE, BRICK_DIMENSION)
         .ok()
         .unwrap();
 

@@ -6,7 +6,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{MIPMapStrategy, Octree, V3c, V3cf32},
+    octree::{BoxTree, MIPMapStrategy, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -49,10 +49,10 @@ fn main() {
 
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
-    let tree: Octree;
+    let tree: BoxTree;
     let tree_path = "example_junk_minecraft";
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::load(&tree_path).ok().unwrap();
+        tree = BoxTree::load(&tree_path).ok().unwrap();
     } else {
         tree = MIPMapStrategy::default()
             .set_enabled(true)
@@ -65,7 +65,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let view_index = host.create_new_view(
         &mut views,
-        40,
+        10,
         Viewport {
             origin: V3c {
                 x: 0.,

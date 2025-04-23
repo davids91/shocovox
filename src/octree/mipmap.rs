@@ -1,14 +1,15 @@
+use crate::octree::BOX_NODE_DIMENSION;
+use crate::spatial::lut::SECTANT_OFFSET_LUT;
 use crate::{
     object_pool::empty_marker,
     octree::{
         types::{
-            BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren, NodeContent,
-            OctreeEntry, PaletteIndexValues, StrategyUpdater,
+            BoxTreeEntry, BrickData, MIPMapStrategy, MIPResamplingMethods, NodeChildren,
+            NodeContent, PaletteIndexValues, StrategyUpdater,
         },
-        Albedo, Octree, VoxelData,
+        Albedo, BoxTree, VoxelData, OOB_SECTANT,
     },
     spatial::{
-        lut::{OCTANT_OFFSET_REGION_LUT, OOB_OCTANT},
         math::{flat_projection, hash_region, matrix_index_for, vector::V3c},
         Cube,
     },
@@ -270,7 +271,7 @@ impl<
         #[cfg(all(feature = "bytecode", not(feature = "serialization")))] T: FromBencode + ToBencode + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), feature = "serialization"))] T: Serialize + DeserializeOwned + Default + Eq + Clone + Hash + VoxelData,
         #[cfg(all(not(feature = "bytecode"), not(feature = "serialization")))] T: Default + Eq + Clone + Hash + VoxelData,
-    > Octree<T>
+    > BoxTree<T>
 {
     //####################################################################################
     //  ██████   ██████ █████ ███████████
@@ -318,6 +319,7 @@ impl<
                 MIPResamplingMethods::default()
             };
 
+        // determine the sampling range
         let (sample_start, sample_size) = match self.nodes.get(node_key) {
             NodeContent::Nothing => {
                 debug_assert!(
@@ -335,12 +337,13 @@ impl<
                 return;
             }
             NodeContent::Leaf(_) => {
-                // determine the sampling range
-                let sample_size =
-                    (node_bounds.size as u32 / self.brick_dim).min(self.brick_dim * 2);
-                let sample_start =
-                    V3c::from((*position - (*position % sample_size)) * 2 * self.brick_dim)
-                        / node_bounds.size;
+                let sample_size = (node_bounds.size as u32 / self.brick_dim)
+                    .min(self.brick_dim * BOX_NODE_DIMENSION as u32);
+                let sample_start = V3c::from(
+                    (*position - (*position % sample_size))
+                        * BOX_NODE_DIMENSION as u32
+                        * self.brick_dim,
+                ) / node_bounds.size;
                 let sample_start: V3c<u32> = sample_start.floor().into();
                 debug_assert!(
                     sample_start.x + sample_size
@@ -372,7 +375,6 @@ impl<
                 (sample_start, sample_size)
             }
             NodeContent::Internal(_) if dominant_bottom => {
-                // determine the sampling range
                 let sample_size = node_bounds.size as u32 / self.brick_dim;
                 let sample_start = V3c::from(*position - (*position % sample_size));
                 let sample_start: V3c<u32> = sample_start.floor().into();
@@ -406,30 +408,31 @@ impl<
                 (sample_start, sample_size)
             }
             NodeContent::Internal(_occupied_bits) => {
-                // determine the sampling range
-                let sample_size = 2;
+                let sample_size = BOX_NODE_DIMENSION as u32;
                 let pos_in_bounds = V3c::from(*position) - node_bounds.min_position;
-                let sample_start = pos_in_bounds * 2. * self.brick_dim as f32 / node_bounds.size; // Transform into 2*DIM space
-                let sample_start: V3c<u32> = sample_start.floor().into();
-                let sample_start = sample_start - (sample_start % 2); // sample from grid of 2
+                let sample_start_v1 =
+                    pos_in_bounds * BOX_NODE_DIMENSION as f32 * self.brick_dim as f32
+                        / node_bounds.size; // Transform into BOX_NODE_DIMENSION*DIM space
+                let sample_start_v2: V3c<u32> = sample_start_v1.floor().into();
+                let sample_start = sample_start_v2 - (sample_start_v2 % BOX_NODE_DIMENSION as u32); // sample from grid of BOX_NODE_DIMENSION
 
                 debug_assert!(
-                    sample_start.x + sample_size <= 2 * self.brick_dim,
-                    "Mipmap sampling out of bounds for x component: ({} + {}) > (2 * {})",
+                    sample_start.x + sample_size <= BOX_NODE_DIMENSION as u32 * self.brick_dim,
+                    "Mipmap sampling out of bounds for x component: ({} + {}) > (BOX_NODE_DIMENSION * {})",
                     sample_start.x,
                     sample_size,
                     self.brick_dim
                 );
                 debug_assert!(
-                    sample_start.y + sample_size <= 2 * self.brick_dim,
-                    "Mipmap sampling out of bounds for y component: ({} + {}) > (2 * {})",
+                    sample_start.y + sample_size <= BOX_NODE_DIMENSION as u32 * self.brick_dim,
+                    "Mipmap sampling out of bounds for y component: ({} + {}) > (BOX_NODE_DIMENSION * {})",
                     sample_start.y,
                     sample_size,
                     self.brick_dim
                 );
                 debug_assert!(
-                    sample_start.z + sample_size <= 2 * self.brick_dim,
-                    "Mipmap sampling out of bounds for z component: ({} + {}) > (2 * {})",
+                    sample_start.z + sample_size <= BOX_NODE_DIMENSION as u32 * self.brick_dim,
+                    "Mipmap sampling out of bounds for z component: ({} + {}) > (BOX_NODE_DIMENSION * {})",
                     sample_start.z,
                     sample_size,
                     self.brick_dim
@@ -442,47 +445,54 @@ impl<
             NodeContent::Nothing | NodeContent::UniformLeaf(_) => None,
             NodeContent::Leaf(_) => {
                 sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                    self.get_internal(node_key, *node_bounds, pos)
-                        .albedo()
-                        .copied()
+                    NodeContent::pix_get_ref(
+                        &self.get_internal(node_key, *node_bounds, pos),
+                        &self.voxel_color_palette,
+                        &self.voxel_data_palette,
+                    )
+                    .albedo()
+                    .copied()
                 })
             }
             NodeContent::Internal(_occupied_bits) if dominant_bottom => {
                 sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                    self.get_internal(node_key, *node_bounds, pos)
-                        .albedo()
-                        .copied()
+                    NodeContent::pix_get_ref(
+                        &self.get_internal(node_key, *node_bounds, pos),
+                        &self.voxel_color_palette,
+                        &self.voxel_data_palette,
+                    )
+                    .albedo()
+                    .copied()
                 })
             }
             NodeContent::Internal(_occupied_bits) => {
-                // the sampling range spans 0 --> (2 * brick_dimension)
-                if empty_marker::<u32>() as usize
-                    == self.node_children[node_key]
-                        .child(hash_region(&V3c::from(sample_start), self.brick_dim as f32))
-                {
-                    None
-                } else {
-                    sampler.execute(&sample_start, sample_size, |pos| -> Option<Albedo> {
-                        // Current position spans 2 bricks, but in special cases the brick dimension might be smaller,
-                        // than the sample size, e.g. when brick_dim == 1
-                        // In this case the target child_octant needs to be updated dynamically to accomodate this
+                sampler.execute(
+                    &sample_start,
+                    sample_size,
+                    |pos_in_parent_mip| -> Option<Albedo> {
+                        // Current position spans BOX_NODE_DIMENSION bricks, but in special cases
+                        // the brick dimension might be smaller, than the sample size, e.g. when brick_dim == 1
+                        // In this case the target child_sectant needs to be updated dynamically to accomodate this
                         // It would be possible to use an if condition to handle when brick_dim == 1
                         // but the performance gain is neglegible
-                        let child_octant = hash_region(&((*pos).into()), self.brick_dim as f32);
+                        let child_sectant = hash_region(
+                            &((*pos_in_parent_mip).into()),
+                            (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32,
+                        );
 
                         if empty_marker::<u32>() as usize
-                            == self.node_children[node_key].child(child_octant)
+                            == self.node_children[node_key].child(child_sectant)
                         {
                             return None;
                         }
 
-                        let pos = *pos
-                            - V3c::from(
-                                OCTANT_OFFSET_REGION_LUT[child_octant as usize]
-                                    * self.brick_dim as f32,
-                            );
+                        let pos_in_child_mip = V3c::from(*pos_in_parent_mip)
+                            - SECTANT_OFFSET_LUT[child_sectant as usize]
+                                * (self.brick_dim * BOX_NODE_DIMENSION as u32) as f32;
 
-                        match &self.node_mips[self.node_children[node_key].child(child_octant)] {
+                        let sample = match &self.node_mips
+                            [self.node_children[node_key].child(child_sectant)]
+                        {
                             BrickData::Empty => None,
                             BrickData::Solid(voxel) => NodeContent::pix_get_ref(
                                 voxel,
@@ -493,9 +503,9 @@ impl<
                             .copied(),
                             BrickData::Parted(brick) => {
                                 let mip_index = flat_projection(
-                                    pos.x as usize,
-                                    pos.y as usize,
-                                    pos.z as usize,
+                                    pos_in_child_mip.x as usize,
+                                    pos_in_child_mip.y as usize,
+                                    pos_in_child_mip.z as usize,
                                     self.brick_dim as usize,
                                 );
                                 NodeContent::pix_get_ref(
@@ -506,9 +516,10 @@ impl<
                                 .albedo()
                                 .copied()
                             }
-                        }
-                    })
-                }
+                        };
+                        sample
+                    },
+                )
             }
         };
 
@@ -539,11 +550,11 @@ impl<
                     )
                 } else {
                     // Add new color to the color palette
-                    Some(self.add_to_palette(&OctreeEntry::Visual(color)))
+                    Some(self.add_to_palette(&BoxTreeEntry::Visual(color)))
                 }
             } else {
                 // Add new color to the color palette
-                Some(self.add_to_palette(&OctreeEntry::Visual(color)))
+                Some(self.add_to_palette(&BoxTreeEntry::Visual(color)))
             }
         } else {
             None
@@ -801,16 +812,16 @@ impl<
         // Generating MIPMAPs need to happen while traveling the graph in a DFS manner
         // in order to generate MIPs for the leaf nodes first
         let mut node_stack = vec![(
-            Octree::<T>::ROOT_NODE_KEY as usize,
-            Cube::root_bounds(self.0.octree_size as f32),
+            BoxTree::<T>::ROOT_NODE_KEY as usize,
+            Cube::root_bounds(self.0.boxtree_size as f32),
             0,
         )];
         while !node_stack.is_empty() {
             let tree = &mut self.0;
-            let (current_node_key, current_bounds, target_octant) = node_stack.last().unwrap();
+            let (current_node_key, current_bounds, target_sectant) = node_stack.last().unwrap();
 
             // evaluate current node and return to its parent node
-            if OOB_OCTANT == *target_octant {
+            if OOB_SECTANT == *target_sectant {
                 self.recalculate_mip(*current_node_key, current_bounds);
                 node_stack.pop();
                 if let Some(parent) = node_stack.last_mut() {
@@ -823,7 +834,7 @@ impl<
                 NodeContent::Nothing => unreachable!("BFS shouldn't evaluate empty children"),
                 NodeContent::Internal(_occupied_bits) => {
                     let target_child_key =
-                        tree.node_children[*current_node_key].child(*target_octant);
+                        tree.node_children[*current_node_key].child(*target_sectant);
                     if tree.nodes.key_is_valid(target_child_key)
                         && !matches!(tree.nodes.get(target_child_key), NodeContent::Nothing)
                     {
@@ -833,11 +844,11 @@ impl<
                                 NodeChildren::OccupancyBitmap(_) | NodeChildren::Children(_)
                             ),
                             "Expected node[{}] child[{}] to have children or occupancy instead of: {:?}",
-                            current_node_key, target_octant, tree.node_children[target_child_key]
+                            current_node_key, target_sectant, tree.node_children[target_child_key]
                         );
                         node_stack.push((
                             target_child_key,
-                            current_bounds.child_bounds_for(*target_octant),
+                            current_bounds.child_bounds_for(*target_sectant),
                             0,
                         ));
                     } else {
@@ -855,7 +866,7 @@ impl<
                         tree.node_children[*current_node_key]
                     );
                     // Set current child iterator to OOB, to evaluate it and move on
-                    node_stack.last_mut().unwrap().2 = OOB_OCTANT;
+                    node_stack.last_mut().unwrap().2 = OOB_SECTANT;
                 }
             }
         }
@@ -871,7 +882,7 @@ impl<
         // and if there's anything to iterate into
         if tree.mip_map_strategy.enabled
             && mips_on_previously != enabled
-            && *tree.nodes.get(Octree::<T>::ROOT_NODE_KEY as usize) != NodeContent::Nothing
+            && *tree.nodes.get(BoxTree::<T>::ROOT_NODE_KEY as usize) != NodeContent::Nothing
         {
             self.recalculate_mips();
         }
@@ -900,21 +911,21 @@ impl<
 
     #[cfg(test)]
     /// Sample the MIP of the root node, or its children
-    /// * `octant` - the child to sample, in case `OOB_OCTANT` the root MIP is sampled
+    /// * `sectant` - the child to sample, in case `OOB_SECTANT` the root MIP is sampled
     /// * `position` - the position inside the MIP, expected to be in range `0..self.brick_dim` for all components
-    pub(crate) fn sample_root_mip(&self, octant: u8, position: &V3c<u32>) -> OctreeEntry<T> {
+    pub(crate) fn sample_root_mip(&self, sectant: u8, position: &V3c<u32>) -> BoxTreeEntry<T> {
         let tree = &self.0;
-        let node_key = if OOB_OCTANT == octant {
-            Octree::<T>::ROOT_NODE_KEY as usize
+        let node_key: usize = if OOB_SECTANT == sectant {
+            BoxTree::<T>::ROOT_NODE_KEY as usize
         } else {
-            tree.node_children[Octree::<T>::ROOT_NODE_KEY as usize].child(octant) as usize
+            tree.node_children[BoxTree::<T>::ROOT_NODE_KEY as usize].child(sectant) as usize
         };
 
         if !tree.nodes.key_is_valid(node_key) {
-            return OctreeEntry::Empty;
+            return BoxTreeEntry::Empty;
         }
         match &tree.node_mips[node_key] {
-            BrickData::Empty => OctreeEntry::Empty,
+            BrickData::Empty => BoxTreeEntry::Empty,
             BrickData::Solid(voxel) => NodeContent::pix_get_ref(
                 &voxel,
                 &tree.voxel_color_palette,

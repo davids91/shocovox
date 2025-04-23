@@ -1,15 +1,15 @@
 use criterion::{criterion_group, criterion_main};
 
-use shocovox_rs::octree::{Albedo, Octree, V3c};
+use shocovox_rs::octree::{Albedo, BoxTree, V3c};
 
 #[cfg(feature = "raytracing")]
-use shocovox_rs::octree::raytracing::Ray;
+use shocovox_rs::raytracing::Ray;
 
 fn criterion_benchmark(c: &mut criterion::Criterion) {
     #[cfg(feature = "raytracing")]
     {
         let tree_size = 512;
-        let mut tree: Octree = Octree::new(tree_size, 8).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(tree_size, 8).ok().unwrap();
         for x in 0..100 {
             for y in 0..100 {
                 for z in 0..100 {
@@ -71,7 +71,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let tree_size = 64;
-        let mut tree: Octree = Octree::new(tree_size, 8).ok().unwrap();
+        let mut tree: BoxTree = BoxTree::new(tree_size, 8).ok().unwrap();
         for _i in 0..50000000 {
             tree.insert(
                 &V3c::new(
@@ -128,7 +128,7 @@ fn criterion_benchmark(c: &mut criterion::Criterion) {
 
             c.bench_function("octree load", |b| {
                 b.iter(|| {
-                    let _tree_copy = Octree::<Albedo>::load("test_junk_octree").ok().unwrap();
+                    let _tree_copy = BoxTree::<Albedo>::load("test_junk_octree").ok().unwrap();
                 });
             });
         }

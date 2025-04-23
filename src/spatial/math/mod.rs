@@ -1,29 +1,13 @@
 mod tests;
 pub mod vector;
 
-use crate::spatial::{math::vector::V3c, Cube};
+use crate::{
+    octree::BOX_NODE_DIMENSION,
+    spatial::{lut::SECTANT_OFFSET_LUT, math::vector::V3c, Cube},
+};
 use std::ops::Neg;
 
-/// Each Node is separated to 8 Octants based on their relative position inside the Nodes occupying space.
-/// The hash function assigns an index for each octant, so every child Node can be indexed in a well defined manner
-/// * `offset` - From range 0..size in each dimensions
-/// * `size` - Size of the region to check for child octants
-pub fn hash_region(offset: &V3c<f32>, size_half: f32) -> u8 {
-    // The below is rewritten to be branchless
-    // (if offset.x < half_size { 0 } else { 1 })
-    //     + if offset.z < half_size{ 0 } else { 2 }
-    //     + if offset.y < half_size { 0 } else { 4 }
-    (offset.x >= size_half) as u8
-        + (offset.z >= size_half) as u8 * 2
-        + (offset.y >= size_half) as u8 * 4
-}
-
-/// Maps direction vector to the octant it points to
-pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
-    debug_assert!((1.0 - direction.length()).abs() < 0.1);
-    let offset = V3c::unit(1.) + *direction;
-    hash_region(&offset, 1.)
-}
+pub(crate) const FLOAT_ERROR_TOLERANCE: f32 = 0.00001;
 
 /// Maps 3 dimensional space limited by `size` to 1 dimension
 /// This mapping function supposes that the coordinates are bound inside
@@ -36,7 +20,47 @@ pub(crate) fn flat_projection(x: usize, y: usize, z: usize, size: usize) -> usiz
     x + (y * size) + (z * size * size)
 }
 
-pub(crate) const BITMAP_DIMENSION: usize = 4;
+/// Each Node is separated to 64 sectants based on their relative position inside the Nodes occupying space.
+/// The hash function assigns an index for each sectant, so every child cell can be indexed in a well defined manner
+/// * `offset` - From range 0..size in each dimensions
+/// * `size` - Size of the region to check for child sectants
+pub(crate) fn hash_region(offset: &V3c<f32>, size: f32) -> u8 {
+    // Scale to 0..BOX_NODE_CHILDREN_COUNT, then project to an unique index
+    debug_assert!(
+        offset.x <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.y <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.z <= (size + FLOAT_ERROR_TOLERANCE)
+            && offset.x >= (-FLOAT_ERROR_TOLERANCE)
+            && offset.y >= (-FLOAT_ERROR_TOLERANCE)
+            && offset.z >= (-FLOAT_ERROR_TOLERANCE),
+        "Expected relative offset {:?} to be inside {size}^3",
+        offset
+    );
+    // let index: V3c<usize> = (*offset * BOX_NODE_DIMENSION as f32 / size).floor().into();
+    // // During raytracing, positions on cube boundaries need to be mapped to an index inside @BOX_NODE_DIMENSION
+    // let index = index.cut_each_component(BOX_NODE_DIMENSION - 1);
+    // BOX_NODE_INDEX_TO_SECTANT_LUT[index.x][index.y][index.z]
+    let index = (*offset * BOX_NODE_DIMENSION as f32 / size).floor();
+    // During raytracing, positions on cube boundaries need to be mapped to an index inside @BOX_NODE_DIMENSION
+    let index = index.cut_each_component((BOX_NODE_DIMENSION - 1) as f32);
+    (index.x + (index.y * BOX_NODE_DIMENSION as f32) + (index.z * BOX_NODE_DIMENSION.pow(2) as f32))
+        as u8 //flat_projection_f32
+}
+
+#[cfg(feature = "raytracing")]
+/// Maps direction vector to the octant it points to for indexing within RAY_TO_NODE_OCCUPANCY_BITMASK_LUT
+pub(crate) fn hash_direction(direction: &V3c<f32>) -> u8 {
+    debug_assert!((1. - direction.length()).abs() < 0.1);
+    let offset = V3c::unit(1.) + *direction;
+    (offset.x >= 1.) as u8 + (offset.z >= 1.) as u8 * 2 + (offset.y >= 1.) as u8 * 4
+}
+
+/// Provides the index value of a given sectant inside a 2x2x2 matrix ( which has octants )
+/// Types are not u8 only because this utility is mainly used to index inside bricks
+pub(crate) fn octant_in_sectants(sectant: usize) -> usize {
+    let offset = SECTANT_OFFSET_LUT[sectant] * 2.;
+    (offset.x >= 1.) as usize + (offset.z >= 1.) as usize * 2 + (offset.y >= 1.) as usize * 4
+}
 
 /// Provides an index value inside the brick contained in the given bounds
 /// Requires that position is larger, than the min_position of the bounds
@@ -77,41 +101,13 @@ pub(crate) fn matrix_index_for(
     mat_index
 }
 
-/// Returns with a bitmask to select the relevant octant based on the relative position
-/// and size of the covered area
-pub(crate) fn position_in_bitmap_64bits(index_in_brick: &V3c<usize>, brick_size: usize) -> usize {
-    debug_assert!(
-        (index_in_brick.x * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
-        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (index_in_brick.x * BITMAP_DIMENSION / brick_size), index_in_brick.x, brick_size
-    );
-    debug_assert!(
-        (index_in_brick.y * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
-        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (index_in_brick.y * BITMAP_DIMENSION / brick_size), index_in_brick.y, brick_size
-    );
-    debug_assert!(
-        (index_in_brick.z * BITMAP_DIMENSION / brick_size) < BITMAP_DIMENSION,
-        "Expected coordinate {:?} == ({:?} * {BITMAP_DIMENSION} / {:?})  to be < bitmap dimension({BITMAP_DIMENSION})",
-         (index_in_brick.z * BITMAP_DIMENSION / brick_size), index_in_brick.z, brick_size
-    );
-    let pos_inside_bitmap = flat_projection(
-        index_in_brick.x * BITMAP_DIMENSION / brick_size,
-        index_in_brick.y * BITMAP_DIMENSION / brick_size,
-        index_in_brick.z * BITMAP_DIMENSION / brick_size,
-        BITMAP_DIMENSION,
-    );
-    debug_assert!(pos_inside_bitmap < (BITMAP_DIMENSION * BITMAP_DIMENSION * BITMAP_DIMENSION));
-    pos_inside_bitmap
-}
-
 /// Updates occupancy data in parts of the given bitmap defined by the given position and size range
 /// * `position` - start coordinate of position to update
 /// * `size` - size to set inside the bitmap
 /// * `brick_size` - range of the given coordinate space
 /// * `occupied` - the value to set the bitmask at the given position
 /// * `bitmap` - The bitmap to update
-pub(crate) fn set_occupancy_in_bitmap_64bits(
+pub(crate) fn set_occupied_bitmap_value(
     position: &V3c<usize>,
     size: usize,
     brick_dim: usize,
@@ -141,16 +137,19 @@ pub(crate) fn set_occupancy_in_bitmap_64bits(
         return;
     }
 
-    let update_count = (size as f32 * BITMAP_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
-    let update_start: V3c<usize> = (V3c::<f32>::from(*position * BITMAP_DIMENSION)
+    let update_count = (size as f32 * BOX_NODE_DIMENSION as f32 / brick_dim as f32).ceil() as usize;
+    let update_start: V3c<usize> = (V3c::<f32>::from(*position * BOX_NODE_DIMENSION)
         / brick_dim as f32)
         .floor()
         .into();
-    for x in update_start.x..(update_start.x + update_count).min(BITMAP_DIMENSION) {
-        for y in update_start.y..(update_start.y + update_count).min(BITMAP_DIMENSION) {
-            for z in update_start.z..(update_start.z + update_count).min(BITMAP_DIMENSION) {
-                let pos_mask =
-                    0x01 << position_in_bitmap_64bits(&V3c::new(x, y, z), BITMAP_DIMENSION);
+    for x in update_start.x..(update_start.x + update_count).min(BOX_NODE_DIMENSION) {
+        for y in update_start.y..(update_start.y + update_count).min(BOX_NODE_DIMENSION) {
+            for z in update_start.z..(update_start.z + update_count).min(BOX_NODE_DIMENSION) {
+                let pos_mask = 0x01
+                    << hash_region(
+                        &V3c::new(x as f32, y as f32, z as f32),
+                        BOX_NODE_DIMENSION as f32,
+                    );
                 if occupied {
                     *bitmap |= pos_mask;
                 } else {

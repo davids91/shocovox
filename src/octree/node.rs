@@ -3,12 +3,9 @@ use crate::octree::{
     types::{
         Albedo, BrickData, NodeChildren, NodeConnection, NodeContent, PaletteIndexValues, VoxelData,
     },
-    OctreeEntry, V3c,
+    BoxTreeEntry, V3c, BOX_NODE_CHILDREN_COUNT,
 };
-use crate::spatial::{
-    lut::OCTANT_OFFSET_REGION_LUT,
-    math::{flat_projection, set_occupancy_in_bitmap_64bits},
-};
+use crate::spatial::math::{flat_projection, set_occupied_bitmap_value};
 use std::{
     fmt::{Debug, Error, Formatter},
     matches,
@@ -46,16 +43,16 @@ impl<T: Default + Debug> Debug for NodeChildren<T> {
     }
 }
 impl NodeConnection {
-    pub(crate) fn child(&self, octant: u8) -> usize {
+    pub(crate) fn child(&self, sectant: u8) -> usize {
         match &self {
-            NodeChildren::Children(c) => c[octant as usize] as usize,
+            NodeChildren::Children(c) => c[sectant as usize] as usize,
             _ => empty_marker(),
         }
     }
 
     pub(crate) fn child_mut(&mut self, index: usize) -> Option<&mut u32> {
         if let NodeChildren::NoChildren = self {
-            *self = NodeChildren::Children([empty_marker(); 8]);
+            *self = NodeChildren::Children([empty_marker(); BOX_NODE_CHILDREN_COUNT]);
         }
         match self {
             NodeChildren::Children(c) => Some(&mut c[index]),
@@ -102,144 +99,6 @@ impl NodeConnection {
 // ░░░░░░░░░░   ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░
 //####################################################################################
 impl BrickData<PaletteIndexValues> {
-    /// Provides occupancy information for the part of the brick corresponding
-    /// to the given octant based on the contents of the brick
-    pub(crate) fn is_empty_throughout<V: VoxelData>(
-        &self,
-        octant: u8,
-        brick_dim: usize,
-        color_palette: &[Albedo],
-        data_palette: &[V],
-    ) -> bool {
-        match self {
-            BrickData::Empty => true,
-            BrickData::Solid(voxel) => {
-                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
-            }
-            BrickData::Parted(brick) => {
-                if 1 == brick_dim {
-                    debug_assert!(
-                        1 == brick.len(),
-                        "Expected brick length to align with given brick dimension: {}^3 != {}",
-                        brick.len(),
-                        brick_dim
-                    );
-                    return NodeContent::pix_points_to_empty(
-                        &brick[0],
-                        color_palette,
-                        data_palette,
-                    );
-                }
-
-                if 2 == brick_dim {
-                    debug_assert!(
-                        8 == brick.len(),
-                        "Expected brick length to align with given brick dimension: {}^3 != {}",
-                        brick.len(),
-                        brick_dim
-                    );
-                    let octant_offset =
-                        V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant as usize]);
-                    let octant_flat_offset =
-                        flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
-                    return NodeContent::pix_points_to_empty(
-                        &brick[octant_flat_offset],
-                        color_palette,
-                        data_palette,
-                    );
-                }
-
-                debug_assert!(
-                    brick.len() > 8,
-                    "Expected brick length to align with given brick dimension: {}^3 != {}",
-                    brick.len(),
-                    brick_dim
-                );
-                let octant_extent = brick_dim / 2usize;
-                let octant_offset =
-                    V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[octant as usize]) * octant_extent;
-                for x in octant_offset.x..(octant_offset.x + octant_extent) {
-                    for y in octant_offset.y..(octant_offset.y + octant_extent) {
-                        for z in octant_offset.z..(octant_offset.z + octant_extent) {
-                            let octant_flat_offset = flat_projection(x, y, z, brick_dim);
-                            if !NodeContent::pix_points_to_empty(
-                                &brick[octant_flat_offset],
-                                color_palette,
-                                data_palette,
-                            ) {
-                                return false;
-                            }
-                        }
-                    }
-                }
-                true
-            }
-        }
-    }
-
-    /// Provides occupancy information for the part of the brick corresponding to
-    /// part_octant and target octant. The Brick is subdivided on 2 levels,
-    /// the larger target octant is set by @part_octant, the part inside that octant
-    /// is set by @target_octant
-    pub(crate) fn is_part_empty_throughout<V: VoxelData>(
-        &self,
-        part_octant: u8,
-        target_octant: u8,
-        brick_dim: usize,
-        color_palette: &[Albedo],
-        data_palette: &[V],
-    ) -> bool {
-        match self {
-            BrickData::Empty => true,
-            BrickData::Solid(voxel) => {
-                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
-            }
-            BrickData::Parted(brick) => {
-                if 1 == brick_dim {
-                    NodeContent::pix_points_to_empty(&brick[0], color_palette, data_palette)
-                } else if 2 == brick_dim {
-                    let octant_offset =
-                        V3c::<usize>::from(OCTANT_OFFSET_REGION_LUT[part_octant as usize]);
-                    let octant_flat_offset =
-                        flat_projection(octant_offset.x, octant_offset.y, octant_offset.z, 2);
-                    NodeContent::pix_points_to_empty(
-                        &brick[octant_flat_offset],
-                        color_palette,
-                        data_palette,
-                    )
-                } else {
-                    let outer_extent = brick_dim as f32 / 2.;
-                    let inner_extent = brick_dim as f32 / 4.;
-                    let octant_offset = V3c::<usize>::from(
-                        OCTANT_OFFSET_REGION_LUT[part_octant as usize] * outer_extent
-                            + OCTANT_OFFSET_REGION_LUT[target_octant as usize] * inner_extent,
-                    );
-
-                    for x in 0..inner_extent as usize {
-                        for y in 0..inner_extent as usize {
-                            for z in 0..inner_extent as usize {
-                                let octant_flat_offset = flat_projection(
-                                    octant_offset.x + x,
-                                    octant_offset.y + y,
-                                    octant_offset.z + z,
-                                    brick_dim,
-                                );
-                                if !NodeContent::pix_points_to_empty(
-                                    &brick[octant_flat_offset],
-                                    color_palette,
-                                    data_palette,
-                                ) {
-                                    return false;
-                                }
-                            }
-                        }
-                    }
-                    true
-                }
-            }
-        }
-    }
-
     /// Calculates the Occupancy bitmap for the given Voxel brick
     pub(crate) fn calculate_brick_occupied_bits<V: VoxelData>(
         brick: &[PaletteIndexValues],
@@ -257,7 +116,7 @@ impl BrickData<PaletteIndexValues> {
                         color_palette,
                         data_palette,
                     ) {
-                        set_occupancy_in_bitmap_64bits(
+                        set_occupied_bitmap_value(
                             &V3c::new(x, y, z),
                             1,
                             brick_dimension,
@@ -308,6 +167,27 @@ impl BrickData<PaletteIndexValues> {
                     }
                 }
                 Some(&brick[0])
+            }
+        }
+    }
+
+    pub(crate) fn contains_nothing<V: VoxelData>(
+        &self,
+        color_palette: &[Albedo],
+        data_palette: &[V],
+    ) -> bool {
+        match self {
+            BrickData::Empty => true,
+            BrickData::Solid(voxel) => {
+                NodeContent::pix_points_to_empty(voxel, color_palette, data_palette)
+            }
+            BrickData::Parted(brick) => {
+                for voxel in brick.iter() {
+                    if !NodeContent::pix_points_to_empty(voxel, color_palette, data_palette) {
+                        return false;
+                    }
+                }
+                true
             }
         }
     }
@@ -430,20 +310,20 @@ impl NodeContent<PaletteIndexValues> {
         index: &PaletteIndexValues,
         color_palette: &'a [Albedo],
         data_palette: &'a [V],
-    ) -> OctreeEntry<'a, V> {
+    ) -> BoxTreeEntry<'a, V> {
         if Self::pix_data_is_none(index) && Self::pix_color_is_none(index) {
-            return OctreeEntry::Empty;
+            return BoxTreeEntry::Empty;
         }
         if Self::pix_data_is_none(index) {
             debug_assert!(Self::pix_color_is_some(index));
             debug_assert!(Self::pix_color_index(index) < color_palette.len());
-            return OctreeEntry::Visual(&color_palette[Self::pix_color_index(index)]);
+            return BoxTreeEntry::Visual(&color_palette[Self::pix_color_index(index)]);
         }
 
         if Self::pix_color_is_none(index) {
             debug_assert!(Self::pix_data_is_some(index));
             debug_assert!(Self::pix_data_index(index) < data_palette.len());
-            return OctreeEntry::Informative(&data_palette[Self::pix_data_index(index)]);
+            return BoxTreeEntry::Informative(&data_palette[Self::pix_data_index(index)]);
         }
 
         debug_assert!(
@@ -460,7 +340,7 @@ impl NodeContent<PaletteIndexValues> {
             Self::pix_data_index(index),
             data_palette.len()
         );
-        OctreeEntry::Complex(
+        BoxTreeEntry::Complex(
             &color_palette[Self::pix_color_index(index)],
             &data_palette[Self::pix_data_index(index)],
         )

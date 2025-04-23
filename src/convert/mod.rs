@@ -3,7 +3,7 @@ mod bytecode;
 
 #[cfg(feature = "bytecode")]
 #[cfg(test)]
-mod bytecode_tests;
+mod tests;
 
 #[cfg(all(feature = "bytecode", feature = "dot_vox_support"))]
 mod magicavoxel;

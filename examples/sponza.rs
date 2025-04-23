@@ -6,7 +6,7 @@ use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 #[cfg(feature = "bevy_wgpu")]
 use shocovox_rs::{
-    octree::{Octree, V3c, V3cf32},
+    octree::{BoxTree, V3c, V3cf32},
     raytracing::{OctreeGPUHost, Ray, SvxViewSet, Viewport},
 };
 
@@ -50,12 +50,12 @@ fn main() {
 #[cfg(feature = "bevy_wgpu")]
 fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     // fill octree with data
-    let mut tree: Octree;
+    let mut tree: BoxTree;
     let tree_path = "example_junk_sponza";
     if std::path::Path::new(tree_path).exists() {
-        tree = Octree::load(&tree_path).ok().unwrap();
+        tree = BoxTree::load(&tree_path).ok().unwrap();
     } else {
-        tree = match shocovox_rs::octree::Octree::load_vox_file(
+        tree = match shocovox_rs::octree::BoxTree::load_vox_file(
             "assets/models/sponza.vox",
             BRICK_DIMENSION,
         ) {
@@ -71,7 +71,7 @@ fn setup(mut commands: Commands, images: ResMut<Assets<Image>>) {
     let mut views = SvxViewSet::default();
     let view_index = host.create_new_view(
         &mut views,
-        200,
+        40,
         Viewport {
             origin: V3c {
                 x: 0.,

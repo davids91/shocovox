@@ -1,4 +1,4 @@
-use crate::object_pool::ObjectPool;
+use crate::{object_pool::ObjectPool, octree::BOX_NODE_CHILDREN_COUNT};
 use std::{collections::HashMap, error::Error, hash::Hash};
 
 #[cfg(feature = "serialization")]
@@ -21,7 +21,7 @@ pub enum OctreeError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OctreeEntry<'a, T: VoxelData> {
+pub enum BoxTreeEntry<'a, T: VoxelData> {
     /// No information available in octree query
     Empty,
 
@@ -65,7 +65,7 @@ where
     Internal(u64),
 
     /// Node contains 8 children, each with their own brickdata
-    Leaf([BrickData<T>; 8]),
+    Leaf([BrickData<T>; BOX_NODE_CHILDREN_COUNT]),
 
     /// Node has one child, which takes up the entirety of the node with its brick data
     UniformLeaf(BrickData<T>),
@@ -76,7 +76,7 @@ where
 pub(crate) enum NodeChildren<T: Default> {
     #[default]
     NoChildren,
-    Children([T; 8]),
+    Children([T; BOX_NODE_CHILDREN_COUNT]),
     OccupancyBitmap(u64), // In case of leaf nodes
 }
 
@@ -139,7 +139,7 @@ pub enum MIPResamplingMethods {
 }
 
 /// A helper object for setting Octree MIP map resampling strategy
-pub struct StrategyUpdater<'a, T: Default + Clone + Eq + Hash>(pub(crate) &'a mut Octree<T>);
+pub struct StrategyUpdater<'a, T: Default + Clone + Eq + Hash>(pub(crate) &'a mut BoxTree<T>);
 
 /// Configuration object for storing MIP map strategy
 /// Don't forget to @recalculate_mip after you've enabled it, as it is
@@ -159,14 +159,13 @@ pub struct MIPMapStrategy {
     pub(crate) resampling_color_matching_thresholds: HashMap<usize, f32>,
 }
 
-/// Sparse Octree of Nodes, where each node contains a brick of voxels.
+/// Sparse 64Tree of Voxel Bricks, where each leaf node contains a brick of voxels.
 /// A Brick is a 3 dimensional matrix, each element of it containing a voxel.
 /// A Brick can be indexed directly, as opposed to the octree which is essentially a
-/// tree-graph where each node has 8 children.
-/// Generic argument determines the type of the user provided data type
+/// tree-graph where each node has 64 children.
 #[cfg_attr(feature = "serialization", derive(Serialize))]
 #[derive(Clone)]
-pub struct Octree<T = u32>
+pub struct BoxTree<T = u32>
 where
     T: Default + Clone + Eq + Hash,
 {
@@ -174,7 +173,7 @@ where
     pub(crate) brick_dim: u32,
 
     /// Extent of the octree
-    pub(crate) octree_size: u32,
+    pub(crate) boxtree_size: u32,
 
     /// Storing data at each position through palette index values
     pub(crate) nodes: ObjectPool<NodeData>,
